@@ -18,10 +18,12 @@ pi4ioe5v6408_ns = cg.esphome_ns.namespace("pi4ioe5v6408")
 PI4IOE5V6408 = pi4ioe5v6408_ns.class_("PI4IOE5V6408", cg.Component, i2c.I2CDevice)
 PI4IOE5V6408GPIOPin = pi4ioe5v6408_ns.class_("PI4IOE5V6408GPIOPin", cg.GPIOPin)
 
+CONF_PI4IOE5V6408 = "pi4ioe5v6408"
+
 CONFIG_SCHEMA = (
     cv.Schema({cv.Required(CONF_ID): cv.declare_id(PI4IOE5V6408)})
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(i2c.i2c_device_schema(0x58))
+    .extend(i2c.i2c_device_schema(0x21))  # Default I2C address for PI4IOE5V6408
 )
 
 async def to_code(config):
@@ -36,10 +38,9 @@ def validate_mode(value):
         raise cv.Invalid("Mode must be either input or output")
     return value
 
-CONF_PI4IOE5V6408 = "pi4ioe5v6408"
 PI4IOE5V6408_PIN_SCHEMA = pins.gpio_base_schema(
     PI4IOE5V6408GPIOPin,
-    cv.int_range(min=0, max=7),
+    cv.int_range(min=0, max=7), # 8 pins P0-P7
     modes=[CONF_INPUT, CONF_OUTPUT],
     mode_validator=validate_mode,
     invertable=True,
