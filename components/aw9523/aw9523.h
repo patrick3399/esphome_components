@@ -10,17 +10,17 @@ namespace aw9523 {
 class AW9523 : public Component, public i2c::I2CDevice {
  public:
   void setup() override;
+  void dump_config() override;
+  float get_setup_priority() const override { return setup_priority::IO; }
+
   void pin_mode(uint8_t pin, gpio::Flags flags);
   bool digital_read(uint8_t pin);
   void digital_write(uint8_t pin, bool value);
-  float get_setup_priority() const override;
 
  protected:
-  bool write_register(uint8_t reg, uint8_t value);
-  bool read_register(uint8_t reg, uint8_t *value);
-  void update_bit(uint8_t reg, uint8_t bit, bool value);
-
-  uint8_t gpio_state_[2] = {0};  // Two ports: 0 (P0_0~P0_7), 1 (P1_0~P1_7)
+  bool read_byte_wrapper(uint8_t reg, uint8_t *value);
+  bool write_byte_wrapper(uint8_t reg, uint8_t value);
+  bool update_register_bit(uint8_t reg, uint8_t bit, bool bit_value);
 };
 
 class AW9523GPIOPin : public GPIOPin {
@@ -31,12 +31,14 @@ class AW9523GPIOPin : public GPIOPin {
   void digital_write(bool value) override;
   std::string dump_summary() const override;
 
+  // ESPHome >= 2023.2.0 requires get_flags
+  gpio::Flags get_flags() const override { return flags_; }
+
+
   void set_parent(AW9523 *parent) { parent_ = parent; }
   void set_pin(uint8_t pin) { pin_ = pin; }
   void set_inverted(bool inverted) { inverted_ = inverted; }
   void set_flags(gpio::Flags flags) { flags_ = flags; }
-
-  gpio::Flags get_flags() const override { return flags_; }
 
  protected:
   AW9523 *parent_;
