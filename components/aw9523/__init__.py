@@ -21,7 +21,7 @@ CONFIG_SCHEMA = (
         cv.Required(CONF_ID): cv.declare_id(AW9523),
     })
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(i2c.i2c_device_schema(0x58))
+    .extend(i2c.i2c_device_schema(0x58)) # AW9523B default AD0/AD1 low address
 )
 
 async def to_code(config):
@@ -38,7 +38,7 @@ def validate_mode(value):
 
 AW9523_PIN_SCHEMA = pins.gpio_base_schema(
     AW9523GPIOPin,
-    cv.int_range(min=0, max=15),
+    cv.int_range(min=0, max=15), # P0_0 to P0_7 (0-7), P1_0 to P1_7 (8-15)
     modes=[CONF_INPUT, CONF_OUTPUT],
     mode_validator=validate_mode,
     invertable=True,
