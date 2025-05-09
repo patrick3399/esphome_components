@@ -45,8 +45,7 @@ void PI4IOE5V6408::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  IO Direction (0x03): Read Failed");
   }
-  // For dump_config, reading output state directly from chip might be more informative than just the latch
-  if (this->read_byte_wrapper(CMD_OUTPUT_STATE, &out_st, "CMD_OUTPUT_STATE (for dump_config)")) {
+  if (this->read_byte_wrapper(CMD_OUTPUT_STATE, &out_st, "CMD_OUTPUT_STATE (for dump_config)")) { // Call with 3 args
      ESP_LOGCONFIG(TAG, "  Output State (0x05): 0x%02X (Hardware value, internal latch is 0x%02X)", out_st, this->output_latch_);
   } else {
      ESP_LOGCONFIG(TAG, "  Output State (0x05): Read Failed (internal latch is 0x%02X)", this->output_latch_);
