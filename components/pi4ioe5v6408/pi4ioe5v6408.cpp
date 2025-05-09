@@ -16,7 +16,7 @@ void PI4IOE5V6408::setup() {
   ESP_LOGCONFIG(TAG, "Setting up PI4IOE5V6408 (Address: 0x%02X)...", this->address_);
 
   uint8_t device_id;
-  if (!this->read_byte_wrapper(CMD_DEVICE_ID_CONTROL, &device_id, "CMD_DEVICE_ID_CONTROL")) {
+  if (!this->read_byte_wrapper(CMD_DEVICE_ID_CONTROL, &device_id, "CMD_DEVICE_ID_CONTROL")) { // Call with 3 args
     ESP_LOGE(TAG, "Failed to read Device ID.");
     this->mark_failed();
     return;
@@ -45,10 +45,11 @@ void PI4IOE5V6408::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  IO Direction (0x03): Read Failed");
   }
-  if (this->read_byte_wrapper(CMD_OUTPUT_STATE, &out_st, "CMD_OUTPUT_STATE (for dump)")) {
-     ESP_LOGCONFIG(TAG, "  Output State (0x05): 0x%02X (Hardware, latch is 0x%02X)", out_st, this->output_latch_);
+  // For dump_config, reading output state directly from chip might be more informative than just the latch
+  if (this->read_byte_wrapper(CMD_OUTPUT_STATE, &out_st, "CMD_OUTPUT_STATE (for dump_config)")) {
+     ESP_LOGCONFIG(TAG, "  Output State (0x05): 0x%02X (Hardware value, internal latch is 0x%02X)", out_st, this->output_latch_);
   } else {
-     ESP_LOGCONFIG(TAG, "  Output State (0x05): Read Failed (latch is 0x%02X)", this->output_latch_);
+     ESP_LOGCONFIG(TAG, "  Output State (0x05): Read Failed (internal latch is 0x%02X)", this->output_latch_);
   }
   if (this->read_input_register(&in_st)) {
     ESP_LOGCONFIG(TAG, "  Input Status (0x0F): 0x%02X", in_st);
@@ -57,6 +58,7 @@ void PI4IOE5V6408::dump_config() {
   }
 }
 
+// Definition with 3 arguments
 bool PI4IOE5V6408::read_byte_wrapper(uint8_t command_byte, uint8_t *value, const char *cmd_name) {
   ESP_LOGV(TAG, "I2C Read from %s (CMD 0x%02X): Sending command byte...", cmd_name, command_byte);
   if (this->write(&command_byte, 1) != i2c::ERROR_OK) {
@@ -72,6 +74,7 @@ bool PI4IOE5V6408::read_byte_wrapper(uint8_t command_byte, uint8_t *value, const
   return true;
 }
 
+// Definition with 3 arguments
 bool PI4IOE5V6408::write_byte_wrapper(uint8_t command_byte, uint8_t value, const char *cmd_name) {
   uint8_t buffer[2] = {command_byte, value};
   ESP_LOGV(TAG, "I2C Write to %s (CMD 0x%02X) with value 0x%02X...", cmd_name, command_byte, value);
