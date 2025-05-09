@@ -18,15 +18,16 @@ class PI4IOE5V6408 : public Component, public i2c::I2CDevice {
   void digital_write(uint8_t pin, bool value);
 
  protected:
-  bool read_byte_wrapper(uint8_t command_byte, uint8_t *value);
-  bool write_byte_wrapper(uint8_t command_byte, uint8_t value);
+  // MODIFIED: Added const char *cmd_name parameter to declarations
+  bool read_byte_wrapper(uint8_t command_byte, uint8_t *value, const char *cmd_name);
+  bool write_byte_wrapper(uint8_t command_byte, uint8_t value, const char *cmd_name);
   
   bool read_config_register(uint8_t *value);
   bool write_config_register(uint8_t value);
   bool read_input_register(uint8_t *value);
   bool write_output_register(uint8_t value);
 
-  uint8_t output_latch_{0x00}; // Cache for the output port state
+  uint8_t output_latch_{0x00}; 
 };
 
 class PI4IOE5V6408GPIOPin : public GPIOPin {
@@ -37,7 +38,6 @@ class PI4IOE5V6408GPIOPin : public GPIOPin {
   void digital_write(bool value) override;
   std::string dump_summary() const override;
 
-  // ESPHome >= 2023.2.0 requires get_flags
   gpio::Flags get_flags() const override { return flags_; }
 
   void set_parent(PI4IOE5V6408 *parent) { parent_ = parent; }
