@@ -18,7 +18,7 @@ class PI4IOE5V6408 : public Component, public i2c::I2CDevice {
   void digital_write(uint8_t pin, bool value);
 
  protected:
-  // MODIFIED: Added const char *cmd_name parameter to declarations
+  // Declarations now MATCH definitions in .cpp (with const char * parameter)
   bool read_byte_wrapper(uint8_t command_byte, uint8_t *value, const char *cmd_name);
   bool write_byte_wrapper(uint8_t command_byte, uint8_t value, const char *cmd_name);
   
