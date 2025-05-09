@@ -18,9 +18,10 @@ class AW9523 : public Component, public i2c::I2CDevice {
   void digital_write(uint8_t pin, bool value);
 
  protected:
-  bool read_byte_wrapper(uint8_t reg, uint8_t *value);
-  bool write_byte_wrapper(uint8_t reg, uint8_t value);
-  bool update_register_bit(uint8_t reg, uint8_t bit, bool bit_value);
+  // MODIFIED: Added const char *reg_name parameter to declarations
+  bool read_byte_wrapper(uint8_t reg, uint8_t *value, const char *reg_name);
+  bool write_byte_wrapper(uint8_t reg, uint8_t value, const char *reg_name);
+  bool update_register_bit(uint8_t reg, uint8_t bit, bool bit_value, const char *reg_name);
 };
 
 class AW9523GPIOPin : public GPIOPin {
@@ -31,7 +32,6 @@ class AW9523GPIOPin : public GPIOPin {
   void digital_write(bool value) override;
   std::string dump_summary() const override;
 
-  // ESPHome >= 2023.2.0 requires get_flags
   gpio::Flags get_flags() const override { return flags_; }
 
 
