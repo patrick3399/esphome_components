@@ -24,7 +24,7 @@ void AW9523::setup() {
   ESP_LOGCONFIG(TAG, "Setting up AW9523B (Address: 0x%02X)...", this->address_);
 
   uint8_t id = 0;
-  if (!this->read_byte_wrapper(REG_CHIP_ID, &id, "REG_CHIP_ID")) { // Call with 3 args
+  if (!this->read_byte_wrapper(REG_CHIP_ID, &id, "REG_CHIP_ID")) { 
     ESP_LOGE(TAG, "Chip ID read failed.");
     this->mark_failed();
     return;
@@ -39,33 +39,33 @@ void AW9523::setup() {
 
   uint8_t ctl_val = 0x10; 
   ESP_LOGD(TAG, "Writing 0x%02X to CTL (0x11) for P0 Push-Pull.", ctl_val);
-  if (!this->write_byte_wrapper(REG_CTL, ctl_val, "REG_CTL")) { // Call with 3 args
+  if (!this->write_byte_wrapper(REG_CTL, ctl_val, "REG_CTL")) { 
     ESP_LOGE(TAG, "Failed to write CTL register.");
     this->mark_failed();
     return;
   }
 
   ESP_LOGD(TAG, "Writing 0xFF to P0_MODE_SWITCH (0x12) for GPIO mode.");
-  if (!this->write_byte_wrapper(REG_P0_MODE_SWITCH, 0xFF, "REG_P0_MODE_SWITCH")) { // Call with 3 args
+  if (!this->write_byte_wrapper(REG_P0_MODE_SWITCH, 0xFF, "REG_P0_MODE_SWITCH")) { 
     ESP_LOGE(TAG, "Failed to set Port 0 to GPIO mode.");
     this->mark_failed();
     return;
   }
   ESP_LOGD(TAG, "Writing 0xFF to P1_MODE_SWITCH (0x13) for GPIO mode.");
-  if (!this->write_byte_wrapper(REG_P1_MODE_SWITCH, 0xFF, "REG_P1_MODE_SWITCH")) { // Call with 3 args
+  if (!this->write_byte_wrapper(REG_P1_MODE_SWITCH, 0xFF, "REG_P1_MODE_SWITCH")) { 
     ESP_LOGE(TAG, "Failed to set Port 1 to GPIO mode.");
     this->mark_failed();
     return;
   }
 
   ESP_LOGD(TAG, "Writing 0xFF to CONFIG_PORT0 (0x04) for INPUT direction.");
-  if (!this->write_byte_wrapper(REG_CONFIG_PORT0, 0xFF, "REG_CONFIG_PORT0")) { // Call with 3 args
+  if (!this->write_byte_wrapper(REG_CONFIG_PORT0, 0xFF, "REG_CONFIG_PORT0")) { 
     ESP_LOGE(TAG, "Failed to set Port 0 direction to input.");
     this->mark_failed();
     return;
   }
   ESP_LOGD(TAG, "Writing 0xFF to CONFIG_PORT1 (0x05) for INPUT direction.");
-  if (!this->write_byte_wrapper(REG_CONFIG_PORT1, 0xFF, "REG_CONFIG_PORT1")) { // Call with 3 args
+  if (!this->write_byte_wrapper(REG_CONFIG_PORT1, 0xFF, "REG_CONFIG_PORT1")) { 
     ESP_LOGE(TAG, "Failed to set Port 1 direction to input.");
     this->mark_failed();
     return;
@@ -99,7 +99,7 @@ void AW9523::pin_mode(uint8_t pin, gpio::Flags flags) {
   const char* reg_name = (reg == REG_CONFIG_PORT0) ? "REG_CONFIG_PORT0" : "REG_CONFIG_PORT1";
   ESP_LOGD(TAG, "Pin mode for P%d_%d (abs %u): %s. Target reg: %s (0x%02X), bit %d", 
            (pin < 8 ? 0 : 1), bit_in_reg, pin, is_input_mode ? "INPUT (1)" : "OUTPUT (0)", reg_name, reg, bit_in_reg);
-  if (!this->update_register_bit(reg, bit_in_reg, is_input_mode, reg_name)) { // Call with 4 args
+  if (!this->update_register_bit(reg, bit_in_reg, is_input_mode, reg_name)) { 
       ESP_LOGE(TAG, "Failed to set pin mode for pin %u", pin);
   }
 }
@@ -113,7 +113,7 @@ bool AW9523::digital_read(uint8_t pin) {
   ESP_LOGV(TAG, "Digital read for P%d_%d (abs %u). Target reg: %s (0x%02X)", 
            (pin < 8 ? 0 : 1), bit_in_reg, pin, reg_name, reg);
 
-  if (!this->read_byte_wrapper(reg, &port_value, reg_name)) { // Call with 3 args
+  if (!this->read_byte_wrapper(reg, &port_value, reg_name)) { 
     ESP_LOGW(TAG, "Failed to read %s for pin %u", reg_name, pin);
     return false; 
   }
@@ -130,12 +130,11 @@ void AW9523::digital_write(uint8_t pin, bool value) {
 
   ESP_LOGD(TAG, "Digital write for P%d_%d (abs %u): %s. Target reg: %s (0x%02X), bit %d", 
            (pin < 8 ? 0 : 1), bit_in_reg, pin, ONOFF(value), reg_name, reg, bit_in_reg);
-  if (!this->update_register_bit(reg, bit_in_reg, value, reg_name)) { // Call with 4 args
+  if (!this->update_register_bit(reg, bit_in_reg, value, reg_name)) { 
       ESP_LOGE(TAG, "Failed to write %s for pin %u", reg_name, pin);
   }
 }
 
-// Definition with 3 arguments
 bool AW9523::read_byte_wrapper(uint8_t reg, uint8_t *value, const char *reg_name) {
   ESP_LOGV(TAG, "I2C Read from %s (0x%02X)...", reg_name, reg);
   if (this->read_byte(reg, value) != i2c::ERROR_OK) {
@@ -146,7 +145,6 @@ bool AW9523::read_byte_wrapper(uint8_t reg, uint8_t *value, const char *reg_name
   return true;
 }
 
-// Definition with 3 arguments
 bool AW9523::write_byte_wrapper(uint8_t reg, uint8_t value, const char *reg_name) {
   ESP_LOGV(TAG, "I2C Write to %s (0x%02X) with value 0x%02X...", reg_name, reg, value);
   if (this->write_byte(reg, value) != i2c::ERROR_OK) {
@@ -157,11 +155,10 @@ bool AW9523::write_byte_wrapper(uint8_t reg, uint8_t value, const char *reg_name
   return true;
 }
 
-// Definition with 4 arguments
 bool AW9523::update_register_bit(uint8_t reg, uint8_t bit, bool bit_value, const char *reg_name) {
   uint8_t current_val;
   ESP_LOGV(TAG, "Updating bit %d in %s (0x%02X) to %s.", bit, reg_name, reg, ONOFF(bit_value));
-  if (!this->read_byte_wrapper(reg, &current_val, reg_name)) { // Call with 3 args
+  if (!this->read_byte_wrapper(reg, &current_val, reg_name)) { 
     ESP_LOGW(TAG, "Failed to read %s (0x%02X) for bit update.", reg_name, reg);
     return false;
   }
@@ -172,7 +169,7 @@ bool AW9523::update_register_bit(uint8_t reg, uint8_t bit, bool bit_value, const
     current_val &= ~(1 << bit);
   }
   ESP_LOGV(TAG, "New value to write to %s (0x%02X): 0x%02X.", reg_name, reg, current_val);
-  return this->write_byte_wrapper(reg, current_val, reg_name); // Call with 3 args
+  return this->write_byte_wrapper(reg, current_val, reg_name); 
 }
 
 // AW9523GPIOPin implementation
