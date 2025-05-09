@@ -18,7 +18,7 @@ class AW9523 : public Component, public i2c::I2CDevice {
   void digital_write(uint8_t pin, bool value);
 
  protected:
-  // Declarations now MATCH definitions in .cpp (with const char * parameter)
+  // Declarations NOW CORRECTLY MATCH definitions in .cpp (with const char * parameter)
   bool read_byte_wrapper(uint8_t reg, uint8_t *value, const char *reg_name);
   bool write_byte_wrapper(uint8_t reg, uint8_t value, const char *reg_name);
   bool update_register_bit(uint8_t reg, uint8_t bit, bool bit_value, const char *reg_name);
