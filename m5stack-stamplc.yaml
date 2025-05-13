@@ -3,7 +3,7 @@ esphome:
   friendly_name: m5plc
   build_path: /config/esphome/m5plcbuild
   on_boot:
-    priority: 1000  #aw9523 and pi4ioe5v6408 need GPIO4 high to work.
+    priority: 1000  #aw9523 and pi4ioe5v6408 need GPIO3 high to work.
     then:
       - lambda: |-
                 gpio_set_direction(GPIO_NUM_3, GPIO_MODE_OUTPUT);
