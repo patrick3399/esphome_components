@@ -297,7 +297,6 @@ sensor:
 time:
   - platform: homeassistant
     id: homeassistant_time
-    timezone: Asia/Taipei
     update_interval: 1h
     on_time_sync:
       then:
@@ -305,7 +304,6 @@ time:
           id: rx8130ce_rtc
   - platform: rx8130ce
     id: rx8130ce_rtc
-    timezone: Asia/Taipei
     address: 0x32
     update_interval: never
 
