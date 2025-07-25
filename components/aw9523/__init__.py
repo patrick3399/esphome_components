@@ -47,7 +47,6 @@ AW9523_PIN_SCHEMA = pins.gpio_base_schema(
     cv.int_range(min=0, max=15), # AW9523 有 16 個 GPIO (0-15)
     modes=[CONF_INPUT, CONF_OUTPUT],
     mode_validator=validate_mode,
-    invertable=True,
 ).extend(
     {
         cv.Required(CONF_AW9523): cv.use_id(AW9523Component),
