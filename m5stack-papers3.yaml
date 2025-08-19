@@ -210,6 +210,25 @@ binary_sensor:
     name: "Charge Status"
     device_class: battery_charging
 
+# switch:
+#   - platform: gpio
+#     pin: GPIO44
+#     id: gpio_power
+#
+# script:
+#   - id: power_off
+#     then:
+#       - repeat: 
+#           count: 10 # M5 docs execute 5 full on/off cycles for the M5PaperS3, hence 10 toggles of the pin.
+#           then: 
+#             - switch.toggle: gpio_power
+#             - delay: 50ms
+#
+# Usage: Execute the script in an action where appropriate (eg on_idle)
+#
+# on_...:
+#   then:
+#     - script.execute: power_off
 
 time:
   - platform: pcf8563  #BM8563
