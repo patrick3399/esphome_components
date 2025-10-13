@@ -5,7 +5,7 @@ esphome:
   platformio_options:
     build_flags: "-DBOARD_HAS_PSRAM"
   libraries:
-    - https://github.com/patrick3399/epdiy
+    - EPDIY=https://github.com/patrick3399/epdiy
   on_boot:
     then:
       - rtttl.play: 'siren:d=8,o=5,b=100:d,e,d,e,d,e,d,e'
