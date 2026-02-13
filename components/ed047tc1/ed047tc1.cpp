@@ -205,9 +205,7 @@ void ED047TC1Display::dump_config() {
     LOG_PIN("  CKV_PIN (CKV): ", ckv_pin_);
     for (int i=0; i<8; ++i) {
         #if ESPHOME_VERSION_CODE >= VERSION_CODE(2023, 1, 0)
-        if (d_pins_[i] != nullptr && hasattr(d_pins_[i], get_pin_name)) {
-             ESP_LOGCONFIG(TAG, "  D%d Pin: %s", i, d_pins_[i]->get_pin_name().c_str());
-        } else if (d_pins_[i] != nullptr) {
+        if (d_pins_[i] != nullptr) {
             ESP_LOGCONFIG(TAG, "  D%d Pin: Configured (Pin: %d)", i, esphome_pin_to_gpio_num(d_pins_[i]));
         } else { ESP_LOGCONFIG(TAG, "  D%d Pin: NONE", i); }
         #else
@@ -218,4 +216,5 @@ void ED047TC1Display::dump_config() {
 }
 
 }  // namespace ed047tc1
+
 }  // namespace esphome
