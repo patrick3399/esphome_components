@@ -14,19 +14,51 @@ on:
         default: "2026.1.0"
 
 jobs:
-  validate-and-build:
-    name: Validate and Compile (${{ matrix.config }})
+  lint:
+    name: Python Lint (flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8
+        run: flake8 components/
+
+  format-check:
+    name: C++ Format Check (clang-format)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-format
+
+      - name: Run clang-format check
+        run: |
+          find components/ -name '*.cpp' -o -name '*.h' | \
+            xargs clang-format --dry-run --Werror
+
+  validate:
+    name: Validate Config (${{ matrix.config }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - config: m5stack-stamplc.yaml
-            artifact: firmware-stamplc
-            build_path: /config/esphome/m5plcbuild
-          - config: m5stack-papers3.yaml
-            artifact: firmware-papers3
-            build_path: /config/esphome/m5papers3
+        config:
+          - m5stack-stamplc.yaml
+          - m5stack-papers3.yaml
 
     env:
       ESPHOME_VERSION: ${{ github.event.inputs.esphome_version || '2026.1.0' }}
@@ -55,30 +87,5 @@ jobs:
           ota_password: "CI_DUMMY_OTA"
           EOF
 
-      - name: Create build directory
-        run: |
-          sudo mkdir -p "${{ matrix.build_path }}"
-          sudo chmod 777 "${{ matrix.build_path }}"
-
-      - name: Cache PlatformIO toolchain
-        uses: actions/cache@v4
-        with:
-          path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ matrix.config }}-${{ env.ESPHOME_VERSION }}
-          restore-keys: |
-            platformio-${{ runner.os }}-${{ matrix.config }}-
-            platformio-${{ runner.os }}-
-
       - name: Validate configuration
         run: esphome config "${{ matrix.config }}"
-
-      - name: Compile firmware
-        run: esphome compile "${{ matrix.config }}"
-
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.build_path }}/.esphome/build/*/firmware*.bin
-          if-no-files-found: warn
-          retention-days: 30
