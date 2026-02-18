@@ -1,0 +1,19 @@
+# ESPHome secrets - never commit real credentials
+secrets.yaml
+
+# ESPHome build output
+.esphome/
+build/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
