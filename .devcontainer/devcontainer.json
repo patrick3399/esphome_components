@@ -1,0 +1,17 @@
+{
+  "name": "ESPHome Components Dev",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bullseye",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance"
+      ]
+    }
+  },
+  "containerEnv": {
+    "ESPHOME_VERSION": "2026.1.0"
+  },
+  "postCreateCommand": "python -m pip install --upgrade pip && pip install esphome==${ESPHOME_VERSION}",
+  "remoteUser": "vscode"
+}
