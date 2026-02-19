@@ -1,0 +1,156 @@
+name: ESPHome Components CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      esphome_version:
+        description: ESPHome version to use
+        required: false
+        default: "2026.1.0"
+
+env:
+  ESPHOME_VERSION: ${{ github.event.inputs.esphome_version || '2026.1.0' }}
+
+jobs:
+  # ─── Quick checks ────────────────────────────────────────────────────────────
+
+  lint:
+    name: Python Lint (flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8
+        run: flake8 components/
+
+  format-check:
+    name: C++ Format Check (clang-format)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-format
+
+      - name: Run clang-format check
+        run: |
+          find components/ -name '*.cpp' -o -name '*.h' | \
+            xargs clang-format --dry-run --Werror
+
+  # ─── 1. 產品設定檔：只驗證 YAML 格式 (速度快，不下載工具鏈) ────────────────
+  # 目的：快速確認 device YAML 語法正確，~30s 內完成給予即時回饋。
+
+  validate_product_config:
+    name: Validate Product Config (${{ matrix.config }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - m5stack-stamplc.yaml
+          - m5stack-papers3.yaml
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ESPHome
+        run: |
+          python -m pip install --upgrade pip
+          pip install "esphome==${ESPHOME_VERSION}"
+
+      - name: Create dummy secrets.yaml
+        run: |
+          cat > secrets.yaml << 'EOF'
+          wifi_ssid: "CI_DUMMY_SSID"
+          wifi_password: "CI_DUMMY_PASSWORD"
+          api_key: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+          ota_password: "CI_DUMMY_OTA"
+          EOF
+
+      - name: Validate configuration
+        run: esphome config "${{ matrix.config }}"
+
+  # ─── 2. 元件測試：執行完整編譯，驗證 C++ 程式碼 ────────────────────────────
+  # 目的：對 components/ 下的 C++ 程式碼做跨平台編譯驗證。
+  # 靈感來自 ESPHome 的 tests/test_build_components/ 做法。
+  # 所有 test YAML 使用 'source: ../components' 測試本地源碼（非 GitHub 已發布版本）。
+  #
+  #  平台                   Board                 測試的元件
+  #  ─────────────────────  ──────────────────────  ──────────────────────────────
+  #  ESP32  + Arduino       nodemcu-32s             aw9523  pca9505  lm75  rx8130ce
+  #  ESP32-C3 + ESP-IDF     lolin_c3_mini           aw9523  pi4ioe5v6408  lm75  bmi270  rx8130ce
+  #  ESP32-S3 + ESP-IDF     esp32-s3-devkitc-1      全部 7 個元件（含 ed047tc1）
+  #
+  # 編譯結果不上傳 Artifacts — 只驗證 C++ 程式碼可正確編譯。
+
+  verify_components_code:
+    name: Compile Check (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: tests/test-esp32-arduino.yaml
+            platform: ESP32 + Arduino
+
+          - config: tests/test-esp32c3-idf.yaml
+            platform: ESP32-C3 + ESP-IDF
+
+          - config: tests/test-esp32s3-idf.yaml
+            platform: ESP32-S3 + ESP-IDF
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ESPHome
+        run: |
+          python -m pip install --upgrade pip
+          pip install "esphome==${ESPHOME_VERSION}"
+
+      # test YAML 不含任何 !secret 引用，空檔案即可通過解析
+      - name: Create dummy secrets
+        run: touch secrets.yaml
+
+      - name: Cache PlatformIO toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ matrix.platform }}-${{ env.ESPHOME_VERSION }}
+          restore-keys: |
+            platformio-${{ runner.os }}-${{ matrix.platform }}-
+            platformio-${{ runner.os }}-
+
+      - name: Compile firmware
+        run: esphome compile "${{ matrix.config }}"

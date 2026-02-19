@@ -1,0 +1,48 @@
+# Test: ESP32 + Arduino framework
+# Tests I2C-based components on the classic ESP32 (nodemcu-32s, Arduino framework)
+# Mirrors ESPHome's build_components_base.esp32-ard.yaml approach
+
+esphome:
+  name: test-esp32-arduino
+
+esp32:
+  board: nodemcu-32s
+  framework:
+    type: arduino
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+# Use local source to test components in this repository
+external_components:
+  - source: ../components
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: false
+
+# AW9523: GPIO I/O Expander (I2C)
+aw9523:
+  id: aw9523_hub
+  address: 0x59
+
+# PCA9505: GPIO I/O Expander (I2C)
+pca9505:
+  id: pca9505_hub
+  address: 0x20
+
+# LM75: Temperature Sensor (I2C)
+sensor:
+  - platform: lm75
+    name: "Board Temp"
+    address: 0x48
+    update_interval: 60s
+
+# RX8130CE: Real-Time Clock (I2C)
+time:
+  - platform: rx8130ce
+    id: rx8130ce_rtc
+    address: 0x32
+    update_interval: never
