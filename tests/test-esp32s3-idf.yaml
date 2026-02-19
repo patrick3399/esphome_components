@@ -1,0 +1,102 @@
+# Test: ESP32-S3 + ESP-IDF framework
+# Tests all components including ed047tc1 (E-ink display) on ESP32-S3
+# Mirrors ESPHome's build_components_base.esp32-s3-idf.yaml approach
+#
+# Note: ed047tc1 requires the EPDIY library and PSRAM (same as m5stack-papers3)
+
+esphome:
+  name: test-esp32s3-idf
+  platformio_options:
+    build_flags: "-DBOARD_HAS_PSRAM"
+  libraries:
+    - EPDIY=https://github.com/patrick3399/epdiy
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+# Use local source to test components in this repository
+external_components:
+  - source: ../components
+
+i2c:
+  sda: GPIO41
+  scl: GPIO42
+  scan: false
+
+# AW9523: GPIO I/O Expander (I2C)
+aw9523:
+  id: aw9523_hub
+  address: 0x59
+
+# PCA9505: GPIO I/O Expander (I2C)
+pca9505:
+  id: pca9505_hub
+  address: 0x20
+
+# PI4IOE5V6408: GPIO I/O Expander (I2C)
+pi4ioe5v6408:
+  id: pi4ioe5v6408_hub
+  address: 0x43
+
+sensor:
+  # LM75: Temperature Sensor (I2C)
+  - platform: lm75
+    name: "Board Temp"
+    address: 0x48
+    update_interval: 60s
+
+  # BMI270: IMU Accelerometer/Gyroscope (I2C)
+  - platform: bmi270
+    address: 0x68
+    accel_x:
+      name: "Accel X"
+    accel_y:
+      name: "Accel Y"
+    accel_z:
+      name: "Accel Z"
+    gyro_x:
+      name: "Gyro X"
+    gyro_y:
+      name: "Gyro Y"
+    gyro_z:
+      name: "Gyro Z"
+    update_interval: 60s
+
+# RX8130CE: Real-Time Clock (I2C)
+time:
+  - platform: rx8130ce
+    id: rx8130ce_rtc
+    address: 0x32
+    update_interval: never
+
+# ED047TC1: 4.7" E-ink Display (parallel GPIO)
+# Pin mapping reused from m5stack-papers3.yaml for reference
+display:
+  - platform: ed047tc1
+    id: ed047tc1_display
+    pwr_pin: GPIO45
+    bst_en_pin: GPIO46
+    xstl_pin: GPIO13
+    xle_pin: GPIO15
+    spv_pin: GPIO17
+    ckv_pin: GPIO18
+    pclk_pin: GPIO16
+    d0_pin: GPIO6
+    d1_pin: GPIO14
+    d2_pin: GPIO7
+    d3_pin: GPIO12
+    d4_pin: GPIO9
+    d5_pin: GPIO11
+    d6_pin: GPIO8
+    d7_pin: GPIO10
+    update_interval: never
