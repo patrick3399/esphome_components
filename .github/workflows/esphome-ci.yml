@@ -55,12 +55,11 @@ jobs:
           find components/ -name '*.cpp' -o -name '*.h' | \
             xargs clang-format --dry-run --Werror
 
-  # ─── ESPHome config validation (fast, no toolchain download) ─────────────────
-  # Validates the actual device YAML configurations only.
-  # Does NOT download PlatformIO toolchains — gives quick feedback in ~30s.
+  # ─── 1. 產品設定檔：只驗證 YAML 格式 (速度快，不下載工具鏈) ────────────────
+  # 目的：快速確認 device YAML 語法正確，~30s 內完成給予即時回饋。
 
-  validate:
-    name: Validate (${{ matrix.config }})
+  validate_product_config:
+    name: Validate Product Config (${{ matrix.config }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -96,21 +95,21 @@ jobs:
       - name: Validate configuration
         run: esphome config "${{ matrix.config }}"
 
-  # ─── Full firmware compilation – multi-board matrix ──────────────────────────
-  # Inspired by ESPHome's tests/test_build_components/ approach.
-  # Three platform environments, each with local components/ as the source,
-  # covering all 7 custom components across different chips and frameworks.
+  # ─── 2. 元件測試：執行完整編譯，驗證 C++ 程式碼 ────────────────────────────
+  # 目的：對 components/ 下的 C++ 程式碼做跨平台編譯驗證。
+  # 靈感來自 ESPHome 的 tests/test_build_components/ 做法。
+  # 所有 test YAML 使用 'source: ../components' 測試本地源碼（非 GitHub 已發布版本）。
   #
-  #  Platform              Board            Components tested
-  #  ───────────────────── ──────────────── ─────────────────────────────────────
-  #  ESP32  + Arduino      nodemcu-32s      aw9523  pca9505  lm75  rx8130ce
-  #  ESP32-C3 + ESP-IDF    lolin_c3_mini    aw9523  pi4ioe5v6408  lm75  bmi270  rx8130ce
-  #  ESP32-S3 + ESP-IDF    esp32-s3-devkitc-1  ALL (+ ed047tc1)
+  #  平台                   Board                 測試的元件
+  #  ─────────────────────  ──────────────────────  ──────────────────────────────
+  #  ESP32  + Arduino       nodemcu-32s             aw9523  pca9505  lm75  rx8130ce
+  #  ESP32-C3 + ESP-IDF     lolin_c3_mini           aw9523  pi4ioe5v6408  lm75  bmi270  rx8130ce
+  #  ESP32-S3 + ESP-IDF     esp32-s3-devkitc-1      全部 7 個元件（含 ed047tc1）
   #
-  # Compiled binaries are NOT uploaded — CI verifies compilation only.
+  # 編譯結果不上傳 Artifacts — 只驗證 C++ 程式碼可正確編譯。
 
-  compile:
-    name: Compile (${{ matrix.platform }})
+  verify_components_code:
+    name: Compile Check (${{ matrix.platform }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -139,6 +138,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install "esphome==${ESPHOME_VERSION}"
+
+      # test YAML 不含任何 !secret 引用，空檔案即可通過解析
+      - name: Create dummy secrets
+        run: touch secrets.yaml
 
       - name: Cache PlatformIO toolchain
         uses: actions/cache@v4
