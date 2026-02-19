@@ -13,23 +13,61 @@ on:
         required: false
         default: "2026.1.0"
 
+env:
+  ESPHOME_VERSION: ${{ github.event.inputs.esphome_version || '2026.1.0' }}
+
 jobs:
-  validate-and-build:
-    name: Validate and Compile (${{ matrix.config }})
+  # ─── Quick checks ────────────────────────────────────────────────────────────
+
+  lint:
+    name: Python Lint (flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8
+        run: flake8 components/
+
+  format-check:
+    name: C++ Format Check (clang-format)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang-format
+
+      - name: Run clang-format check
+        run: |
+          find components/ -name '*.cpp' -o -name '*.h' | \
+            xargs clang-format --dry-run --Werror
+
+  # ─── ESPHome config validation (fast, no toolchain download) ─────────────────
+  # Validates the actual device YAML configurations only.
+  # Does NOT download PlatformIO toolchains — gives quick feedback in ~30s.
+
+  validate:
+    name: Validate (${{ matrix.config }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - config: m5stack-stamplc.yaml
-            artifact: firmware-stamplc
-            build_path: /config/esphome/m5plcbuild
-          - config: m5stack-papers3.yaml
-            artifact: firmware-papers3
-            build_path: /config/esphome/m5papers3
-
-    env:
-      ESPHOME_VERSION: ${{ github.event.inputs.esphome_version || '2026.1.0' }}
+        config:
+          - m5stack-stamplc.yaml
+          - m5stack-papers3.yaml
 
     steps:
       - name: Checkout repository
@@ -46,39 +84,70 @@ jobs:
           python -m pip install --upgrade pip
           pip install "esphome==${ESPHOME_VERSION}"
 
-      - name: Create dummy secrets.yaml for CI
+      - name: Create dummy secrets.yaml
         run: |
           cat > secrets.yaml << 'EOF'
           wifi_ssid: "CI_DUMMY_SSID"
           wifi_password: "CI_DUMMY_PASSWORD"
-          api_key: "0000000000000000000000000000000000000000000000000000000000000000"
+          api_key: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
           ota_password: "CI_DUMMY_OTA"
           EOF
 
-      - name: Create build directory
+      - name: Validate configuration
+        run: esphome config "${{ matrix.config }}"
+
+  # ─── Full firmware compilation – multi-board matrix ──────────────────────────
+  # Inspired by ESPHome's tests/test_build_components/ approach.
+  # Three platform environments, each with local components/ as the source,
+  # covering all 7 custom components across different chips and frameworks.
+  #
+  #  Platform              Board            Components tested
+  #  ───────────────────── ──────────────── ─────────────────────────────────────
+  #  ESP32  + Arduino      nodemcu-32s      aw9523  pca9505  lm75  rx8130ce
+  #  ESP32-C3 + ESP-IDF    lolin_c3_mini    aw9523  pi4ioe5v6408  lm75  bmi270  rx8130ce
+  #  ESP32-S3 + ESP-IDF    esp32-s3-devkitc-1  ALL (+ ed047tc1)
+  #
+  # Compiled binaries are NOT uploaded — CI verifies compilation only.
+
+  compile:
+    name: Compile (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - config: tests/test-esp32-arduino.yaml
+            platform: ESP32 + Arduino
+
+          - config: tests/test-esp32c3-idf.yaml
+            platform: ESP32-C3 + ESP-IDF
+
+          - config: tests/test-esp32s3-idf.yaml
+            platform: ESP32-S3 + ESP-IDF
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ESPHome
         run: |
-          sudo mkdir -p "${{ matrix.build_path }}"
-          sudo chmod 777 "${{ matrix.build_path }}"
+          python -m pip install --upgrade pip
+          pip install "esphome==${ESPHOME_VERSION}"
 
       - name: Cache PlatformIO toolchain
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: platformio-${{ runner.os }}-${{ matrix.config }}-${{ env.ESPHOME_VERSION }}
+          key: platformio-${{ runner.os }}-${{ matrix.platform }}-${{ env.ESPHOME_VERSION }}
           restore-keys: |
-            platformio-${{ runner.os }}-${{ matrix.config }}-
+            platformio-${{ runner.os }}-${{ matrix.platform }}-
             platformio-${{ runner.os }}-
-
-      - name: Validate configuration
-        run: esphome config "${{ matrix.config }}"
 
       - name: Compile firmware
         run: esphome compile "${{ matrix.config }}"
-
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.build_path }}/.esphome/build/*/firmware*.bin
-          if-no-files-found: warn
-          retention-days: 30

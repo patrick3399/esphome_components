@@ -1,0 +1,18 @@
+[flake8]
+# Match ESPHome's C++ column limit for consistency
+max-line-length = 120
+
+# W503: line break before binary operator (conflicts with W504, ignore one)
+# E203: whitespace before ':' (false positive with slice notation)
+extend-ignore = W503, E203
+
+# ESPHome component __init__.py files re-export symbols; F401 (unused import)
+# is expected and intentional there
+per-file-ignores =
+    components/*/__init__.py: F401
+
+exclude =
+    .git,
+    __pycache__,
+    .venv,
+    venv
