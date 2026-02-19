@@ -1,0 +1,65 @@
+# Test: ESP32-C3 + ESP-IDF framework
+# Tests I2C-based components on the ESP32-C3 (lolin_c3_mini, ESP-IDF framework)
+# Mirrors ESPHome's build_components_base.esp32-c3-idf.yaml approach
+
+esphome:
+  name: test-esp32c3-idf
+
+esp32:
+  board: lolin_c3_mini
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+# Use local source to test components in this repository
+external_components:
+  - source: ../components
+
+i2c:
+  sda: GPIO4
+  scl: GPIO5
+  scan: false
+
+# AW9523: GPIO I/O Expander (I2C)
+aw9523:
+  id: aw9523_hub
+  address: 0x59
+
+# PI4IOE5V6408: GPIO I/O Expander (I2C)
+pi4ioe5v6408:
+  id: pi4ioe5v6408_hub
+  address: 0x43
+
+# LM75: Temperature Sensor (I2C)
+sensor:
+  - platform: lm75
+    name: "Board Temp"
+    address: 0x48
+    update_interval: 60s
+
+  # BMI270: IMU Sensor - Accelerometer/Gyroscope (I2C)
+  - platform: bmi270
+    address: 0x68
+    accel_x:
+      name: "Accel X"
+    accel_y:
+      name: "Accel Y"
+    accel_z:
+      name: "Accel Z"
+    gyro_x:
+      name: "Gyro X"
+    gyro_y:
+      name: "Gyro Y"
+    gyro_z:
+      name: "Gyro Z"
+    update_interval: 60s
+
+# RX8130CE: Real-Time Clock (I2C)
+time:
+  - platform: rx8130ce
+    id: rx8130ce_rtc
+    address: 0x32
+    update_interval: never

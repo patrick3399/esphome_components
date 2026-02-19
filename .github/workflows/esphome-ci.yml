@@ -13,7 +13,12 @@ on:
         required: false
         default: "2026.1.0"
 
+env:
+  ESPHOME_VERSION: ${{ github.event.inputs.esphome_version || '2026.1.0' }}
+
 jobs:
+  # ─── Quick checks ────────────────────────────────────────────────────────────
+
   lint:
     name: Python Lint (flake8)
     runs-on: ubuntu-latest
@@ -50,6 +55,8 @@ jobs:
           find components/ -name '*.cpp' -o -name '*.h' | \
             xargs clang-format --dry-run --Werror
 
+  # ─── ESPHome config validation (fast, no toolchain download) ─────────────────
+
   validate:
     name: Validate Config (${{ matrix.config }})
     runs-on: ubuntu-latest
@@ -59,9 +66,6 @@ jobs:
         config:
           - m5stack-stamplc.yaml
           - m5stack-papers3.yaml
-
-    env:
-      ESPHOME_VERSION: ${{ github.event.inputs.esphome_version || '2026.1.0' }}
 
     steps:
       - name: Checkout repository
@@ -83,9 +87,88 @@ jobs:
           cat > secrets.yaml << 'EOF'
           wifi_ssid: "CI_DUMMY_SSID"
           wifi_password: "CI_DUMMY_PASSWORD"
-          api_key: "0000000000000000000000000000000000000000000000000000000000000000"
+          # ESPHome API key must be base64-encoded 32 bytes (44 chars)
+          api_key: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
           ota_password: "CI_DUMMY_OTA"
           EOF
 
       - name: Validate configuration
         run: esphome config "${{ matrix.config }}"
+
+  # ─── Full firmware compilation (multi-board matrix) ──────────────────────────
+  # Inspired by ESPHome's build_components_base.<platform>.yaml approach:
+  # https://github.com/esphome/esphome/tree/dev/tests/test_build_components
+  #
+  # Matrix covers:
+  #   • Device YAMLs   – actual M5Stack hardware (ESP32-S3 + ESP-IDF)
+  #   • tests/*.yaml   – cross-platform component tests (ESP32 Arduino, ESP32-C3 IDF)
+
+  compile:
+    name: Compile (${{ matrix.config }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Device configurations (full hardware targets) ──────────────────
+          - config: m5stack-stamplc.yaml
+            build_path: /config/esphome/m5plcbuild
+            platform: esp32s3-idf
+
+          - config: m5stack-papers3.yaml
+            build_path: /config/esphome/m5papers3
+            platform: esp32s3-idf
+
+          # ── Cross-platform component tests (local source) ──────────────────
+          # ESP32 (nodemcu-32s) + Arduino — tests: aw9523, pca9505, lm75, rx8130ce
+          - config: tests/test-esp32-arduino.yaml
+            build_path: ""
+            platform: esp32-arduino
+
+          # ESP32-C3 (lolin_c3_mini) + ESP-IDF — tests: aw9523, pi4ioe5v6408, lm75, bmi270, rx8130ce
+          - config: tests/test-esp32c3-idf.yaml
+            build_path: ""
+            platform: esp32c3-idf
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install ESPHome
+        run: |
+          python -m pip install --upgrade pip
+          pip install "esphome==${ESPHOME_VERSION}"
+
+      - name: Create dummy secrets.yaml for CI
+        run: |
+          cat > secrets.yaml << 'EOF'
+          wifi_ssid: "CI_DUMMY_SSID"
+          wifi_password: "CI_DUMMY_PASSWORD"
+          # ESPHome API key must be base64-encoded 32 bytes (44 chars)
+          api_key: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
+          ota_password: "CI_DUMMY_OTA"
+          EOF
+
+      - name: Create build directory (device YAMLs only)
+        if: matrix.build_path != ''
+        run: |
+          sudo mkdir -p "${{ matrix.build_path }}"
+          sudo chmod 777 "${{ matrix.build_path }}"
+
+      - name: Cache PlatformIO toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: platformio-${{ runner.os }}-${{ matrix.platform }}-${{ env.ESPHOME_VERSION }}
+          restore-keys: |
+            platformio-${{ runner.os }}-${{ matrix.platform }}-
+            platformio-${{ runner.os }}-
+
+      - name: Compile firmware
+        run: esphome compile "${{ matrix.config }}"
