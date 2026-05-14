@@ -30,6 +30,8 @@ class ED047TC1Display : public display::DisplayBuffer {
   void dump_config() override;
   float get_setup_priority() const override { return esphome::setup_priority::HARDWARE; }
 
+  void partial_update(int x, int y, int w, int h, enum EpdDrawMode mode = MODE_GL16);
+
   void set_pwr_pin(GPIOPin *pwr_pin) { pwr_pin_ = pwr_pin; }
   void set_bst_en_pin(GPIOPin *bst_en_pin) { bst_en_pin_ = bst_en_pin; }
   void set_xstl_pin(GPIOPin *xstl_pin) { xstl_pin_ = xstl_pin; }
@@ -56,6 +58,7 @@ class ED047TC1Display : public display::DisplayBuffer {
 
  protected:
   void draw_absolute_pixel_internal(int x, int y, Color color) override;
+  void copy_buffer_to_epd_(int x, int y, int w, int h);
   int get_width_internal() override { return EPD_WIDTH; }
   int get_height_internal() override { return EPD_HEIGHT; }
   int get_bpp() const { return 8; }

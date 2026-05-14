@@ -1,11 +1,11 @@
 #include "ed047tc1.h"
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
-#include "esphome/core/gpio.h" // For InternalGPIOPin
-#include <driver/gpio.h>       // For ESP-IDF's gpio_num_t
+#include "esphome/core/gpio.h"
+#include <driver/gpio.h>
 #include "esp_heap_caps.h"
-
-#include "output_lcd/lcd_driver.h" // For LcdEpdConfig_t
+#include "output_lcd/lcd_driver.h"
+#include <algorithm>
 
 namespace esphome {
 namespace ed047tc1 {
@@ -160,29 +160,45 @@ void ED047TC1Display::setup() {
     ESP_LOGCONFIG(TAG, "ED047TC1 setup finished.");
 }
 
+void ED047TC1Display::copy_buffer_to_epd_(int x, int y, int w, int h) {
+    if (!this->buffer_) return;
+    uint8_t *epd_fb = epd_hl_get_framebuffer(&this->hl_state_);
+    if (!epd_fb) return;
+    int screen_w = this->get_width_internal();
+    int x_end = std::min(x + w, screen_w);
+    int y_end = std::min(y + h, this->get_height_internal());
+    for (int py = y; py < y_end; py++) {
+        for (int px = x; px < x_end; px++) {
+            uint8_t pixel = this->buffer_[(py * screen_w) + px];
+            epd_draw_pixel(px, py, (pixel >> 4) << 4, epd_fb);
+        }
+    }
+}
+
 void ED047TC1Display::update() {
     this->do_update_();
     if (!this->buffer_) { ESP_LOGE(TAG, "ESPHome buffer null in update!"); return; }
-    uint8_t* epd_fb = epd_hl_get_framebuffer(&this->hl_state_);
-    if (!epd_fb) { ESP_LOGE(TAG, "EPDiy FB null in update!"); return; }
+    if (!epd_hl_get_framebuffer(&this->hl_state_)) { ESP_LOGE(TAG, "EPDiy FB null in update!"); return; }
 
-    ESP_LOGD(TAG, "Copying ESPHome buffer to EPDiy buffer and updating display...");
-    int w = this->get_width_internal();
-    int h = this->get_height_internal();
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            uint8_t esphome_pixel_8bpp = this->buffer_[(y * w) + x];
-            uint8_t epdiy_draw_value = (esphome_pixel_8bpp >> 4) << 4;
-            epd_draw_pixel(x, y, epdiy_draw_value, epd_fb);
-        }
-    }
-    ESP_LOGD(TAG, "Buffer copy complete. Triggering EPD screen update.");
+    copy_buffer_to_epd_(0, 0, get_width_internal(), get_height_internal());
+    ESP_LOGD(TAG, "Full update — MODE_GC16");
     epd_poweron();
-    EpdRect update_rect = epd_full_screen();
-    enum EpdDrawError draw_result = epd_hl_update_area(&this->hl_state_, MODE_GC16, epd_ambient_temperature(), update_rect);
-    if (draw_result != EPD_DRAW_SUCCESS) { ESP_LOGE(TAG, "epd_hl_update_area failed: %d", draw_result); }
+    EpdRect full = epd_full_screen();
+    enum EpdDrawError err = epd_hl_update_area(&this->hl_state_, MODE_GC16, epd_ambient_temperature(), full);
+    if (err != EPD_DRAW_SUCCESS) { ESP_LOGE(TAG, "update failed: %d", err); }
     epd_poweroff();
-    ESP_LOGD(TAG, "ED047TC1 update cycle finished.");
+}
+
+void ED047TC1Display::partial_update(int x, int y, int w, int h, enum EpdDrawMode mode) {
+    this->do_update_();
+    copy_buffer_to_epd_(x, y, w, h);
+    EpdRect area;
+    area.x = x; area.y = y; area.width = w; area.height = h;
+    ESP_LOGD(TAG, "partial_update mode=0x%02X (%d,%d,%d,%d)", mode, x, y, w, h);
+    epd_poweron();
+    enum EpdDrawError err = epd_hl_update_area(&this->hl_state_, mode, epd_ambient_temperature(), area);
+    if (err != EPD_DRAW_SUCCESS) { ESP_LOGE(TAG, "partial_update failed: %d", err); }
+    epd_poweroff();
 }
 
 void ED047TC1Display::draw_absolute_pixel_internal(int x, int y, Color color) {
