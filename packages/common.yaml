@@ -1,0 +1,18 @@
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 6h
+
+ota:
+  - platform: esphome
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+  logs:
+    api.service: WARN
+    wifi: WARN
+    esp-idf: NONE
+
+external_components:
+  - source: github://patrick3399/esphome_components

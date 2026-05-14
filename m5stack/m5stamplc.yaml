@@ -3,24 +3,20 @@ esphome:
   friendly_name: m5plc
   build_path: /config/esphome/m5plcbuild
   on_boot:
-    priority: 1000  #aw9523 and pi4ioe5v6408 need GPIO3 high to work.
+    priority: 1000
     then:
       - lambda: |-
                 gpio_set_direction(GPIO_NUM_3, GPIO_MODE_OUTPUT);
                 gpio_set_level(GPIO_NUM_3, 1);
+
+packages:
+  common: !include ../packages/common.yaml
 
 esp32:
   board: esp32-s3-devkitc-1
   framework:
     type: esp-idf
 
-logger:
-  level: DEBUG
-  baud_rate: 0
-  logs:
-    api.service: WARN
-    wifi: WARN
-    esp-idf: NONE
 api:
   encryption:
     key: !secret api_key
@@ -32,27 +28,13 @@ api:
       then:
         - rtttl.play:
             rtttl: !lambda 'return song_str;'
-ota:
-  - platform: esphome
-    #password: !secret ota_password
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  reboot_timeout: 6h
-  #power_save_mode: LIGHT
-
-external_components:
-  - source: github://patrick3399/esphome_components
-  # - source: github://n-serrette/esphome_sd_card   #If need SD Card Support
 
 uart:
-  - id: uart_485 #StamPLC RS485
+  - id: uart_485
     tx_pin: GPIO0
     rx_pin: GPIO39
-    # RS485_DIR GPIO46
     baud_rate: 9600
-  - id: uart_can #StamPLC CAN
+  - id: uart_can
     tx_pin: GPIO42
     rx_pin: GPIO43
     baud_rate: 9600
@@ -62,6 +44,7 @@ spi:
     clk_pin: GPIO7
     mosi_pin: GPIO8
     interface: hardware
+
 i2c:
   id: main_i2c
   sda: GPIO13
@@ -75,27 +58,13 @@ aw9523:
   update_interval: 0ms
   i2c_id: main_i2c
 
+# NOTE: pi4ioe5v6408 moved to archived — official ESPHome component available.
+# Switch external_components source or restore archived/ if needed.
 pi4ioe5v6408:
   id: pi4ioe5v6408_hub
   address: 0x43
   update_interval: 0ms
   i2c_id: main_i2c
-
-# sd_mmc_card:  #If need SD Card Support
-#   id: micro_sd
-#   mode_1bit: true
-#   clk_pin: GPIO7
-#   cmd_pin: GPIO8
-#   data0_pin: GPIO9
-#   data3_pin: GPIO10
-
-# sd_file_server:  #If need SD Card Support
-#   id: file_server
-#   url_prefix: file
-#   root_path: "/"
-#   enable_deletion: true
-#   enable_download: true
-#   enable_upload: true
 
 binary_sensor:
   - platform: gpio
@@ -187,7 +156,6 @@ binary_sensor:
         input: true
       inverted: true
 
-
 switch:
   - platform: gpio
     name: "Relay 1"
@@ -256,6 +224,7 @@ switch:
       inverted: True
 
 sensor:
+  # NOTE: lm75 moved to archived — use official lm75b platform instead.
   - platform: lm75
     id: temperature
     name: "Board Temp"
@@ -281,25 +250,13 @@ sensor:
     shunt_voltage:
       name: "INA226 Shunt Voltage"
 
-  # - platform: sd_mmc_card  #If need SD Card Support
-  #   type: used_space
-  #   name: "SD card used space"
-  # - platform: sd_mmc_card
-  #   type: total_space
-  #   name: "SD card total space"
-
-
-# text_sensor:
-  # - platform: sd_mmc_card  #If need SD Card Support
-  #   sd_card_type:
-  #     name: "SD card type"
-
 time:
   - platform: homeassistant
     id: homeassistant_time
     update_interval: 1h
     on_time_sync:
       then:
+        # NOTE: rx8130ce moved to archived — use official rx8130 platform instead.
         rx8130ce.write_time:
           id: rx8130ce_rtc
   - platform: rx8130ce
@@ -315,11 +272,10 @@ display:
     rotation: 90
     cs_pin: GPIO12
     dc_pin: GPIO6
-    reset_pin: GPIO36  #Set Reset Pin at Unuseable Pin.
+    reset_pin: GPIO36
     data_rate: 40MHz
     update_interval: 30s
     lambda: |-
-
       it.line(3, 0, 239, 0);
       it.line(239, 0, 239, 134);
       it.line(3, 0, 3, 134);
@@ -330,6 +286,7 @@ font:
   - file: "gfonts://Roboto"
     id: Roboto24
     size: 24
+
 text:
   - platform: template
     name: "Display TEXT"
@@ -344,6 +301,7 @@ output:
   - platform: ledc
     id: rtttl_pin
     pin: 44
+
 rtttl:
   output: rtttl_pin
   id: rtttl_buzz
