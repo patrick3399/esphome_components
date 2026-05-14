@@ -3,7 +3,6 @@ from esphome.components import i2c, sensor
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ID,
-    CONF_ADDRESS,
     CONF_TEMPERATURE,
     DEVICE_CLASS_TEMPERATURE,
     ICON_BRIEFCASE_DOWNLOAD,
@@ -22,7 +21,7 @@ CONF_ACCEL_Z = "accel_z"
 CONF_GYRO_X = "gyro_x"
 CONF_GYRO_Y = "gyro_y"
 CONF_GYRO_Z = "gyro_z"
-CONF_POWER_SAVE_MODE = "power_save_mode" # 新增
+CONF_POWER_SAVE_MODE = "power_save_mode"
 
 bmi270_ns = cg.esphome_ns.namespace("bmi270")
 BMI270Component = bmi270_ns.class_(
@@ -33,7 +32,6 @@ PowerSaveMode = bmi270_ns.enum("PowerSaveMode")
 POWER_SAVE_MODES = {
     "NORMAL": PowerSaveMode.POWER_SAVE_MODE_NORMAL,
     "LOW_POWER": PowerSaveMode.POWER_SAVE_MODE_LOW_POWER,
-    # "PERFORMANCE": PowerSaveMode.POWER_SAVE_MODE_PERFORMANCE, # 可以考慮添加
 }
 
 accel_schema = sensor.sensor_schema(
@@ -89,7 +87,7 @@ async def to_code(config):
         if accel_key in config:
             sens = await sensor.new_sensor(config[accel_key])
             cg.add(getattr(var, f"set_accel_{d}_sensor")(sens))
-        
+
         gyro_key = f"gyro_{d}"
         if gyro_key in config:
             sens = await sensor.new_sensor(config[gyro_key])

@@ -1,6 +1,6 @@
 #include "aw9523.h"
 #include "esphome/core/log.h"
-#include <cstdio> // 用於 snprintf
+#include <cstdio>  // 用於 snprintf
 
 namespace esphome {
 namespace aw9523 {
@@ -15,7 +15,7 @@ void AW9523Component::setup() {
     this->mark_failed();
     return;
   }
-  if (chip_id != 0x23) { // AW9523B 預期的晶片 ID
+  if (chip_id != 0x23) {  // AW9523B 預期的晶片 ID
     ESP_LOGE(TAG, "Invalid Chip ID: 0x%02X (expected 0x23)", chip_id);
     this->mark_failed();
     return;
@@ -32,14 +32,14 @@ void AW9523Component::setup() {
   // CONFIGx 預設為 0x00 (輸出模式)
 
   // 明確設定所有 pin 為 GPIO 模式 (雖然重置後預設應是如此)
-  this->write_reg(AW9523_REG_LEDMODE0, 0xFF); // 所有 P0 pin 設為 GPIO 模式
-  this->write_reg(AW9523_REG_LEDMODE1, 0xFF); // 所有 P1 pin 設為 GPIO 模式
+  this->write_reg(AW9523_REG_LEDMODE0, 0xFF);  // 所有 P0 pin 設為 GPIO 模式
+  this->write_reg(AW9523_REG_LEDMODE1, 0xFF);  // 所有 P1 pin 設為 GPIO 模式
 
   // 設定 P0 為 Push-Pull 模式 (P1 預設為 Push-Pull 且不可設定)
   // 讀取目前的 CTL 暫存器
   uint8_t ctl_reg_val = 0;
   this->read_reg(AW9523_REG_CTL, &ctl_reg_val);
-  ctl_reg_val |= (1 << 4); // 設定 bit 4 使 P0 為 Push-Pull 模式
+  ctl_reg_val |= (1 << 4);  // 設定 bit 4 使 P0 為 Push-Pull 模式
   this->write_reg(AW9523_REG_CTL, ctl_reg_val);
 
   // 透過讀取重置後的目前輸出狀態來初始化輸出遮罩
@@ -51,11 +51,11 @@ void AW9523Component::setup() {
   // 根據 ESPHome 中常見的擴展器設定，將方向遮罩初始化為全輸入
   // 雖然 datasheet 預設 CONFIG 為輸出，但用作感測器的 pin 需要是輸入。
   // 個別的 pin_mode 呼叫會根據需要進行設定。
-  this->dir_mask_0_ = 0xFF; // 所有 P0 設為輸入
-  this->dir_mask_1_ = 0xFF; // 所有 P1 設為輸入
+  this->dir_mask_0_ = 0xFF;  // 所有 P0 設為輸入
+  this->dir_mask_1_ = 0xFF;  // 所有 P1 設為輸入
   this->write_reg(AW9523_REG_CONFIG0, this->dir_mask_0_);
   this->write_reg(AW9523_REG_CONFIG1, this->dir_mask_1_);
-  
+
   ESP_LOGCONFIG(TAG, "AW9523 setup complete.");
 }
 
@@ -88,7 +88,7 @@ void AW9523Component::update() {
 }
 
 bool AW9523Component::digital_read(uint8_t pin) {
-  uint8_t port = pin / 8; // 0 代表 P0 (pins 0-7), 1 代表 P1 (pins 8-15)
+  uint8_t port = pin / 8;  // 0 代表 P0 (pins 0-7), 1 代表 P1 (pins 8-15)
   uint8_t pin_of_port = pin % 8;
 
   if (port == 0) {
@@ -119,7 +119,7 @@ void AW9523Component::digital_write(uint8_t pin, bool value) {
   }
 
   if (!this->write_reg(reg_addr, *current_output_mask)) {
-      ESP_LOGW(TAG, "Failed to write to output register for pin %d", pin);
+    ESP_LOGW(TAG, "Failed to write to output register for pin %d", pin);
   }
 }
 
@@ -143,14 +143,14 @@ void AW9523Component::pin_mode(uint8_t pin, gpio::Flags flags) {
   // 確保 pin 處於 GPIO 模式 (而非 LED 模式)
   uint8_t ledmode_val = 0;
   this->read_reg(ledmode_reg_addr, &ledmode_val);
-  ledmode_val |= (1 << pin_of_port); // 設定 bit 為 1 代表 GPIO 模式
+  ledmode_val |= (1 << pin_of_port);  // 設定 bit 為 1 代表 GPIO 模式
   this->write_reg(ledmode_reg_addr, ledmode_val);
-  
+
   // 設定方向
   if (flags == gpio::FLAG_INPUT) {
-    *current_dir_mask |= (1 << pin_of_port); // 設定 bit 為 1 代表輸入
+    *current_dir_mask |= (1 << pin_of_port);  // 設定 bit 為 1 代表輸入
   } else if (flags == gpio::FLAG_OUTPUT) {
-    *current_dir_mask &= ~(1 << pin_of_port); // 設定 bit 為 0 代表輸出
+    *current_dir_mask &= ~(1 << pin_of_port);  // 設定 bit 為 0 代表輸出
   }
   this->write_reg(config_reg_addr, *current_dir_mask);
 }
@@ -169,8 +169,8 @@ bool AW9523Component::write_reg(uint8_t reg, uint8_t value) {
 
 // AW9523GPIOPin 實作
 void AW9523GPIOPin::setup() {
-   ESP_LOGV(TAG, "Setting up AW9523Pin %u", this->pin_);
-   this->pin_mode(this->flags_); // 套用設定的模式
+  ESP_LOGV(TAG, "Setting up AW9523Pin %u", this->pin_);
+  this->pin_mode(this->flags_);  // 套用設定的模式
 }
 
 void AW9523GPIOPin::pin_mode(gpio::Flags flags) {

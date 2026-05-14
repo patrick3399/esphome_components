@@ -15,7 +15,7 @@ esphome:
           id(system_initialized) = true;
 
 packages:
-  common: !include ../packages/common.yaml
+  common: !include ../../packages/common.yaml
 
 esp32:
   board: esp32-s3-devkitc-1

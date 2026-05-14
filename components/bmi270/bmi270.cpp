@@ -30,7 +30,7 @@ void BMI270Component::setup() {
   ESP_LOGI(TAG, "BMI270 initialization succeeded");
 
   // Enable accelerometer and gyroscope
-  uint8_t sens_list[2] = { BMI2_ACCEL, BMI2_GYRO };
+  uint8_t sens_list[2] = {BMI2_ACCEL, BMI2_GYRO};
   rslt = bmi270_sensor_enable(sens_list, 2, &this->sensor_);
   if (rslt != BMI2_OK) {
     ESP_LOGE(TAG, "Failed to enable accelerometer and gyroscope: %d", rslt);

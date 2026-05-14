@@ -21,9 +21,6 @@ PCA9505GPIOPin = pca9505_ns.class_("PCA9505GPIOPin", cg.GPIOPin)
 
 CONF_PCA9505 = "pca9505"
 
-# Default I2C address for PCA9505 can range from 0x20 to 0x27
-# based on A0, A1, A2 pins.
-# Using 0x20 as a common default if A0-A2 are LOW.
 CONFIG_SCHEMA = (
     cv.Schema(
         {
@@ -31,7 +28,7 @@ CONFIG_SCHEMA = (
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(i2c.i2c_device_schema(0x20)) # Default I2C address
+    .extend(i2c.i2c_device_schema(0x20))
 )
 
 
@@ -51,7 +48,7 @@ def validate_mode(value):
 
 PCA9505_PIN_SCHEMA = pins.gpio_base_schema(
     PCA9505GPIOPin,
-    cv.int_range(min=0, max=39), # PCA9505 has 40 pins (0-39)
+    cv.int_range(min=0, max=39),
     modes=[CONF_INPUT, CONF_OUTPUT],
     mode_validator=validate_mode,
     invertable=True,

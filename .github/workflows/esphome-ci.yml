@@ -64,9 +64,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config:
-          - m5stack-stamplc.yaml
-          - m5stack-papers3.yaml
+        include:
+          - config: devices/m5stack/m5stamplc.yaml
+            secrets_dir: devices/m5stack
+          - config: devices/m5stack/m5papers3.yaml
+            secrets_dir: devices/m5stack
 
     steps:
       - name: Checkout repository
@@ -85,7 +87,7 @@ jobs:
 
       - name: Create dummy secrets.yaml
         run: |
-          cat > secrets.yaml << 'EOF'
+          cat > "${{ matrix.secrets_dir }}/secrets.yaml" << 'EOF'
           wifi_ssid: "CI_DUMMY_SSID"
           wifi_password: "CI_DUMMY_PASSWORD"
           api_key: "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="

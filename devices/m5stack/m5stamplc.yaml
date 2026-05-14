@@ -10,7 +10,7 @@ esphome:
                 gpio_set_level(GPIO_NUM_3, 1);
 
 packages:
-  common: !include ../packages/common.yaml
+  common: !include ../../packages/common.yaml
 
 esp32:
   board: esp32-s3-devkitc-1
