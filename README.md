@@ -41,7 +41,7 @@ Custom ESPHome components and device configurations.
 |--------|--------|--------|:--------:|:--------:|:----------:|:---------:|---------|
 | **M5Stack** | StamPLC | `devices/m5stack/m5stamplc.yaml` | ⚠️ | — | — | ⚠️ | ⚠️ needs verify |
 | **M5Stack** | Paper S3 | `devices/m5stack/m5papers3.yaml` | — | ⚠️ 🚧 | ⚠️ 🚧 | — | ⚠️ needs verify |
-| **M5Stack** | CoreS3 SE | — | — | — | — | — | 📋 no config |
+| **M5Stack** | CoreS3 SE | 🏠 HA server | — | ⚠️ 🚧 | — | — | 🏠 in use |
 | **M5Stack** | Cardputer V1.1 | — | — | — | — | — | 📋 no config |
 | **Guition** | ESP32-S3-4848S040 | — | — | — | — | — | 📋 no config |
 | **Guition** | JC3636K518 | — | — | — | — | — | 📋 no config |
