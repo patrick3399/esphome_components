@@ -4,7 +4,6 @@
 #include "esphome/core/gpio.h"
 #include <driver/gpio.h>
 #include "esp_heap_caps.h"
-#include "output_lcd/lcd_driver.h"
 #include <algorithm>
 
 namespace esphome {
@@ -26,7 +25,8 @@ static inline gpio_num_t esphome_pin_to_gpio_num(GPIOPin* pin_obj) {
   return (gpio_num_t)internal_pin->get_pin();
 }
 
-static void custom_board_init_callback(uint32_t epd_row_width_param) {
+static void custom_board_init_callback(uint32_t epd_row_width_param, const EpdInitConfig* init_config) {
+  (void) init_config;
   if (!ED047TC1Display::instance) {
     ESP_LOGE(TAG, "board_init_cb: Instance is null!");
     return;

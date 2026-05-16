@@ -6,9 +6,11 @@
 
 #include "epdiy.h"
 #include "epd_highlevel.h"
+extern "C" {
 #include "epd_board.h"
 #include "epd_display.h"
 #include "output_lcd/lcd_driver.h"
+}
 
 #ifndef EPD_WIDTH
 #define EPD_WIDTH 960
