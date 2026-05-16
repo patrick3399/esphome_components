@@ -4,14 +4,24 @@
   "customizations": {
     "vscode": {
       "extensions": [
+        "ESPHome.esphome-vscode",
         "ms-python.python",
         "ms-python.vscode-pylance"
-      ]
+      ],
+      "settings": {
+        "esphome.validator": "local",
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "files.associations": {
+          "devices/**/*.yaml": "esphome",
+          "packages/**/*.yaml": "esphome",
+          "tests/**/*.yaml": "esphome"
+        }
+      }
     }
   },
   "containerEnv": {
-    "ESPHOME_VERSION": "2026.1.0"
+    "ESPHOME_CHANNEL": "stable"
   },
-  "postCreateCommand": "python -m pip install --upgrade pip && pip install esphome==${ESPHOME_VERSION}",
+  "postCreateCommand": "bash .devcontainer/install-esphome.sh",
   "remoteUser": "vscode"
 }
