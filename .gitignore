@@ -5,6 +5,9 @@ secrets.yaml
 .esphome/
 build/
 
+# tools/dev-compile.ps1 staging area (local-source override for un-pushed changes)
+/.dev/
+
 # Python
 __pycache__/
 *.pyc
