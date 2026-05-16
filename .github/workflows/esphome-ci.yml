@@ -47,5 +47,5 @@ jobs:
           find components/ -name '*.cpp' -o -name '*.h' | \
             xargs clang-format --dry-run --Werror
 
-  # validate_product_config and verify_components_code removed.
-  # Device YAMLs and component code are being rewritten — compile locally with venv.
+  # CI intentionally runs lint/format only.
+  # Device YAMLs and firmware builds are verified locally while rewrites are in progress.
