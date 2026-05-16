@@ -6,25 +6,42 @@ Custom ESPHome components and device configurations.
 
 | Symbol | Meaning |
 |--------|---------|
+| 🆕 | 待開發 — Planned, no implementation yet |
+| 🚧 | In progress — active branch (see Open Branches) |
+| 🔄 | 待更新/重構 — Existing code, pending verification or rewrite for ESPHome 2026.x |
 | ✅ | Verified working with current ESPHome |
-| ⚠️ | Needs verification with ESPHome 2026.x |
-| 🚧 | In development (unmerged branch) |
-| ❌ | Archived — known broken or replaced |
-| 📋 | Reference only — no config yet |
 | 🏠 | In use on HA server, config not in repo |
+| 📋 | Reference only — no config yet |
+| ❌ | Archived — known broken or replaced |
 
 ---
 
-## Components
+## 待開發 / Planned Components
 
-### Active (`components/`)
+Top-priority custom components to add for new target devices. Driven by the
+[Coverage Gaps Summary](#coverage-gaps-summary) below.
 
-| Component | Type | ESPHome 2026.x | Notes |
-|-----------|------|:--------------:|-------|
-| `aw9523` | I2C GPIO expander (16-pin) | ⚠️ | Used on StamPLC |
-| `bmi270` | IMU (accel + gyro) | ⚠️ 🚧 | Native I2C rewrite pending (`fix/bmi270-native-i2c`) |
-| `ed047tc1` | 4.7" e-paper display | ⚠️ 🚧 | `partial_update()` pending (`feat/ed047tc1-partial-update`) |
-| `pca9505` | I2C GPIO expander (40-pin) | ⚠️ | Used on StamPLC |
+| Component | Type | Devices Blocked | Priority |
+|-----------|------|-----------------|----------|
+| `axp2101` | PMU / power rail control | M5Stack CoreS3 SE | 🔥 Highest — blocks peripheral power on CoreS3 SE |
+| `aw88298` | I2C audio amplifier (1W) | M5Stack CoreS3 SE | High — no upstream ESPHome PR merged |
+| `qmi8658` | 6-axis IMU | Waveshare Matrix · AMOLED-2.41 · LCD-1.85C | Medium — community fork `dala318/esphome-qmi8658` available to vendor |
+| `74hc138_keypad` | 3-to-8 decoder keyboard matrix | M5Stack Cardputer V1.1 | Low — `matrix_keypad` cannot model decoder topology |
+
+---
+
+## 待更新/重構 / Legacy Components (`components/`)
+
+All existing components were last validated on pre-2026.x ESPHome and are
+pending verification or rewrite. Do not assume any of these compile cleanly
+on the current ESPHome version without re-testing.
+
+| Component | Type | Status | Notes |
+|-----------|------|:------:|-------|
+| `aw9523` | I2C GPIO expander (16-pin) | 🔄 | Used on StamPLC |
+| `bmi270` | IMU (accel + gyro) | 🔄 🚧 | Native I2C rewrite pending (`fix/bmi270-native-i2c`) |
+| `ed047tc1` | 4.7" e-paper display | 🔄 🚧 | `partial_update()` pending (`feat/ed047tc1-partial-update`); depends on local `epdiy/` checkout |
+| `pca9505` | I2C GPIO expander (40-pin) | 🔄 | Used on StamPLC |
 
 ### Archived (`archived/`)
 
@@ -43,20 +60,20 @@ ESPHome column reflects overall config readiness (not just custom components).
 
 | Vendor | Device | Config | `aw9523` | `bmi270` | `ed047tc1` | `pca9505` | ESPHome |
 |--------|--------|--------|:--------:|:--------:|:----------:|:---------:|---------|
-| **M5Stack** | StamPLC | `devices/m5stack/m5stamplc.yaml` | ⚠️ | — | — | ⚠️ | ⚠️ needs verify |
-| **M5Stack** | Paper S3 | `devices/m5stack/m5papers3.yaml` | — | ⚠️ 🚧 | ⚠️ 🚧 | — | ⚠️ needs verify |
-| **M5Stack** | CoreS3 SE | 🏠 HA server | — | — | — | — | 🏠 in use · ⚠️ AXP2101/AW88298 gaps |
-| **M5Stack** | Cardputer V1.1 | — | — | — | — | — | 📋 · ⚠️ 74HC138 keyboard gap |
+| **M5Stack** | StamPLC | `devices/m5stack/m5stamplc.yaml` | 🔄 | — | — | 🔄 | 🔄 待更新 |
+| **M5Stack** | Paper S3 | `devices/m5stack/m5papers3.yaml` | — | 🔄 🚧 | 🔄 🚧 | — | 🔄 待更新 |
+| **M5Stack** | CoreS3 SE | 🏠 HA server | — | — | — | — | 🏠 in use · 🆕 AXP2101/AW88298 gaps |
+| **M5Stack** | Cardputer V1.1 | — | — | — | — | — | 📋 · 🆕 74HC138 keyboard gap |
 | **Guition** | ESP32-S3-4848S040 | — | — | — | — | — | 📋 |
 | **Guition** | JC3636K518 | — | — | — | — | — | 📋 |
 | **Guition** | JC3636W518 | — | — | — | — | — | 📋 |
 | **Waveshare** | ESP32-S3-ETH | — | — | — | — | — | 📋 |
 | **Waveshare** | ESP32-S3-ETH-8DI-8RO | — | — | — | — | — | 📋 |
 | **Waveshare** | ESP32-S3-GEEK | — | — | — | — | — | 📋 |
-| **Waveshare** | ESP32-S3-Matrix | — | — | — | — | — | 📋 · ⚠️ QMI8658 gap |
+| **Waveshare** | ESP32-S3-Matrix | — | — | — | — | — | 📋 · 🆕 QMI8658 gap |
 | **Waveshare** | ESP32-S3-Relay-6CH | — | — | — | — | — | 📋 |
-| **Waveshare** | ESP32-S3-Touch-AMOLED-2.41 | — | — | — | — | — | 📋 · ⚠️ QMI8658 gap |
-| **Waveshare** | ESP32-S3-Touch-LCD-1.85C | — | — | — | — | — | 📋 · ⚠️ QMI8658 gap |
+| **Waveshare** | ESP32-S3-Touch-AMOLED-2.41 | — | — | — | — | — | 📋 · 🆕 QMI8658 gap |
+| **Waveshare** | ESP32-S3-Touch-LCD-1.85C | — | — | — | — | — | 📋 · 🆕 QMI8658 gap |
 | **Wireless-Tag** | WT32-SC01 / Plus | — | — | — | — | — | 📋 |
 
 ---
@@ -94,8 +111,8 @@ Full breakdown of which ICs are covered by ESPHome built-ins vs. requiring custo
 | ILI9342C display (SPI) | ✅ `ili9xxx` | `model: ILI9342` |
 | FT6336U touch | ✅ `ft63x6` | |
 | ES7210 mic ADC | ✅ `es7210` | `audio_adc` platform |
-| AW88298 amplifier | ❌ no driver | No ESPHome component; third-party external component required |
-| AXP2101 PMU | ❌ no driver | PR #16425 unmerged; third-party external component required — **blocks peripheral power** |
+| AW88298 amplifier | 🆕 `aw88298` | No ESPHome component; planned for this repo |
+| AXP2101 PMU | 🆕 `axp2101` | PR #16425 unmerged; planned for this repo — **blocks peripheral power** |
 | BM8563 RTC | ✅ `bm8563` | Added in ESPHome 2025.12.0 |
 
 ### M5Stack Cardputer V1.1
@@ -103,7 +120,7 @@ Full breakdown of which ICs are covered by ESPHome built-ins vs. requiring custo
 | IC / Peripheral | Platform | Notes |
 |-----------------|----------|-------|
 | ST7789V2 display (SPI) | ✅ `ili9xxx` | |
-| 74HC138 keyboard matrix | ❌ no driver | `matrix_keypad` cannot model 3-to-8 decoder topology; requires custom logic |
+| 74HC138 keyboard matrix | 🆕 `74hc138_keypad` | `matrix_keypad` cannot model 3-to-8 decoder topology; planned for this repo |
 | SPM1423 mic (PDM) | ✅ `i2s_audio` | `pdm: true` |
 | NS4168 speaker (I2S) | ✅ `i2s_audio` | `dac_type: external` |
 | IR TX | ✅ `remote_transmitter` | |
@@ -151,7 +168,7 @@ Full breakdown of which ICs are covered by ESPHome built-ins vs. requiring custo
 | IC / Peripheral | Platform | Notes |
 |-----------------|----------|-------|
 | WS2812B 8×8 matrix | ✅ `esp32_rmt_led_strip` | |
-| QMI8658 IMU | ❌ no official driver | Community-only: `dala318/esphome-qmi8658` |
+| QMI8658 IMU | 🆕 `qmi8658` | Planned; community fork `dala318/esphome-qmi8658` to vendor |
 
 ### Waveshare ESP32-S3-Relay-6CH
 
@@ -167,7 +184,7 @@ Full breakdown of which ICs are covered by ESPHome built-ins vs. requiring custo
 | RM690B0 AMOLED display (QSPI) | ✅ `qspi_amoled` | Being superseded by `mipi_spi` in future ESPHome |
 | FT6336 touch | ✅ `ft63x6` | |
 | TCA9554 GPIO expander | ✅ `pca9554` | Controls AMOLED_EN, TP_INT, IMU_INT — required for display init |
-| QMI8658 IMU | ❌ no official driver | Community-only: `dala318/esphome-qmi8658` |
+| QMI8658 IMU | 🆕 `qmi8658` | Planned; community fork `dala318/esphome-qmi8658` to vendor |
 | PCF85063 RTC | ✅ `pcf85063` | |
 
 ### Waveshare ESP32-S3-Touch-LCD-1.85C
@@ -178,7 +195,7 @@ Full breakdown of which ICs are covered by ESPHome built-ins vs. requiring custo
 | CST816S touch | ✅ `cst816` | |
 | TCA9554 GPIO expander | ✅ `pca9554` | Controls TP_RST, LCD_RST, SD_D3, RTC_INT |
 | PCF85063 RTC | ✅ `pcf85063` | |
-| QMI8658A IMU | ❌ no official driver | Community-only: `dala318/esphome-qmi8658` |
+| QMI8658A IMU | 🆕 `qmi8658` | Planned; community fork `dala318/esphome-qmi8658` to vendor |
 | PCM5101A + NS8002 (V1 audio) | ✅ `i2s_audio` | Passive DAC; no I2C control |
 | ES8311 codec (V2) | ✅ `es8311` | `audio_dac` platform |
 | ES7210 mic ADC (V2) | ✅ `es7210` | `audio_adc` platform |
@@ -197,14 +214,15 @@ Full breakdown of which ICs are covered by ESPHome built-ins vs. requiring custo
 
 ## Coverage Gaps Summary
 
-ICs with no official ESPHome support across all candidate devices:
+ICs with no official ESPHome support across all candidate devices — these
+map directly to the [Planned Components](#待開發--planned-components) table above.
 
 | IC | Function | Devices | Action |
 |----|----------|---------|--------|
-| **AXP2101** | PMU / power rail control | CoreS3 SE | Third-party external component required (e.g. `lboue/esphome-axp2101`). **Highest priority** — blocks screen/sensor power on CoreS3 SE |
-| **AW88298** | I2C audio amplifier (1W) | CoreS3 SE | Third-party external component required; no ESPHome PR merged |
-| **QMI8658 / QMI8658A** | 6-axis IMU | ESP32-S3-Matrix, AMOLED-2.41, LCD-1.85C | Community component `dala318/esphome-qmi8658` (not in our repo) |
-| **74HC138 keyboard** | 3-to-8 decoder keyboard matrix | Cardputer V1.1 | `matrix_keypad` cannot model decoder topology; requires custom scanning logic |
+| **AXP2101** | PMU / power rail control | CoreS3 SE | 🆕 Build `axp2101` (third-party reference: `lboue/esphome-axp2101`). **Highest priority** — blocks screen/sensor power on CoreS3 SE |
+| **AW88298** | I2C audio amplifier (1W) | CoreS3 SE | 🆕 Build `aw88298`; no ESPHome PR merged |
+| **QMI8658 / QMI8658A** | 6-axis IMU | ESP32-S3-Matrix, AMOLED-2.41, LCD-1.85C | 🆕 Vendor community component `dala318/esphome-qmi8658` |
+| **74HC138 keyboard** | 3-to-8 decoder keyboard matrix | Cardputer V1.1 | 🆕 Custom scanning logic — `matrix_keypad` cannot model decoder topology |
 
 ---
 
