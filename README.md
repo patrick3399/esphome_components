@@ -9,7 +9,8 @@ Custom ESPHome components and device configurations.
 | 🆕 | 待開發 — Planned, no implementation yet |
 | 🚧 | In progress — active branch (see Open Branches) |
 | 🔄 | 待更新/重構 — Existing code, pending verification or rewrite for ESPHome 2026.x |
-| ✅ | Verified working with current ESPHome |
+| 🧪 | Compiles cleanly on current ESPHome — awaiting hardware verification |
+| ✅ | Verified working on real hardware with current ESPHome |
 | 🏠 | In use on HA server, config not in repo |
 | 📋 | Reference only — no config yet |
 | ❌ | Archived — known broken or replaced |
@@ -39,8 +40,8 @@ on the current ESPHome version without re-testing.
 | Component | Type | Status | Notes |
 |-----------|------|:------:|-------|
 | `aw9523` | I2C GPIO expander (16-pin) | 🔄 | Used on StamPLC |
-| `bmi270` | IMU (accel + gyro) | 🔄 🚧 | Native I2C rewrite pending (`fix/bmi270-native-i2c`) |
-| `ed047tc1` | 4.7" e-paper display | 🔄 🚧 | `partial_update()` pending (`feat/ed047tc1-partial-update`); depends on local `epdiy/` checkout |
+| `bmi270` | IMU (accel + gyro) | 🧪 | Native I2C rewrite landed in `new` (`b0366b7`, cherry-picked from `fix/bmi270-native-i2c`); compiles on m5papers3 + ESPHome 2026.4.5 |
+| `ed047tc1` | 4.7" e-paper display | 🧪 | `partial_update()` (`8ca1c24`) and EPDIY 2026.x board-init compat (`ecdead1`) both in `new`; compiles on m5papers3. Requires [`patrick3399/epdiy@fix/platformio-srcfilter`](https://github.com/patrick3399/epdiy/tree/fix/platformio-srcfilter) |
 | `pca9505` | I2C GPIO expander (40-pin) | 🔄 | Used on StamPLC |
 
 ### Archived (`archived/`)
@@ -61,7 +62,7 @@ ESPHome column reflects overall config readiness (not just custom components).
 | Vendor | Device | Config | `aw9523` | `bmi270` | `ed047tc1` | `pca9505` | ESPHome |
 |--------|--------|--------|:--------:|:--------:|:----------:|:---------:|---------|
 | **M5Stack** | StamPLC | `devices/m5stack/m5stamplc.yaml` | 🔄 | — | — | 🔄 | 🔄 待更新 |
-| **M5Stack** | Paper S3 | `devices/m5stack/m5papers3.yaml` | — | 🔄 🚧 | 🔄 🚧 | — | 🔄 待更新 |
+| **M5Stack** | Paper S3 | `devices/m5stack/m5papers3.yaml` | — | 🧪 | 🧪 | — | 🧪 compile OK · HW pending |
 | **M5Stack** | CoreS3 SE | 🏠 HA server | — | — | — | — | 🏠 in use · 🆕 AXP2101/AW88298 gaps |
 | **M5Stack** | Cardputer V1.1 | — | — | — | — | — | 📋 · 🆕 74HC138 keyboard gap |
 | **Guition** | ESP32-S3-4848S040 | — | — | — | — | — | 📋 |
@@ -228,7 +229,14 @@ map directly to the [Planned Components](#待開發--planned-components) table a
 
 ## Open Branches
 
-| Branch | Description |
-|--------|-------------|
-| `feat/ed047tc1-partial-update` | Adds `partial_update()` to reduce e-ink panel wear |
-| `fix/bmi270-native-i2c` | Rewrites bmi270 using ESPHome native I2C, removes Bosch SDK dependency |
+_None active — all in-flight work landed on `new` (2026-05-16):_
+
+| Former branch | Landed as | Status |
+|---------------|-----------|--------|
+| `feat/ed047tc1-partial-update` | `8ca1c24` on `new` | merged via reorg; branch can be deleted |
+| `fix/bmi270-native-i2c` | `b0366b7` on `new` (cherry-pick of `f02e8d9`) | merged; branch can be deleted |
+
+EPDIY-side dependency: [`patrick3399/epdiy@fix/platformio-srcfilter`](https://github.com/patrick3399/epdiy/tree/fix/platformio-srcfilter)
+— two commits (`6c3f9f7` lut.S srcFilter exclude, `e8a2e00` weak C fallback) that together let
+EPDIY 2.0.0 link cleanly when consumed via PlatformIO's `libraries:` directive (as ESPHome
+external components do). PR candidate to send upstream to `vroland/epdiy` later.
