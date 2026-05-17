@@ -251,6 +251,7 @@ binary_sensor:
     pin:
       aw9523b_id: aw9523b_1
       number: 4
+      inverted: true
       mode:
         input: true
 
@@ -277,6 +278,30 @@ binary_sensor:
         input: true
     on_press:
       - logger.log: "AW88298 interrupt triggered"
+
+  - platform: touchscreen
+    name: "Button A"
+    id: btn_a
+    x_min: 0
+    x_max: 106
+    y_min: 200
+    y_max: 240
+
+  - platform: touchscreen
+    name: "Button B"
+    id: btn_b
+    x_min: 107
+    x_max: 213
+    y_min: 200
+    y_max: 240
+
+  - platform: touchscreen
+    name: "Button C"
+    id: btn_c
+    x_min: 214
+    x_max: 320
+    y_min: 200
+    y_max: 240
 
   - platform: template
     id: vbus_present
