@@ -22,6 +22,9 @@ esphome:
     - priority: 100
       then:
         - delay: 200ms
+        - bm8563.read_time:
+            id: rtc_time
+        - script.execute: update_time_display
         - script.execute: draw_display
         - delay: 30s
         - if:
@@ -89,6 +92,9 @@ logger:
     esp-idf: DEBUG
     lvgl: WARN
 
+debug:
+  update_interval: 10s
+
 globals:
   - id: init_in_progress
     type: bool
@@ -98,6 +104,10 @@ globals:
     type: int
     restore_value: no
     initial_value: ${voice_assist_not_ready_phase_id}
+  - id: volume_overlay_visible
+    type: bool
+    restore_value: no
+    initial_value: "false"
 
 i2c:
   - id: bus_a
@@ -121,6 +131,24 @@ i2s_audio:
   i2s_mclk_pin:
     number: GPIO0
     ignore_strapping_warning: true
+
+time:
+  - platform: bm8563
+    id: rtc_time
+    i2c_id: bus_a
+    address: 0x51
+    update_interval: never
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: update_time_display
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      then:
+        - bm8563.write_time:
+            id: rtc_time
+        - script.execute: update_time_display
 
 axp2101:
   id: axp2101_pmu
@@ -231,6 +259,11 @@ switch:
       - lambda: id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
       - script.execute: draw_display
 
+button:
+  - platform: restart
+    name: "Restart"
+    entity_category: diagnostic
+
 binary_sensor:
   - platform: gpio
     id: es_int
@@ -278,63 +311,6 @@ binary_sensor:
         input: true
     on_press:
       - logger.log: "AW88298 interrupt triggered"
-
-  - platform: touchscreen
-    name: "Button A"
-    id: btn_a
-    x_min: 0
-    x_max: 106
-    y_min: 200
-    y_max: 240
-    on_press:
-      - switch.toggle: mic_mute
-
-  - platform: touchscreen
-    name: "Button B"
-    id: btn_b
-    x_min: 107
-    x_max: 213
-    y_min: 200
-    y_max: 240
-    on_press:
-      - if:
-          condition:
-            voice_assistant.is_running:
-          then:
-            - voice_assistant.stop:
-          else:
-            - if:
-                condition:
-                  and:
-                    - lambda: return !id(init_in_progress);
-                    - switch.is_off: mic_mute
-                    - wifi.connected:
-                    - api.connected:
-                then:
-                  - script.execute: stop_wake_word
-                  - delay: 100ms
-                  - voice_assistant.start:
-
-  - platform: touchscreen
-    name: "Button C"
-    id: btn_c
-    x_min: 214
-    x_max: 320
-    y_min: 200
-    y_max: 240
-    on_press:
-      - if:
-          condition:
-            voice_assistant.is_running:
-          then:
-            - voice_assistant.stop:
-      - if:
-          condition:
-            media_player.is_announcing:
-          then:
-            - media_player.stop:
-                id: va_media_player
-                announcement: true
 
   - platform: template
     id: vbus_present
@@ -458,6 +434,7 @@ media_player:
   - platform: speaker
     name: "Voice Assistant"
     id: va_media_player
+    volume_initial: 0.6
     volume_min: 0.5
     volume_max: 0.8
     announcement_pipeline:
@@ -501,6 +478,15 @@ media_player:
             - script.execute: start_wake_word
             - script.execute: set_idle_or_mute_phase
             - script.execute: draw_display
+    on_volume:
+      - lvgl.slider.update:
+          id: volume_slider
+          value: !lambda return int(x * 100.0f);
+      - lvgl.label.update:
+          id: volume_value_label
+          text:
+            format: "%d%%"
+            args: [ 'int(x * 100.0f)' ]
 
 micro_wake_word:
   id: mww
@@ -662,6 +648,38 @@ font:
     size: 15
     glyphsets:
       - GF_Latin_Core
+  - file:
+      type: gfonts
+      family: Figtree
+      weight: 600
+    id: font_phase
+    size: 30
+    glyphsets:
+      - GF_Latin_Core
+  - file:
+      type: gfonts
+      family: Figtree
+      weight: 500
+    id: font_clock
+    size: 26
+    glyphsets:
+      - GF_Latin_Core
+  - file:
+      type: gfonts
+      family: Figtree
+      weight: 500
+    id: font_status
+    size: 16
+    glyphsets:
+      - GF_Latin_Core
+  - file:
+      type: gfonts
+      family: Figtree
+      weight: 400
+    id: font_small
+    size: 12
+    glyphsets:
+      - GF_Latin_Core
   - file: https://raw.githubusercontent.com/Templarian/MaterialDesign-Webfont/master/fonts/materialdesignicons-webfont.ttf
     id: mdi_icon_128
     size: 128
@@ -686,50 +704,245 @@ display:
     data_rate: 40MHz
     update_interval: never
     invert_colors: true
-    pages:
-      - id: idle_page
-        lambda: |-
-          it.fill(Color(0x000000));
-          it.image(it.get_width() / 2, it.get_height() / 2, id(img_idle), ImageAlign::CENTER);
-      - id: listening_page
-        lambda: |-
-          it.fill(Color(0xFFFFFF));
-          it.image(it.get_width() / 2, it.get_height() / 2, id(img_listening), ImageAlign::CENTER);
-      - id: thinking_page
-        lambda: |-
-          it.fill(Color(0xFFFFFF));
-          it.image(it.get_width() / 2, it.get_height() / 2, id(img_thinking), ImageAlign::CENTER);
-          it.filled_rectangle(20, 20, 280, 30, Color::WHITE);
-          it.rectangle(20, 20, 280, 30, Color::BLACK);
-          it.printf(30, 25, id(font_request), Color::BLACK, "%s", id(text_request).state.c_str());
-      - id: replying_page
-        lambda: |-
-          it.fill(Color(0xFFFFFF));
-          it.image(it.get_width() / 2, it.get_height() / 2, id(img_replying), ImageAlign::CENTER);
-          it.filled_rectangle(20, 20, 280, 30, Color::WHITE);
-          it.rectangle(20, 20, 280, 30, Color::BLACK);
-          it.filled_rectangle(20, 190, 280, 30, Color::WHITE);
-          it.rectangle(20, 190, 280, 30, Color::BLACK);
-          it.printf(30, 25, id(font_request), Color::BLACK, "%s", id(text_request).state.c_str());
-          it.printf(30, 195, id(font_response), Color::BLACK, "%s", id(text_response).state.c_str());
-      - id: error_page
-        lambda: |-
-          it.fill(Color(0x000000));
-          it.image(it.get_width() / 2, it.get_height() / 2, id(img_error), ImageAlign::CENTER);
-      - id: no_ha_page
-        lambda: |-
-          it.image(it.get_width() / 2, it.get_height() / 2, id(img_error_no_ha), ImageAlign::CENTER);
-      - id: no_wifi_page
-        lambda: |-
-          it.image(it.get_width() / 2, it.get_height() / 2, id(img_error_no_wifi), ImageAlign::CENTER);
-      - id: initializing_page
-        lambda: |-
-          it.fill(Color(0x000000));
-          it.image(it.get_width() / 2, it.get_height() / 2, id(img_loading), ImageAlign::CENTER);
-      - id: muted_page
-        lambda: |-
-          it.fill(Color::BLACK);
-          it.printf(96, 56, id(mdi_icon_128), Color::WHITE, "%s", "\U000F036D");
+
+lvgl:
+  displays:
+    - m5cores3_lcd
+  touchscreens:
+    - touch
+  buffer_size: 12%
+  default_font: font_response
+  bg_color: 0x101418
+  style_definitions:
+    - id: transparent_panel
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      shadow_opa: TRANSP
+      pad_all: 0
+    - id: control_button
+      width: 92
+      height: 38
+      radius: 8
+      bg_color: 0x263238
+      border_opa: TRANSP
+      shadow_opa: TRANSP
+      text_color: 0xFFFFFF
+    - id: volume_overlay
+      width: 280
+      height: 132
+      radius: 8
+      bg_color: 0x1D252C
+      bg_opa: COVER
+      border_color: 0x3B4650
+      border_width: 1
+      shadow_opa: TRANSP
+      pad_all: 14
+  pages:
+    - id: va_page
+      bg_color: 0x101418
+      widgets:
+        - obj:
+            id: top_bar
+            styles: transparent_panel
+            align: TOP_MID
+            width: 300
+            height: 42
+            y: 8
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              - label:
+                  id: connection_label
+                  text: "Booting"
+                  text_font: font_status
+                  text_color: 0x9FB3C8
+              - label:
+                  id: time_label
+                  text: "--:--"
+                  text_font: font_clock
+                  text_color: 0xFFFFFF
+        - obj:
+            id: center_panel
+            styles: transparent_panel
+            align: CENTER
+            width: 300
+            height: 112
+            y: -12
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_row: 8
+            widgets:
+              - label:
+                  id: phase_label
+                  text: "Starting"
+                  text_font: font_phase
+                  text_color: 0xFFFFFF
+              - label:
+                  id: detail_label
+                  text: "Preparing voice assistant"
+                  text_font: font_status
+                  text_color: 0x9FB3C8
+                  long_mode: DOT
+                  width: 280
+                  text_align: CENTER
+        - obj:
+            id: transcript_panel
+            styles: transparent_panel
+            align: BOTTOM_MID
+            width: 300
+            height: 72
+            y: -48
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_row: 4
+            widgets:
+              - label:
+                  id: request_label
+                  text: ""
+                  text_font: font_small
+                  text_color: 0xD6E2EE
+                  long_mode: DOT
+                  width: 292
+                  text_align: CENTER
+              - label:
+                  id: response_label
+                  text: ""
+                  text_font: font_small
+                  text_color: 0x8AB4F8
+                  long_mode: DOT
+                  width: 292
+                  text_align: CENTER
+        - obj:
+            id: bottom_bar
+            styles: transparent_panel
+            align: BOTTOM_MID
+            width: 300
+            height: 42
+            y: -4
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              - button:
+                  id: mic_button
+                  styles: control_button
+                  widgets:
+                    - label:
+                        id: mic_button_label
+                        text: "Mute"
+                        align: CENTER
+                        text_font: font_status
+                  on_click:
+                    - switch.toggle: mic_mute
+              - button:
+                  id: talk_button
+                  styles: control_button
+                  widgets:
+                    - label:
+                        id: talk_button_label
+                        text: "Talk"
+                        align: CENTER
+                        text_font: font_status
+                  on_click:
+                    - if:
+                        condition:
+                          voice_assistant.is_running:
+                        then:
+                          - voice_assistant.stop:
+                        else:
+                          - if:
+                              condition:
+                                media_player.is_announcing:
+                              then:
+                                - media_player.stop:
+                                    id: va_media_player
+                                    announcement: true
+                              else:
+                                - if:
+                                    condition:
+                                      and:
+                                        - lambda: return !id(init_in_progress);
+                                        - switch.is_off: mic_mute
+                                        - wifi.connected:
+                                        - api.connected:
+                                    then:
+                                      - script.execute: stop_wake_word
+                                      - delay: 100ms
+                                      - voice_assistant.start:
+              - button:
+                  id: volume_button
+                  styles: control_button
+                  widgets:
+                    - label:
+                        text: "Volume"
+                        align: CENTER
+                        text_font: font_status
+                  on_click:
+                    - script.execute: show_volume_overlay
+        - obj:
+            id: volume_popup
+            styles: volume_overlay
+            align: CENTER
+            hidden: true
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_row: 12
+            widgets:
+              - obj:
+                  styles: transparent_panel
+                  width: 252
+                  height: 24
+                  layout:
+                    type: FLEX
+                    flex_flow: ROW
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: CENTER
+                  widgets:
+                    - label:
+                        text: "Volume"
+                        text_font: font_status
+                        text_color: 0xFFFFFF
+                    - label:
+                        id: volume_value_label
+                        text: "60%"
+                        text_font: font_status
+                        text_color: 0x8AB4F8
+              - slider:
+                  id: volume_slider
+                  width: 252
+                  height: 24
+                  min_value: 50
+                  max_value: 80
+                  value: 60
+                  bg_color: 0x3B4650
+                  indicator:
+                    bg_color: 0x8AB4F8
+                  knob:
+                    bg_color: 0xFFFFFF
+                  on_release:
+                    - media_player.volume_set:
+                        id: va_media_player
+                        volume: !lambda return x / 100.0f;
+                    - lvgl.label.update:
+                        id: volume_value_label
+                        text:
+                          format: "%d%%"
+                          args: [ 'int(x)' ]
+                    - script.execute: hide_volume_overlay_later
 
 touchscreen:
   - platform: ft63x6
@@ -751,59 +964,111 @@ touchscreen:
           ESP_LOGI("touch", "x=%d, y=%d", touch.x, touch.y);
 
 script:
-  - id: draw_display
+  - id: update_time_display
+    mode: restart
     then:
       - if:
           condition:
-            lambda: return !id(init_in_progress);
+            time.has_time:
+              id: rtc_time
           then:
-            - if:
-                condition:
-                  wifi.connected:
-                then:
-                  - if:
-                      condition:
-                        api.connected:
-                      then:
-                        - lambda: |-
-                            switch (id(voice_assistant_phase)) {
-                              case ${voice_assist_listening_phase_id}:
-                                id(m5cores3_lcd).show_page(listening_page);
-                                id(m5cores3_lcd).update();
-                                break;
-                              case ${voice_assist_thinking_phase_id}:
-                                id(m5cores3_lcd).show_page(thinking_page);
-                                id(m5cores3_lcd).update();
-                                break;
-                              case ${voice_assist_replying_phase_id}:
-                                id(m5cores3_lcd).show_page(replying_page);
-                                id(m5cores3_lcd).update();
-                                break;
-                              case ${voice_assist_error_phase_id}:
-                                id(m5cores3_lcd).show_page(error_page);
-                                id(m5cores3_lcd).update();
-                                break;
-                              case ${voice_assist_muted_phase_id}:
-                                id(m5cores3_lcd).show_page(muted_page);
-                                id(m5cores3_lcd).update();
-                                break;
-                              case ${voice_assist_not_ready_phase_id}:
-                                id(m5cores3_lcd).show_page(no_ha_page);
-                                id(m5cores3_lcd).update();
-                                break;
-                              default:
-                                id(m5cores3_lcd).show_page(idle_page);
-                                id(m5cores3_lcd).update();
-                            }
-                      else:
-                        - display.page.show: no_ha_page
-                        - component.update: m5cores3_lcd
-                else:
-                  - display.page.show: no_wifi_page
-                  - component.update: m5cores3_lcd
+            - lvgl.label.update:
+                id: time_label
+                text: !lambda |-
+                  auto t = id(rtc_time).now();
+                  return t.strftime("%H:%M").c_str();
           else:
-            - display.page.show: initializing_page
-            - component.update: m5cores3_lcd
+            - lvgl.label.update:
+                id: time_label
+                text: "--:--"
+
+  - id: show_volume_overlay
+    mode: restart
+    then:
+      - lambda: id(volume_overlay_visible) = true;
+      - lvgl.slider.update:
+          id: volume_slider
+          value: !lambda return int(id(va_media_player).volume * 100.0f);
+      - lvgl.label.update:
+          id: volume_value_label
+          text:
+            format: "%d%%"
+            args: [ 'int(id(va_media_player).volume * 100.0f)' ]
+      - lvgl.widget.show: volume_popup
+      - script.execute: hide_volume_overlay_later
+
+  - id: hide_volume_overlay_later
+    mode: restart
+    then:
+      - delay: 5s
+      - lambda: id(volume_overlay_visible) = false;
+      - lvgl.widget.hide: volume_popup
+
+  - id: draw_display
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: connection_label
+          text: !lambda |-
+            if (id(init_in_progress)) return std::string("Booting");
+            if (!wifi::global_wifi_component->is_connected()) return std::string("No WiFi");
+            if (!api::global_api_server->is_connected()) return std::string("No HA");
+            return id(wake_word_engine_location).current_option();
+      - lvgl.label.update:
+          id: phase_label
+          text: !lambda |-
+            if (id(init_in_progress)) return std::string("Starting");
+            if (!wifi::global_wifi_component->is_connected()) return std::string("No WiFi");
+            if (!api::global_api_server->is_connected()) return std::string("No HA");
+            switch (id(voice_assistant_phase)) {
+              case ${voice_assist_listening_phase_id}: return std::string("Listening");
+              case ${voice_assist_thinking_phase_id}: return std::string("Thinking");
+              case ${voice_assist_replying_phase_id}: return std::string("Replying");
+              case ${voice_assist_error_phase_id}: return std::string("Error");
+              case ${voice_assist_muted_phase_id}: return std::string("Muted");
+              case ${voice_assist_not_ready_phase_id}: return std::string("Not Ready");
+              default: return std::string("Ready");
+            }
+      - lvgl.label.update:
+          id: phase_label
+          text_color: !lambda |-
+            if (id(init_in_progress) || !wifi::global_wifi_component->is_connected() || !api::global_api_server->is_connected()) return lv_color_hex(0xFFB86C);
+            switch (id(voice_assistant_phase)) {
+              case ${voice_assist_listening_phase_id}: return lv_color_hex(0x7EE787);
+              case ${voice_assist_thinking_phase_id}: return lv_color_hex(0xD2A8FF);
+              case ${voice_assist_replying_phase_id}: return lv_color_hex(0x8AB4F8);
+              case ${voice_assist_error_phase_id}: return lv_color_hex(0xFF7B72);
+              case ${voice_assist_muted_phase_id}: return lv_color_hex(0xA7B1BC);
+              default: return lv_color_hex(0xFFFFFF);
+            }
+      - lvgl.label.update:
+          id: detail_label
+          text: !lambda |-
+            if (id(init_in_progress)) return std::string("Preparing voice assistant");
+            if (!wifi::global_wifi_component->is_connected()) return std::string("Waiting for network");
+            if (!api::global_api_server->is_connected()) return std::string("Waiting for Home Assistant");
+            switch (id(voice_assistant_phase)) {
+              case ${voice_assist_listening_phase_id}: return std::string("I'm listening");
+              case ${voice_assist_thinking_phase_id}: return std::string("Processing speech");
+              case ${voice_assist_replying_phase_id}: return std::string("Speaking response");
+              case ${voice_assist_error_phase_id}: return std::string("Something went wrong");
+              case ${voice_assist_muted_phase_id}: return std::string("Microphone muted");
+              default: return std::string("Wake word is active");
+            }
+      - lvgl.label.update:
+          id: request_label
+          text: !lambda return id(text_request).state;
+      - lvgl.label.update:
+          id: response_label
+          text: !lambda return id(text_response).state;
+      - lvgl.label.update:
+          id: mic_button_label
+          text: !lambda |-
+            return id(mic_mute).state ? std::string("Unmute") : std::string("Mute");
+      - lvgl.label.update:
+          id: talk_button_label
+          text: !lambda |-
+            return (id(va).is_running() || id(va_media_player).state == media_player::MEDIA_PLAYER_STATE_ANNOUNCING) ? std::string("Stop") : std::string("Talk");
 
   - id: start_wake_word
     then:
@@ -868,67 +1133,62 @@ script:
           }
       - script.execute: stop_wake_word
 
-image:
-  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/idle_320_240.png
-    id: img_idle
-    resize: 320x240
-    type: RGB
-    transparency: alpha_channel
-  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/listening_320_240.png
-    id: img_listening
-    resize: 320x240
-    type: RGB
-    transparency: alpha_channel
-  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/thinking_320_240.png
-    id: img_thinking
-    resize: 320x240
-    type: RGB
-    transparency: alpha_channel
-  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/replying_320_240.png
-    id: img_replying
-    resize: 320x240
-    type: RGB
-    transparency: alpha_channel
-  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/loading_320_240.png
-    id: img_loading
-    resize: 320x240
-    type: RGB
-    transparency: alpha_channel
-  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/error_320_240.png
-    id: img_error
-    resize: 320x240
-    type: RGB
-    transparency: alpha_channel
-  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/error_box_illustrations/error-no-wifi.png
-    id: img_error_no_wifi
-    resize: 320x240
-    type: RGB
-    transparency: alpha_channel
-  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/error_box_illustrations/error-no-ha.png
-    id: img_error_no_ha
-    resize: 320x240
-    type: RGB
-    transparency: alpha_channel
-
 text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"
+
   - id: text_request
     platform: template
     on_value:
-      lambda: |-
-        if (id(text_request).state.length() > 32) {
-          std::string s = id(text_request).state;
-          id(text_request).state = (esphome::str_truncate(s.c_str(), 31) + "...").c_str();
-        }
+      - lambda: |-
+          if (id(text_request).state.length() > 40) {
+            std::string s = id(text_request).state;
+            id(text_request).state = (esphome::str_truncate(s.c_str(), 39) + "...").c_str();
+          }
+      - script.execute: draw_display
   - id: text_response
     platform: template
     on_value:
-      lambda: |-
-        if (id(text_response).state.length() > 32) {
-          std::string s = id(text_response).state;
-          id(text_response).state = (esphome::str_truncate(s.c_str(), 31) + "...").c_str();
-        }
+      - lambda: |-
+          if (id(text_response).state.length() > 40) {
+            std::string s = id(text_response).state;
+            id(text_response).state = (esphome::str_truncate(s.c_str(), 39) + "...").c_str();
+          }
+      - script.execute: draw_display
 
 sensor:
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Max Block"
+    fragmentation:
+      name: "Heap Fragmentation"
+    loop_time:
+      name: "Loop Time"
+    psram:
+      name: "Free PSRAM"
+    cpu_frequency:
+      name: "CPU Frequency"
+
+  - platform: internal_temperature
+    name: "Chip Temp"
+    update_interval: 60s
+
+  # Disabled while investigating high debug Loop Time (~700ms).
+  # The component processes microphone audio from the main loop.
+  # - platform: sound_level
+  #   microphone: i2s_mic
+  #   measurement_duration: 1000ms
+  #   passive: true
+  #   peak:
+  #     name: "Peak Loudness"
+  #   rms:
+  #     name: "Average Loudness"
+
   - platform: axp2101
     id: axp2101_sensors
     battery_level:
