@@ -40,7 +40,7 @@ on the current ESPHome version without re-testing.
 
 | Component | Type | Status | Notes |
 |-----------|------|:------:|-------|
-| `aw9523` | I2C GPIO expander (16-pin) | 🔄 | Used on StamPLC |
+| `aw9523` | I2C GPIO expander (16-pin) | 🧪 | Used on StamPLC. Compiles on ESPHome 2026.4.5. Adds LED driver mode, INTENABLE disable, `imax_divider`, `latch_inputs`. HW verification pending. |
 | `bmi270` | IMU (accel + gyro) | 🧪 | Native I2C rewrite landed in `new` (`b0366b7`, cherry-picked from `fix/bmi270-native-i2c`); compiles on m5papers3 + ESPHome 2026.4.5 |
 | `ed047tc1` | 4.7" e-paper display | 🧪 | `partial_update()` (`8ca1c24`) and EPDIY 2026.x board-init compat (`ecdead1`) both in `new`; compiles on m5papers3. Requires [`patrick3399/epdiy@fix/platformio-srcfilter`](https://github.com/patrick3399/epdiy/tree/fix/platformio-srcfilter) |
 | `pca9505` | I2C GPIO expander (40-pin) | 🔄 | Used on StamPLC |
@@ -65,7 +65,7 @@ ESPHome column reflects overall config readiness (not just custom components).
 
 | Vendor | Device | Config | `aw9523` | `bmi270` | `ed047tc1` | `pca9505` | ESPHome |
 |--------|--------|--------|:--------:|:--------:|:----------:|:---------:|---------|
-| **M5Stack** | StamPLC | `devices/m5stack/m5stamplc.yaml` | 🔄 | — | — | 🔄 | 🔄 待更新 |
+| **M5Stack** | StamPLC | `devices/m5stack/m5stamplc.yaml` | 🧪 | — | — | 🔄 | 🔄 待更新 · pi4ioe5v6408 still broken |
 | **M5Stack** | Paper S3 | `devices/m5stack/m5papers3.yaml` | — | 🧪 | 🧪 | — | 🧪 compile OK · HW pending |
 | **M5Stack** | CoreS3 SE | `devices/m5stack/m5cores3se.yaml` | — | — | — | — | ✅ VA working · M5Stack official axp2101/aw88298/aw9523b |
 | **M5Stack** | Cardputer V1.1 | — | — | — | — | — | 📋 · 🆕 74HC138 keyboard gap |
