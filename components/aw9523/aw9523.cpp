@@ -65,7 +65,7 @@ void AW9523Component::dump_config() {
   if (this->is_failed()) {
     ESP_LOGE(TAG, "Communication with AW9523 failed!");
   }
-  ESP_LOGCONFIG(TAG, "  Update Interval: %.0f ms", this->get_update_interval());
+  ESP_LOGCONFIG(TAG, "  Update Interval: %u ms", (unsigned) this->get_update_interval());
   // 如果需要，可透過迭代已註冊的 pin 來記錄 pin 的設定
 }
 

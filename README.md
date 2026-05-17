@@ -24,10 +24,11 @@ Top-priority custom components to add for new target devices. Driven by the
 
 | Component | Type | Devices Blocked | Priority |
 |-----------|------|-----------------|----------|
-| `axp2101` | PMU / power rail control | M5Stack CoreS3 SE | 🔥 Highest — blocks peripheral power on CoreS3 SE |
-| `aw88298` | I2C audio amplifier (1W) | M5Stack CoreS3 SE | High — no upstream ESPHome PR merged |
 | `qmi8658` | 6-axis IMU | Waveshare Matrix · AMOLED-2.41 · LCD-1.85C | Medium — community fork `dala318/esphome-qmi8658` available to vendor |
 | `74hc138_keypad` | 3-to-8 decoder keyboard matrix | M5Stack Cardputer V1.1 | Low — `matrix_keypad` cannot model decoder topology |
+
+> **axp2101 / aw88298 / aw9523b (CoreS3 SE):** Deferred — using
+> `github://m5stack/esphome-yaml/components` instead. See [DECISIONS.md](../DECISIONS.md).
 
 ---
 
@@ -48,6 +49,9 @@ on the current ESPHome version without re-testing.
 
 | Component | Type | Reason |
 |-----------|------|--------|
+| `axp2101` | PMU / power rail control | Replaced by `github://m5stack/esphome-yaml/components` — vendor-validated, crash-free. Our version had identical C++ but incompatible aw9523b interaction. See [DECISIONS.md](../DECISIONS.md). |
+| `aw88298` | I2C audio amplifier (1W) | Replaced by `github://m5stack/esphome-yaml/components` — our version used `return -1.0f` magic number for `setup_priority` instead of `setup_priority::DATA`. |
+| `aw9523b` | I2C GPIO expander (16-pin, CoreS3 SE) | Replaced by `github://m5stack/esphome-yaml/components` — pin key schema (`aw9523b:` vs `aw9523b_id:`) and `mode_mask_` init difference caused OTA rollback crashes. |
 | `lm75` | I2C temperature sensor | Replaced by built-in ESPHome `lm75b` |
 | `pi4ioe5v6408` | I2C GPIO expander (8-pin) | `pins.gpio_base_schema` API broken in ESPHome 2026.x |
 | `rx8130ce` | I2C RTC | Replaced by built-in ESPHome `rx8130` |
@@ -63,7 +67,7 @@ ESPHome column reflects overall config readiness (not just custom components).
 |--------|--------|--------|:--------:|:--------:|:----------:|:---------:|---------|
 | **M5Stack** | StamPLC | `devices/m5stack/m5stamplc.yaml` | 🔄 | — | — | 🔄 | 🔄 待更新 |
 | **M5Stack** | Paper S3 | `devices/m5stack/m5papers3.yaml` | — | 🧪 | 🧪 | — | 🧪 compile OK · HW pending |
-| **M5Stack** | CoreS3 SE | 🏠 HA server | — | — | — | — | 🏠 in use · 🆕 AXP2101/AW88298 gaps |
+| **M5Stack** | CoreS3 SE | `devices/m5stack/m5cores3se.yaml` | — | — | — | — | ✅ VA working · M5Stack official axp2101/aw88298/aw9523b |
 | **M5Stack** | Cardputer V1.1 | — | — | — | — | — | 📋 · 🆕 74HC138 keyboard gap |
 | **Guition** | ESP32-S3-4848S040 | — | — | — | — | — | 📋 |
 | **Guition** | JC3636K518 | — | — | — | — | — | 📋 |
@@ -112,8 +116,8 @@ Full breakdown of which ICs are covered by ESPHome built-ins vs. requiring custo
 | ILI9342C display (SPI) | ✅ `ili9xxx` | `model: ILI9342` |
 | FT6336U touch | ✅ `ft63x6` | |
 | ES7210 mic ADC | ✅ `es7210` | `audio_adc` platform |
-| AW88298 amplifier | 🆕 `aw88298` | No ESPHome component; planned for this repo |
-| AXP2101 PMU | 🆕 `axp2101` | PR #16425 unmerged; planned for this repo — **blocks peripheral power** |
+| AW88298 amplifier | ✅ M5Stack official | `github://m5stack/esphome-yaml/components` — see [DECISIONS.md](../DECISIONS.md) |
+| AXP2101 PMU | ✅ M5Stack official | `github://m5stack/esphome-yaml/components` — see [DECISIONS.md](../DECISIONS.md) |
 | BM8563 RTC | ✅ `bm8563` | Added in ESPHome 2025.12.0 |
 
 ### M5Stack Cardputer V1.1
@@ -220,8 +224,8 @@ map directly to the [Planned Components](#待開發--planned-components) table a
 
 | IC | Function | Devices | Action |
 |----|----------|---------|--------|
-| **AXP2101** | PMU / power rail control | CoreS3 SE | 🆕 Build `axp2101` (third-party reference: `lboue/esphome-axp2101`). **Highest priority** — blocks screen/sensor power on CoreS3 SE |
-| **AW88298** | I2C audio amplifier (1W) | CoreS3 SE | 🆕 Build `aw88298`; no ESPHome PR merged |
+| **AXP2101** | PMU / power rail control | CoreS3 SE | ✅ Resolved — using M5Stack official component |
+| **AW88298** | I2C audio amplifier (1W) | CoreS3 SE | ✅ Resolved — using M5Stack official component |
 | **QMI8658 / QMI8658A** | 6-axis IMU | ESP32-S3-Matrix, AMOLED-2.41, LCD-1.85C | 🆕 Vendor community component `dala318/esphome-qmi8658` |
 | **74HC138 keyboard** | 3-to-8 decoder keyboard matrix | Cardputer V1.1 | 🆕 Custom scanning logic — `matrix_keypad` cannot model decoder topology |
 

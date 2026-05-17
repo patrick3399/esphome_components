@@ -1,19 +1,42 @@
 substitutions:
   devicename: "m5cores3se"
   friendly_name: "M5Stack CoreS3 SE"
+  voice_assist_idle_phase_id: "1"
+  voice_assist_listening_phase_id: "2"
+  voice_assist_thinking_phase_id: "3"
+  voice_assist_replying_phase_id: "4"
+  voice_assist_not_ready_phase_id: "10"
+  voice_assist_error_phase_id: "11"
+  voice_assist_muted_phase_id: "12"
 
 esphome:
   name: $devicename
   friendly_name: $friendly_name
   on_boot:
-    priority: -100
-    then:
-      - lambda: |-
-          id(axp2101_pmu).enableDLDO1();
-          id(axp2101_pmu).setDLDO1Voltage(3300);
+    - priority: 600
+      then:
+        - light.turn_on:
+            id: lcd_backlight
+            brightness: 100%
+    - priority: 100
+      then:
+        - delay: 200ms
+        - script.execute: draw_display
+        - delay: 30s
+        - if:
+            condition:
+              lambda: return id(init_in_progress);
+            then:
+              - lambda: id(init_in_progress) = false;
+              - script.execute: draw_display
 
 packages:
   common: !include ../../packages/common.yaml
+
+external_components:
+  - source: github://m5stack/esphome-yaml/components
+    components: [axp2101, aw88298, aw9523b]
+    refresh: 0s
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -38,6 +61,10 @@ api:
   reboot_timeout: 4h
   encryption:
     key: !secret api_key
+  on_client_connected:
+    - script.execute: draw_display
+  on_client_disconnected:
+    - script.execute: draw_display
 
 logger:
   hardware_uart: USB_SERIAL_JTAG
@@ -47,6 +74,16 @@ logger:
     wifi: WARN
     esp-idf: DEBUG
     lvgl: WARN
+
+globals:
+  - id: init_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "true"
+  - id: voice_assistant_phase
+    type: int
+    restore_value: no
+    initial_value: ${voice_assist_not_ready_phase_id}
 
 i2c:
   - id: bus_a
@@ -77,18 +114,131 @@ aw9523b:
   i2c_id: bus_a
   p0_drive_mode: PUSH_PULL
 
-# AW88298 amp RST = AW9523B P0_2 (pin 2). Must be HIGH before aw88298 I2C init.
+output:
+  - platform: axp2101
+    type: range
+    id: lcd_backlight_output
+    channel: DLDO1
+    min_voltage: 2600
+    max_voltage: 3300
+  - platform: axp2101
+    channel: ALDO1
+    voltage: 1800
+  - platform: axp2101
+    channel: ALDO2
+    voltage: 3300
+  - platform: axp2101
+    channel: BLDO1
+    voltage: 2800
+  - platform: axp2101
+    channel: BLDO2
+    voltage: 1500
+
+light:
+  - platform: monochromatic
+    id: lcd_backlight
+    name: "LCD Backlight"
+    output: lcd_backlight_output
+    restore_mode: RESTORE_DEFAULT_ON
+
 switch:
+  # AW88298 amp RST = AW9523B P0_2. Must be HIGH before aw88298 I2C init.
   - platform: gpio
     id: spk_amp_enable
     name: "Speaker Amp RST"
     internal: true
     pin:
-      aw9523b: aw9523b_1
+      aw9523b_id: aw9523b_1
       number: 2
       mode:
         output: true
     restore_mode: ALWAYS_ON
+
+  - platform: template
+    name: "Microphone Mute"
+    id: mic_mute
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - microphone.mute:
+      - lambda: id(voice_assistant_phase) = ${voice_assist_muted_phase_id};
+      - script.execute: draw_display
+    on_turn_off:
+      - microphone.unmute:
+      - lambda: id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
+      - script.execute: draw_display
+
+select:
+  - platform: template
+    entity_category: config
+    name: "Wake Word Engine"
+    id: wake_word_engine_location
+    icon: "mdi:account-voice"
+    optimistic: true
+    restore_value: true
+    options:
+      - "In Home Assistant"
+      - "On device"
+    initial_option: "On device"
+    on_value:
+      - if:
+          condition:
+            lambda: return !id(init_in_progress);
+          then:
+            - wait_until:
+                lambda: |-
+                  return id(voice_assistant_phase) == ${voice_assist_idle_phase_id}
+                      || id(voice_assistant_phase) == ${voice_assist_muted_phase_id};
+            - if:
+                condition:
+                  lambda: return x == "In Home Assistant";
+                then:
+                  - micro_wake_word.stop
+                  - delay: 500ms
+                  - if:
+                      condition:
+                        switch.is_off: mic_mute
+                      then:
+                        - lambda: id(va).set_use_wake_word(true);
+                        - voice_assistant.start_continuous:
+            - if:
+                condition:
+                  lambda: return x == "On device";
+                then:
+                  - lambda: id(va).set_use_wake_word(false);
+                  - voice_assistant.stop
+                  - delay: 500ms
+                  - if:
+                      condition:
+                        switch.is_off: mic_mute
+                      then:
+                        - micro_wake_word.start
+
+  - platform: template
+    name: "Wake Word Sensitivity"
+    optimistic: true
+    initial_option: "Slightly sensitive"
+    restore_value: true
+    entity_category: config
+    options:
+      - "Slightly sensitive"
+      - "Moderately sensitive"
+      - "Very sensitive"
+    on_value:
+      lambda: |-
+        if (x == "Slightly sensitive") {
+          id(okay_nabu).set_probability_cutoff(217);
+          id(hey_jarvis).set_probability_cutoff(247);
+          id(hey_mycroft).set_probability_cutoff(253);
+        } else if (x == "Moderately sensitive") {
+          id(okay_nabu).set_probability_cutoff(176);
+          id(hey_jarvis).set_probability_cutoff(235);
+          id(hey_mycroft).set_probability_cutoff(242);
+        } else if (x == "Very sensitive") {
+          id(okay_nabu).set_probability_cutoff(143);
+          id(hey_jarvis).set_probability_cutoff(212);
+          id(hey_mycroft).set_probability_cutoff(237);
+        }
 
 audio_adc:
   - platform: es7210
@@ -121,6 +271,196 @@ speaker:
     i2s_dout_pin: GPIO13
     audio_dac: aw88298_dac
 
+media_player:
+  - platform: speaker
+    name: "Voice Assistant"
+    id: va_media_player
+    volume_min: 0.5
+    volume_max: 0.8
+    announcement_pipeline:
+      speaker: i2s_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+    files:
+      - id: wake_word_triggered_sound
+        file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac
+    on_announcement:
+      - if:
+          condition:
+            microphone.is_capturing:
+          then:
+            - script.execute: stop_wake_word
+            - if:
+                condition:
+                  lambda: return id(wake_word_engine_location).current_option() == "In Home Assistant";
+                then:
+                  - wait_until:
+                      not:
+                        voice_assistant.is_running:
+      - if:
+          condition:
+            not:
+              voice_assistant.is_running:
+          then:
+            - lambda: id(voice_assistant_phase) = ${voice_assist_muted_phase_id};
+            - script.execute: draw_display
+    on_idle:
+      - if:
+          condition:
+            not:
+              voice_assistant.is_running:
+          then:
+            - script.execute: start_wake_word
+            - script.execute: set_idle_or_mute_phase
+            - script.execute: draw_display
+
+micro_wake_word:
+  id: mww
+  microphone: i2s_mic
+  stop_after_detection: false
+  models:
+    - model: https://github.com/kahrendt/microWakeWord/releases/download/okay_nabu_20241226.3/okay_nabu.json
+      id: okay_nabu
+    - model: hey_jarvis
+      id: hey_jarvis
+    - model: hey_mycroft
+      id: hey_mycroft
+    - model: https://github.com/kahrendt/microWakeWord/releases/download/stop/stop.json
+      id: stop_word
+      internal: true
+  vad:
+  on_wake_word_detected:
+    - script.execute:
+        id: play_sound
+        priority: true
+        sound_file: !lambda return id(wake_word_triggered_sound);
+    - wait_until:
+        condition:
+          media_player.is_announcing:
+        timeout: 0.5s
+    - wait_until:
+        - and:
+            - not:
+                media_player.is_announcing:
+            - not:
+                speaker.is_playing:
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+
+voice_assistant:
+  id: va
+  microphone: i2s_mic
+  media_player: va_media_player
+  micro_wake_word: mww
+  use_wake_word: false
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  on_listening:
+    - lambda: id(voice_assistant_phase) = ${voice_assist_listening_phase_id};
+    - text_sensor.template.publish:
+        id: text_request
+        state: "..."
+    - text_sensor.template.publish:
+        id: text_response
+        state: "..."
+    - script.execute: draw_display
+  on_stt_vad_end:
+    - lambda: id(voice_assistant_phase) = ${voice_assist_thinking_phase_id};
+    - script.execute: draw_display
+  on_stt_end:
+    - text_sensor.template.publish:
+        id: text_request
+        state: !lambda return x;
+    - script.execute: draw_display
+  on_tts_start:
+    - text_sensor.template.publish:
+        id: text_response
+        state: !lambda return x;
+    - lambda: id(voice_assistant_phase) = ${voice_assist_replying_phase_id};
+    - script.execute: draw_display
+  on_end:
+    - wait_until:
+        condition:
+          media_player.is_announcing:
+        timeout: 0.5s
+    - wait_until:
+        - and:
+            - not:
+                media_player.is_announcing:
+            - not:
+                speaker.is_playing:
+    - if:
+        condition:
+          lambda: return id(wake_word_engine_location).current_option() == "On device";
+        then:
+          - lambda: id(va).set_use_wake_word(false);
+          - micro_wake_word.start:
+    - script.execute: set_idle_or_mute_phase
+    - script.execute: draw_display
+    - text_sensor.template.publish:
+        id: text_request
+        state: ""
+    - text_sensor.template.publish:
+        id: text_response
+        state: ""
+  on_error:
+    - if:
+        condition:
+          and:
+            - lambda: return !id(init_in_progress);
+            - lambda: return code != "duplicate_wake_up_detected";
+            - lambda: return code != "stt-no-text-recognized";
+        then:
+          - lambda: id(voice_assistant_phase) = ${voice_assist_error_phase_id};
+          - script.execute: draw_display
+          - delay: 1s
+          - if:
+              condition:
+                switch.is_off: mic_mute
+              then:
+                - lambda: id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
+              else:
+                - lambda: id(voice_assistant_phase) = ${voice_assist_muted_phase_id};
+  on_client_connected:
+    - lambda: id(init_in_progress) = false;
+    - script.execute: start_wake_word
+    - script.execute: set_idle_or_mute_phase
+    - script.execute: draw_display
+  on_client_disconnected:
+    - script.execute: stop_wake_word
+    - lambda: id(voice_assistant_phase) = ${voice_assist_not_ready_phase_id};
+    - script.execute: draw_display
+
+bluetooth_proxy:
+  active: true
+
+font:
+  - file:
+      type: gfonts
+      family: Figtree
+      weight: 300
+      italic: true
+    id: font_request
+    size: 15
+    glyphsets:
+      - GF_Latin_Core
+  - file:
+      type: gfonts
+      family: Figtree
+      weight: 300
+    id: font_response
+    size: 15
+    glyphsets:
+      - GF_Latin_Core
+  - file: https://raw.githubusercontent.com/Templarian/MaterialDesign-Webfont/master/fonts/materialdesignicons-webfont.ttf
+    id: mdi_icon_128
+    size: 128
+    bpp: 4
+    glyphs:
+      - "\U000F036D"  # mdi:mic-off
+
 display:
   - platform: mipi_spi
     model: M5CORE
@@ -128,7 +468,7 @@ display:
     spi_id: spi_bus
     dc_pin: GPIO35
     reset_pin:
-      aw9523b: aw9523b_1
+      aw9523b_id: aw9523b_1
       number: 9
       mode:
         output: true
@@ -138,6 +478,50 @@ display:
     data_rate: 40MHz
     update_interval: never
     invert_colors: true
+    pages:
+      - id: idle_page
+        lambda: |-
+          it.fill(Color(0x000000));
+          it.image(it.get_width() / 2, it.get_height() / 2, id(img_idle), ImageAlign::CENTER);
+      - id: listening_page
+        lambda: |-
+          it.fill(Color(0xFFFFFF));
+          it.image(it.get_width() / 2, it.get_height() / 2, id(img_listening), ImageAlign::CENTER);
+      - id: thinking_page
+        lambda: |-
+          it.fill(Color(0xFFFFFF));
+          it.image(it.get_width() / 2, it.get_height() / 2, id(img_thinking), ImageAlign::CENTER);
+          it.filled_rectangle(20, 20, 280, 30, Color::WHITE);
+          it.rectangle(20, 20, 280, 30, Color::BLACK);
+          it.printf(30, 25, id(font_request), Color::BLACK, "%s", id(text_request).state.c_str());
+      - id: replying_page
+        lambda: |-
+          it.fill(Color(0xFFFFFF));
+          it.image(it.get_width() / 2, it.get_height() / 2, id(img_replying), ImageAlign::CENTER);
+          it.filled_rectangle(20, 20, 280, 30, Color::WHITE);
+          it.rectangle(20, 20, 280, 30, Color::BLACK);
+          it.filled_rectangle(20, 190, 280, 30, Color::WHITE);
+          it.rectangle(20, 190, 280, 30, Color::BLACK);
+          it.printf(30, 25, id(font_request), Color::BLACK, "%s", id(text_request).state.c_str());
+          it.printf(30, 195, id(font_response), Color::BLACK, "%s", id(text_response).state.c_str());
+      - id: error_page
+        lambda: |-
+          it.fill(Color(0x000000));
+          it.image(it.get_width() / 2, it.get_height() / 2, id(img_error), ImageAlign::CENTER);
+      - id: no_ha_page
+        lambda: |-
+          it.image(it.get_width() / 2, it.get_height() / 2, id(img_error_no_ha), ImageAlign::CENTER);
+      - id: no_wifi_page
+        lambda: |-
+          it.image(it.get_width() / 2, it.get_height() / 2, id(img_error_no_wifi), ImageAlign::CENTER);
+      - id: initializing_page
+        lambda: |-
+          it.fill(Color(0x000000));
+          it.image(it.get_width() / 2, it.get_height() / 2, id(img_loading), ImageAlign::CENTER);
+      - id: muted_page
+        lambda: |-
+          it.fill(Color::BLACK);
+          it.printf(96, 56, id(mdi_icon_128), Color::WHITE, "%s", "\U000F036D");
 
 touchscreen:
   - platform: ft63x6
@@ -145,54 +529,200 @@ touchscreen:
     i2c_id: bus_a
     address: 0x38
     reset_pin:
-      aw9523b: aw9523b_1
+      aw9523b_id: aw9523b_1
       number: 0
       mode:
         output: true
 
-lvgl:
-  displays:
-    - m5cores3_lcd
-  touchscreens:
-    - touch
-  buffer_size: 25%
-  widgets:
-    - label:
-        id: status_label
-        text: "CoreS3 SE Ready"
-        align: CENTER
+script:
+  - id: draw_display
+    then:
+      - if:
+          condition:
+            lambda: return !id(init_in_progress);
+          then:
+            - if:
+                condition:
+                  wifi.connected:
+                then:
+                  - if:
+                      condition:
+                        api.connected:
+                      then:
+                        - lambda: |-
+                            switch (id(voice_assistant_phase)) {
+                              case ${voice_assist_listening_phase_id}:
+                                id(m5cores3_lcd).show_page(listening_page);
+                                id(m5cores3_lcd).update();
+                                break;
+                              case ${voice_assist_thinking_phase_id}:
+                                id(m5cores3_lcd).show_page(thinking_page);
+                                id(m5cores3_lcd).update();
+                                break;
+                              case ${voice_assist_replying_phase_id}:
+                                id(m5cores3_lcd).show_page(replying_page);
+                                id(m5cores3_lcd).update();
+                                break;
+                              case ${voice_assist_error_phase_id}:
+                                id(m5cores3_lcd).show_page(error_page);
+                                id(m5cores3_lcd).update();
+                                break;
+                              case ${voice_assist_muted_phase_id}:
+                                id(m5cores3_lcd).show_page(muted_page);
+                                id(m5cores3_lcd).update();
+                                break;
+                              case ${voice_assist_not_ready_phase_id}:
+                                id(m5cores3_lcd).show_page(no_ha_page);
+                                id(m5cores3_lcd).update();
+                                break;
+                              default:
+                                id(m5cores3_lcd).show_page(idle_page);
+                                id(m5cores3_lcd).update();
+                            }
+                      else:
+                        - display.page.show: no_ha_page
+                        - component.update: m5cores3_lcd
+                else:
+                  - display.page.show: no_wifi_page
+                  - component.update: m5cores3_lcd
+          else:
+            - display.page.show: initializing_page
+            - component.update: m5cores3_lcd
 
-micro_wake_word:
-  models:
-    - model: okay_nabu
-  microphone: i2s_mic
-  on_wake_word_detected:
-    - voice_assistant.start:
+  - id: start_wake_word
+    then:
+      - if:
+          condition:
+            and:
+              - not:
+                  voice_assistant.is_running:
+              - lambda: return id(wake_word_engine_location).current_option() == "On device";
+          then:
+            - lambda: id(va).set_use_wake_word(false);
+            - micro_wake_word.start:
+      - if:
+          condition:
+            and:
+              - not:
+                  voice_assistant.is_running:
+              - lambda: return id(wake_word_engine_location).current_option() == "In Home Assistant";
+          then:
+            - lambda: id(va).set_use_wake_word(true);
+            - voice_assistant.start_continuous:
 
-voice_assistant:
-  id: va
-  microphone: i2s_mic
-  speaker: i2s_speaker
-  noise_suppression_level: 2
-  auto_gain: 31dBFS
-  volume_multiplier: 2.0
-  on_listening:
-    - lvgl.label.update:
-        id: status_label
-        text: "Listening..."
-  on_end:
-    - lvgl.label.update:
-        id: status_label
-        text: "CoreS3 SE Ready"
-  on_error:
-    - lvgl.label.update:
-        id: status_label
-        text: "Error"
+  - id: stop_wake_word
+    then:
+      - if:
+          condition:
+            lambda: return id(wake_word_engine_location).current_option() == "In Home Assistant";
+          then:
+            - lambda: id(va).set_use_wake_word(false);
+            - voice_assistant.stop:
+      - if:
+          condition:
+            lambda: return id(wake_word_engine_location).current_option() == "On device";
+          then:
+            - micro_wake_word.stop:
 
-bluetooth_proxy:
-  active: true
+  - id: set_idle_or_mute_phase
+    then:
+      - if:
+          condition:
+            switch.is_off: mic_mute
+          then:
+            - lambda: id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
+          else:
+            - lambda: id(voice_assistant_phase) = ${voice_assist_muted_phase_id};
+
+  - id: play_sound
+    parameters:
+      priority: bool
+      sound_file: "audio::AudioFile*"
+    then:
+      - lambda: |-
+          if (priority) {
+            id(va_media_player)
+              ->make_call()
+              .set_command(media_player::MediaPlayerCommand::MEDIA_PLAYER_COMMAND_STOP)
+              .set_announcement(true)
+              .perform();
+          }
+          if ((id(va_media_player).state != media_player::MediaPlayerState::MEDIA_PLAYER_STATE_ANNOUNCING) || priority) {
+            id(va_media_player)->play_file(sound_file, true, false);
+          }
+      - script.execute: stop_wake_word
+
+image:
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/idle_320_240.png
+    id: img_idle
+    resize: 320x240
+    type: RGB
+    transparency: alpha_channel
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/listening_320_240.png
+    id: img_listening
+    resize: 320x240
+    type: RGB
+    transparency: alpha_channel
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/thinking_320_240.png
+    id: img_thinking
+    resize: 320x240
+    type: RGB
+    transparency: alpha_channel
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/replying_320_240.png
+    id: img_replying
+    resize: 320x240
+    type: RGB
+    transparency: alpha_channel
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/loading_320_240.png
+    id: img_loading
+    resize: 320x240
+    type: RGB
+    transparency: alpha_channel
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/error_320_240.png
+    id: img_error
+    resize: 320x240
+    type: RGB
+    transparency: alpha_channel
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/error_box_illustrations/error-no-wifi.png
+    id: img_error_no_wifi
+    resize: 320x240
+    type: RGB
+    transparency: alpha_channel
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/error_box_illustrations/error-no-ha.png
+    id: img_error_no_ha
+    resize: 320x240
+    type: RGB
+    transparency: alpha_channel
+
+text_sensor:
+  - id: text_request
+    platform: template
+    on_value:
+      lambda: |-
+        if (id(text_request).state.length() > 32) {
+          std::string s = id(text_request).state;
+          id(text_request).state = (esphome::str_truncate(s.c_str(), 31) + "...").c_str();
+        }
+  - id: text_response
+    platform: template
+    on_value:
+      lambda: |-
+        if (id(text_response).state.length() > 32) {
+          std::string s = id(text_response).state;
+          id(text_response).state = (esphome::str_truncate(s.c_str(), 31) + "...").c_str();
+        }
 
 sensor:
+  - platform: axp2101
+    id: axp2101_sensors
+    battery_level:
+      name: "Battery Level"
+    battery_voltage:
+      name: "Battery Voltage"
+    axp_temperature:
+      name: "AXP2101 Temperature"
+    battery_charging:
+      name: "Battery Charging"
   - platform: wifi_signal
     name: "WiFi Signal"
     update_interval: 60s
