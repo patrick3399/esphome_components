@@ -286,6 +286,8 @@ binary_sensor:
     x_max: 106
     y_min: 200
     y_max: 240
+    on_press:
+      - switch.toggle: mic_mute
 
   - platform: touchscreen
     name: "Button B"
@@ -294,6 +296,24 @@ binary_sensor:
     x_max: 213
     y_min: 200
     y_max: 240
+    on_press:
+      - if:
+          condition:
+            voice_assistant.is_running:
+          then:
+            - voice_assistant.stop:
+          else:
+            - if:
+                condition:
+                  and:
+                    - lambda: return !id(init_in_progress);
+                    - switch.is_off: mic_mute
+                    - wifi.connected:
+                    - api.connected:
+                then:
+                  - script.execute: stop_wake_word
+                  - delay: 100ms
+                  - voice_assistant.start:
 
   - platform: touchscreen
     name: "Button C"
@@ -302,6 +322,19 @@ binary_sensor:
     x_max: 320
     y_min: 200
     y_max: 240
+    on_press:
+      - if:
+          condition:
+            voice_assistant.is_running:
+          then:
+            - voice_assistant.stop:
+      - if:
+          condition:
+            media_player.is_announcing:
+          then:
+            - media_player.stop:
+                id: va_media_player
+                announcement: true
 
   - platform: template
     id: vbus_present
@@ -437,6 +470,8 @@ media_player:
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac
       - id: error_cloud_expired
         file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/error_cloud_expired.mp3
+      - id: timer_finished_sound
+        file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/timer_finished.flac
     on_announcement:
       - if:
           condition:
@@ -592,6 +627,18 @@ voice_assistant:
   on_client_disconnected:
     - script.execute: stop_wake_word
     - lambda: id(voice_assistant_phase) = ${voice_assist_not_ready_phase_id};
+    - script.execute: draw_display
+  on_timer_finished:
+    - script.execute:
+        id: play_sound
+        priority: true
+        sound_file: !lambda return id(timer_finished_sound);
+    - script.execute: start_wake_word
+  on_timer_started:
+    - script.execute: draw_display
+  on_timer_updated:
+    - script.execute: draw_display
+  on_timer_cancelled:
     - script.execute: draw_display
 
 bluetooth_proxy:
