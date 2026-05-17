@@ -1,0 +1,205 @@
+substitutions:
+  devicename: "m5cores3se"
+  friendly_name: "M5Stack CoreS3 SE"
+
+esphome:
+  name: $devicename
+  friendly_name: $friendly_name
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(axp2101_pmu).enableDLDO1();
+          id(axp2101_pmu).setDLDO1Voltage(3300);
+
+packages:
+  common: !include ../../packages/common.yaml
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+api:
+  reboot_timeout: 4h
+  encryption:
+    key: !secret api_key
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  baud_rate: 115200
+  level: DEBUG
+  logs:
+    wifi: WARN
+    esp-idf: DEBUG
+    lvgl: WARN
+
+i2c:
+  - id: bus_a
+    sda: GPIO12
+    scl: GPIO11
+    frequency: 400kHz
+
+spi:
+  - id: spi_bus
+    clk_pin: GPIO36
+    mosi_pin: GPIO37
+
+i2s_audio:
+  id: i2s_audio_bus
+  i2s_lrclk_pin: GPIO33
+  i2s_bclk_pin: GPIO34
+  i2s_mclk_pin:
+    number: GPIO0
+    ignore_strapping_warning: true
+
+axp2101:
+  id: axp2101_pmu
+  i2c_id: bus_a
+
+aw9523b:
+  id: aw9523b_1
+  address: 0x58
+  i2c_id: bus_a
+  p0_drive_mode: PUSH_PULL
+
+# AW88298 amp RST = AW9523B P0_2 (pin 2). Must be HIGH before aw88298 I2C init.
+switch:
+  - platform: gpio
+    id: spk_amp_enable
+    name: "Speaker Amp RST"
+    internal: true
+    pin:
+      aw9523b: aw9523b_1
+      number: 2
+      mode:
+        output: true
+    restore_mode: ALWAYS_ON
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    i2c_id: bus_a
+    bits_per_sample: 16bit
+    sample_rate: 16000
+    mic_gain: 36dB
+
+audio_dac:
+  - platform: aw88298
+    id: aw88298_dac
+    i2c_id: bus_a
+    sample_rate: 48000
+
+microphone:
+  - platform: i2s_audio
+    id: i2s_mic
+    i2s_din_pin: GPIO14
+    adc_type: external
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    i2s_audio_id: i2s_audio_bus
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_speaker
+    i2s_audio_id: i2s_audio_bus
+    dac_type: external
+    i2s_dout_pin: GPIO13
+    audio_dac: aw88298_dac
+
+display:
+  - platform: mipi_spi
+    model: M5CORE
+    id: m5cores3_lcd
+    spi_id: spi_bus
+    dc_pin: GPIO35
+    reset_pin:
+      aw9523b: aw9523b_1
+      number: 9
+      mode:
+        output: true
+    cs_pin:
+      number: GPIO3
+      ignore_strapping_warning: true
+    data_rate: 40MHz
+    update_interval: never
+    invert_colors: true
+
+touchscreen:
+  - platform: ft63x6
+    id: touch
+    i2c_id: bus_a
+    address: 0x38
+    reset_pin:
+      aw9523b: aw9523b_1
+      number: 0
+      mode:
+        output: true
+
+lvgl:
+  displays:
+    - m5cores3_lcd
+  touchscreens:
+    - touch
+  buffer_size: 25%
+  widgets:
+    - label:
+        id: status_label
+        text: "CoreS3 SE Ready"
+        align: CENTER
+
+micro_wake_word:
+  models:
+    - model: okay_nabu
+  microphone: i2s_mic
+  on_wake_word_detected:
+    - voice_assistant.start:
+
+voice_assistant:
+  id: va
+  microphone: i2s_mic
+  speaker: i2s_speaker
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  on_listening:
+    - lvgl.label.update:
+        id: status_label
+        text: "Listening..."
+  on_end:
+    - lvgl.label.update:
+        id: status_label
+        text: "CoreS3 SE Ready"
+  on_error:
+    - lvgl.label.update:
+        id: status_label
+        text: "Error"
+
+bluetooth_proxy:
+  active: true
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+  - platform: uptime
+    name: "Uptime"
+    type: seconds
+
+binary_sensor:
+  - platform: status
+    name: "Status"
