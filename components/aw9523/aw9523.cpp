@@ -1,6 +1,5 @@
 #include "aw9523.h"
 #include "esphome/core/log.h"
-#include <cstdio>  // 用於 snprintf
 
 namespace esphome {
 namespace aw9523 {
@@ -9,50 +8,37 @@ static const char *const TAG = "aw9523";
 
 void AW9523Component::setup() {
   ESP_LOGCONFIG(TAG, "Setting up AW9523...");
+
   uint8_t chip_id = 0;
-  if (!this->read_reg(AW9523_REG_CHIPID, &chip_id)) {
-    ESP_LOGE(TAG, "Chip ID read failed!");
-    this->mark_failed();
-    return;
-  }
-  if (chip_id != 0x23) {  // AW9523B 預期的晶片 ID
+  if (!this->read_reg(AW9523_REG_CHIPID, &chip_id) || chip_id != 0x23) {
     ESP_LOGE(TAG, "Invalid Chip ID: 0x%02X (expected 0x23)", chip_id);
     this->mark_failed();
     return;
   }
-  ESP_LOGCONFIG(TAG, "Chip ID: 0x%02X", chip_id);
 
-  // 軟體重置晶片
-  if (!this->write_reg(AW9523_REG_SOFTRESET, 0x00)) {
-    ESP_LOGW(TAG, "Soft reset failed");
-    // 不要標記為失敗，嘗試繼續
-  }
-  // 重置後，暫存器恢復預設值。
-  // Datasheet 指出 LEDMODEx 預設為 0xFF (GPIO 模式)
-  // CONFIGx 預設為 0x00 (輸出模式)
+  // Soft reset — all registers return to datasheet defaults
+  this->write_reg(AW9523_REG_SOFTRESET, 0x00);
 
-  // 明確設定所有 pin 為 GPIO 模式 (雖然重置後預設應是如此)
-  this->write_reg(AW9523_REG_LEDMODE0, 0xFF);  // 所有 P0 pin 設為 GPIO 模式
-  this->write_reg(AW9523_REG_LEDMODE1, 0xFF);  // 所有 P1 pin 設為 GPIO 模式
+  // Disable all interrupts immediately after reset.
+  // INTENABLE reset value is 0x00 (all enabled), which asserts INT on any pin change.
+  // 0xFF = all disabled.
+  this->write_reg(AW9523_REG_INTENABLE0, 0xFF);
+  this->write_reg(AW9523_REG_INTENABLE1, 0xFF);
 
-  // 設定 P0 為 Push-Pull 模式 (P1 預設為 Push-Pull 且不可設定)
-  // 讀取目前的 CTL 暫存器
-  uint8_t ctl_reg_val = 0;
-  this->read_reg(AW9523_REG_CTL, &ctl_reg_val);
-  ctl_reg_val |= (1 << 4);  // 設定 bit 4 使 P0 為 Push-Pull 模式
-  this->write_reg(AW9523_REG_CTL, ctl_reg_val);
+  // Set all pins to GPIO mode (reset value is already 0xFF, but be explicit)
+  this->write_reg(AW9523_REG_LEDMODE0, 0xFF);
+  this->write_reg(AW9523_REG_LEDMODE1, 0xFF);
 
-  // 透過讀取重置後的目前輸出狀態來初始化輸出遮罩
-  // 預設輸出狀態取決於 AD0/AD1 pin
-  // 為安全起見，我們將其初始化為 0，實際狀態將由 switch 實體設定。
+  // GCR: set P0 push-pull (bit 4) and apply IMAX divider (bits [1:0])
+  this->write_reg(AW9523_REG_GCR, (1 << 4) | (this->imax_divider_ & 0x03));
+
+  // Seed output shadow from hardware (reset value is 0xFF, but read to be safe)
   this->read_reg(AW9523_REG_OUTPUT0, &this->output_mask_0_);
   this->read_reg(AW9523_REG_OUTPUT1, &this->output_mask_1_);
 
-  // 根據 ESPHome 中常見的擴展器設定，將方向遮罩初始化為全輸入
-  // 雖然 datasheet 預設 CONFIG 為輸出，但用作感測器的 pin 需要是輸入。
-  // 個別的 pin_mode 呼叫會根據需要進行設定。
-  this->dir_mask_0_ = 0xFF;  // 所有 P0 設為輸入
-  this->dir_mask_1_ = 0xFF;  // 所有 P1 設為輸入
+  // Set all pins as input (1=input in CONFIG register)
+  this->dir_mask_0_ = 0xFF;
+  this->dir_mask_1_ = 0xFF;
   this->write_reg(AW9523_REG_CONFIG0, this->dir_mask_0_);
   this->write_reg(AW9523_REG_CONFIG1, this->dir_mask_1_);
 
@@ -64,95 +50,102 @@ void AW9523Component::dump_config() {
   LOG_I2C_DEVICE(this);
   if (this->is_failed()) {
     ESP_LOGE(TAG, "Communication with AW9523 failed!");
+    return;
   }
-  ESP_LOGCONFIG(TAG, "  Update Interval: %u ms", (unsigned) this->get_update_interval());
-  // 如果需要，可透過迭代已註冊的 pin 來記錄 pin 的設定
+  ESP_LOGCONFIG(TAG, "  IMAX divider: %u (max ~%u mA)", this->imax_divider_,
+                (unsigned) (37 * (4 - this->imax_divider_) / 4));
+  ESP_LOGCONFIG(TAG, "  Latch inputs: %s", this->latch_inputs_ ? "YES" : "NO");
+  if (this->latch_inputs_)
+    ESP_LOGCONFIG(TAG, "  Update Interval: %u ms", (unsigned) this->get_update_interval());
 }
 
 void AW9523Component::update() {
-  // 此方法由 PollingComponent 框架呼叫
-  // 讀取輸入 port 0
-  if (!this->read_reg(AW9523_REG_INPUT0, &this->input_mask_0_)) {
-    ESP_LOGW(TAG, "Failed to read input port 0");
-    this->status_set_warning();
+  // Skip if inputs are read directly on demand
+  if (!this->latch_inputs_)
     return;
-  }
-  // 讀取輸入 port 1
-  if (!this->read_reg(AW9523_REG_INPUT1, &this->input_mask_1_)) {
-    ESP_LOGW(TAG, "Failed to read input port 1");
+
+  if (!this->read_reg(AW9523_REG_INPUT0, &this->input_mask_0_) ||
+      !this->read_reg(AW9523_REG_INPUT1, &this->input_mask_1_)) {
+    ESP_LOGW(TAG, "Failed to read input ports");
     this->status_set_warning();
     return;
   }
   this->status_clear_warning();
-  // ESP_LOGV(TAG, "Inputs: P0=0x%02X, P1=0x%02X", this->input_mask_0_, this->input_mask_1_);
 }
 
 bool AW9523Component::digital_read(uint8_t pin) {
-  uint8_t port = pin / 8;  // 0 代表 P0 (pins 0-7), 1 代表 P1 (pins 8-15)
-  uint8_t pin_of_port = pin % 8;
+  uint8_t port = pin / 8;
+  uint8_t bit = pin % 8;
 
-  if (port == 0) {
-    return (this->input_mask_0_ >> pin_of_port) & 0x01;
-  } else {
-    return (this->input_mask_1_ >> pin_of_port) & 0x01;
+  if (!this->latch_inputs_) {
+    uint8_t val = 0;
+    this->read_reg(port == 0 ? AW9523_REG_INPUT0 : AW9523_REG_INPUT1, &val);
+    return (val >> bit) & 0x01;
   }
+
+  return ((port == 0 ? this->input_mask_0_ : this->input_mask_1_) >> bit) & 0x01;
 }
 
 void AW9523Component::digital_write(uint8_t pin, bool value) {
   uint8_t port = pin / 8;
-  uint8_t pin_of_port = pin % 8;
-  uint8_t reg_addr;
-  uint8_t *current_output_mask;
-
-  if (port == 0) {
-    reg_addr = AW9523_REG_OUTPUT0;
-    current_output_mask = &this->output_mask_0_;
-  } else {
-    reg_addr = AW9523_REG_OUTPUT1;
-    current_output_mask = &this->output_mask_1_;
-  }
+  uint8_t bit = pin % 8;
+  uint8_t &mask = port == 0 ? this->output_mask_0_ : this->output_mask_1_;
+  uint8_t reg = port == 0 ? AW9523_REG_OUTPUT0 : AW9523_REG_OUTPUT1;
 
   if (value) {
-    *current_output_mask |= (1 << pin_of_port);
+    mask |= (1 << bit);
   } else {
-    *current_output_mask &= ~(1 << pin_of_port);
+    mask &= ~(1 << bit);
   }
 
-  if (!this->write_reg(reg_addr, *current_output_mask)) {
-    ESP_LOGW(TAG, "Failed to write to output register for pin %d", pin);
-  }
+  if (!this->write_reg(reg, mask))
+    ESP_LOGW(TAG, "Failed to write output for pin %u", pin);
 }
 
 void AW9523Component::pin_mode(uint8_t pin, gpio::Flags flags) {
   uint8_t port = pin / 8;
-  uint8_t pin_of_port = pin % 8;
-  uint8_t config_reg_addr;
-  uint8_t ledmode_reg_addr;
-  uint8_t *current_dir_mask;
+  uint8_t bit = pin % 8;
 
-  if (port == 0) {
-    config_reg_addr = AW9523_REG_CONFIG0;
-    ledmode_reg_addr = AW9523_REG_LEDMODE0;
-    current_dir_mask = &this->dir_mask_0_;
-  } else {
-    config_reg_addr = AW9523_REG_CONFIG1;
-    ledmode_reg_addr = AW9523_REG_LEDMODE1;
-    current_dir_mask = &this->dir_mask_1_;
-  }
+  // Ensure GPIO mode using shadow (avoids hardware read on every pin_mode call)
+  uint8_t &ledmode = port == 0 ? this->ledmode_mask_0_ : this->ledmode_mask_1_;
+  uint8_t ledmode_reg = port == 0 ? AW9523_REG_LEDMODE0 : AW9523_REG_LEDMODE1;
+  ledmode |= (1 << bit);  // 1 = GPIO mode
+  this->write_reg(ledmode_reg, ledmode);
 
-  // 確保 pin 處於 GPIO 模式 (而非 LED 模式)
-  uint8_t ledmode_val = 0;
-  this->read_reg(ledmode_reg_addr, &ledmode_val);
-  ledmode_val |= (1 << pin_of_port);  // 設定 bit 為 1 代表 GPIO 模式
-  this->write_reg(ledmode_reg_addr, ledmode_val);
-
-  // 設定方向
+  // Set direction
+  uint8_t &dir = port == 0 ? this->dir_mask_0_ : this->dir_mask_1_;
+  uint8_t config_reg = port == 0 ? AW9523_REG_CONFIG0 : AW9523_REG_CONFIG1;
   if (flags == gpio::FLAG_INPUT) {
-    *current_dir_mask |= (1 << pin_of_port);  // 設定 bit 為 1 代表輸入
-  } else if (flags == gpio::FLAG_OUTPUT) {
-    *current_dir_mask &= ~(1 << pin_of_port);  // 設定 bit 為 0 代表輸出
+    dir |= (1 << bit);   // 1 = input
+  } else {
+    dir &= ~(1 << bit);  // 0 = output
   }
-  this->write_reg(config_reg_addr, *current_dir_mask);
+  this->write_reg(config_reg, dir);
+}
+
+void AW9523Component::led_mode(uint8_t pin) {
+  if (pin > 15)
+    return;
+  uint8_t port = pin / 8;
+  uint8_t bit = pin % 8;
+
+  // Switch to LED (constant-current) mode: clear bit in LEDMODE register
+  uint8_t &ledmode = port == 0 ? this->ledmode_mask_0_ : this->ledmode_mask_1_;
+  uint8_t ledmode_reg = port == 0 ? AW9523_REG_LEDMODE0 : AW9523_REG_LEDMODE1;
+  ledmode &= ~(1 << bit);  // 0 = LED mode
+  this->write_reg(ledmode_reg, ledmode);
+
+  // LED mode requires the CONFIG direction bit to be output (0)
+  uint8_t &dir = port == 0 ? this->dir_mask_0_ : this->dir_mask_1_;
+  uint8_t config_reg = port == 0 ? AW9523_REG_CONFIG0 : AW9523_REG_CONFIG1;
+  dir &= ~(1 << bit);
+  this->write_reg(config_reg, dir);
+}
+
+void AW9523Component::set_led_value(uint8_t pin, uint8_t value) {
+  if (pin > 15)
+    return;
+  this->write_reg(AW9523_DIM_REGS[pin], value);
 }
 
 bool AW9523Component::read_reg(uint8_t reg, uint8_t *value) {
@@ -167,15 +160,9 @@ bool AW9523Component::write_reg(uint8_t reg, uint8_t value) {
   return this->write_byte(reg, value);
 }
 
-// AW9523GPIOPin 實作
-void AW9523GPIOPin::setup() {
-  ESP_LOGV(TAG, "Setting up AW9523Pin %u", this->pin_);
-  this->pin_mode(this->flags_);  // 套用設定的模式
-}
+void AW9523GPIOPin::setup() { this->pin_mode(this->flags_); }
 
-void AW9523GPIOPin::pin_mode(gpio::Flags flags) {
-  this->parent_->pin_mode(this->pin_, flags);
-}
+void AW9523GPIOPin::pin_mode(gpio::Flags flags) { this->parent_->pin_mode(this->pin_, flags); }
 
 bool AW9523GPIOPin::digital_read() {
   return this->parent_->digital_read(this->pin_) != this->inverted_;
@@ -187,7 +174,7 @@ void AW9523GPIOPin::digital_write(bool value) {
 
 std::string AW9523GPIOPin::dump_summary() const {
   char buffer[32];
-  snprintf(buffer, sizeof(buffer), "GPIO%u via AW9523", this->pin_);
+  snprintf(buffer, sizeof(buffer), "%u via AW9523", this->pin_);
   return buffer;
 }
 

@@ -224,8 +224,7 @@ switch:
       inverted: True
 
 sensor:
-  # NOTE: lm75 moved to archived — use official lm75b platform instead.
-  - platform: lm75
+  - platform: lm75b
     id: temperature
     name: "Board Temp"
     update_interval: 60s
@@ -256,11 +255,10 @@ time:
     update_interval: 1h
     on_time_sync:
       then:
-        # NOTE: rx8130ce moved to archived — use official rx8130 platform instead.
-        rx8130ce.write_time:
-          id: rx8130ce_rtc
-  - platform: rx8130ce
-    id: rx8130ce_rtc
+        rx8130.write_time:
+          id: rx8130_rtc
+  - platform: rx8130
+    id: rx8130_rtc
     address: 0x32
     update_interval: never
 
