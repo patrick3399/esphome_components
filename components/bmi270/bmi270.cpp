@@ -3,6 +3,7 @@
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace esphome {
@@ -59,6 +60,7 @@ void BMI270Component::setup() {
   // Enable accelerometer, gyroscope, temperature sensor
   val = 0x0E;
   this->write_register(BMI270_REG_PWR_CTRL, &val, 1);
+  delay(2);
 
   // Accel: ODR=100 Hz, BWP=normal, performance mode, ±2 g → 16384 LSB/g
   uint8_t acc_conf = 0xA8, acc_range = 0x00;
@@ -90,10 +92,8 @@ bool BMI270Component::load_config_file_() {
   uint8_t chunk[CHUNK];
   for (size_t i = 0; i < config_len; i += CHUNK) {
     uint16_t addr = static_cast<uint16_t>(i / 2);
-    uint8_t addr_lo = static_cast<uint8_t>(addr & 0x0F);
-    uint8_t addr_hi = static_cast<uint8_t>((addr >> 4) & 0xFF);
-    if (this->write_register(BMI270_REG_INIT_ADDR_0, &addr_lo, 1) != i2c::ERROR_OK ||
-        this->write_register(BMI270_REG_INIT_ADDR_1, &addr_hi, 1) != i2c::ERROR_OK) {
+    uint8_t addr_buf[2] = {static_cast<uint8_t>(addr & 0x0F), static_cast<uint8_t>((addr >> 4) & 0xFF)};
+    if (this->write_register(BMI270_REG_INIT_ADDR_0, addr_buf, 2) != i2c::ERROR_OK) {
       ESP_LOGE(TAG, "BMI270 config upload: I2C address write failed at offset %d", static_cast<int>(i));
       return false;
     }
