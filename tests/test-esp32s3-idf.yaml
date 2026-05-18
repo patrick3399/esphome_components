@@ -1,5 +1,5 @@
 # Test: ESP32-S3 + ESP-IDF framework
-# Tests all components including ed047tc1 (E-ink display) on ESP32-S3
+# Tests active local components including ed047tc1 (E-ink display) on ESP32-S3
 # Mirrors ESPHome's build_components_base.esp32-s3-idf.yaml approach
 #
 # Note: ed047tc1 requires the EPDIY library and PSRAM (same as m5stack-papers3)
@@ -43,41 +43,23 @@ pca9505:
   id: pca9505_hub
   address: 0x20
 
-# PI4IOE5V6408: GPIO I/O Expander (I2C)
-pi4ioe5v6408:
-  id: pi4ioe5v6408_hub
-  address: 0x43
-
 sensor:
-  # LM75: Temperature Sensor (I2C)
-  - platform: lm75
-    name: "Board Temp"
-    address: 0x48
-    update_interval: 60s
-
   # BMI270: IMU Accelerometer/Gyroscope (I2C)
   - platform: bmi270
     address: 0x68
-    accel_x:
+    acceleration_x:
       name: "Accel X"
-    accel_y:
+    acceleration_y:
       name: "Accel Y"
-    accel_z:
+    acceleration_z:
       name: "Accel Z"
-    gyro_x:
+    gyroscope_x:
       name: "Gyro X"
-    gyro_y:
+    gyroscope_y:
       name: "Gyro Y"
-    gyro_z:
+    gyroscope_z:
       name: "Gyro Z"
     update_interval: 60s
-
-# RX8130CE: Real-Time Clock (I2C)
-time:
-  - platform: rx8130ce
-    id: rx8130ce_rtc
-    address: 0x32
-    update_interval: never
 
 # ED047TC1: 4.7" E-ink Display (parallel GPIO)
 # Pin mapping reused from m5stack-papers3.yaml for reference
