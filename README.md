@@ -24,7 +24,7 @@ device uses.
 | M5Stack StamPLC | [devices/m5stack/m5stamplc.yaml](devices/m5stack/m5stamplc.yaml) | 🔄 Needs cleanup for ESPHome 2026.x | Our `aw9523`; ⚠️ `pi4ioe5v6408` is archived/pending replacement |
 | M5Stack CoreS3 SE | [devices/m5stack/m5cores3se.yaml](devices/m5stack/m5cores3se.yaml) | ✅ Voice Assistant working | M5Stack official `axp2101`, `aw88298`, `aw9523b` |
 | M5Stack CoreS3 SE ESP-SR variant | [devices/m5stack/m5cores3se-espsr.yaml](devices/m5stack/m5cores3se-espsr.yaml) | 🔄 Experimental/local validation pending | M5Stack official `axp2101`, `aw88298`, `aw9523b`; our `esp_sr_wake_word` |
-| M5Stack Cardputer | [devices/m5stack/m5cardputer.yaml](devices/m5stack/m5cardputer.yaml) | 🧪 Bring-up YAML; compile/hardware verification pending | ESPHome built-ins; planned `74hc138_keypad` for keyboard |
+| M5Stack Cardputer | [devices/m5stack/m5cardputer.yaml](devices/m5stack/m5cardputer.yaml) | 🧪 Config OK; compile/hardware verification pending | ESPHome built-ins; our `74hc138_keypad` |
 | Waveshare ESP32-S3-Matrix | [devices/waveshare/esp32s3-matrix.yaml](devices/waveshare/esp32s3-matrix.yaml) | ✅ Verified on hardware | Our `qmi8658`; 8×8 WS2812B matrix via ESPHome built-ins |
 
 `devices/m5stack/secrets.yaml` is local secret material and is not a device
@@ -43,10 +43,9 @@ do not have baseline YAMLs in this repository yet.
 | Waveshare | ESP32-S3-ETH | [hardware](../ref/hardware/waveshare/esp32-s3-eth/esp32-s3-eth.md) | Built-in W5500 Ethernet; GPIO33-37 reserved by Octal PSRAM. |
 | Waveshare | ESP32-S3-ETH-8DI-8RO | [hardware](../ref/hardware/waveshare/esp32-s3-eth-8di-8ro/esp32-s3-eth-8di-8ro.md) | Built-in W5500 Ethernet, `pca9554` for TCA9554 relay expander, RS485 via `uart`. |
 | Waveshare | ESP32-S3-GEEK | [hardware](../ref/hardware/waveshare/esp32-s3-geek/esp32-s3-geek.md) | Built-in SPI display support. |
-| Waveshare | ESP32-S3-Matrix | [hardware](../ref/hardware/waveshare/esp32-s3-matrix/esp32-s3-matrix.md) | YAML + `qmi8658` component complete; moved to Device YAMLs table. |
 | Waveshare | ESP32-S3-Relay-6CH | [hardware](../ref/hardware/waveshare/esp32-s3-relay-6ch/esp32-s3-relay-6ch.md) | Built-in GPIO relays and RS485; several relay pins are strapping pins. |
-| Waveshare | ESP32-S3-Touch-AMOLED-2.41 | [hardware](../ref/hardware/waveshare/esp32-s3-touch-amoled-2.41/esp32-s3-touch-amoled-2.41.md) | Needs planned `qmi8658`; display/touch/RTC/GPIO expander should use ESPHome built-ins. |
-| Waveshare | ESP32-S3-Touch-LCD-1.85C | [hardware](../ref/hardware/waveshare/esp32-s3-touch-lcd-1.85c/esp32-s3-touch-lcd-1.85c.md) | Needs planned `qmi8658`; display/touch/RTC/audio/GPIO expander should use ESPHome built-ins. |
+| Waveshare | ESP32-S3-Touch-AMOLED-2.41 | [hardware](../ref/hardware/waveshare/esp32-s3-touch-amoled-2.41/esp32-s3-touch-amoled-2.41.md) | `qmi8658` available; display/touch/RTC/GPIO expander should use ESPHome built-ins. |
+| Waveshare | ESP32-S3-Touch-LCD-1.85C | [hardware](../ref/hardware/waveshare/esp32-s3-touch-lcd-1.85c/esp32-s3-touch-lcd-1.85c.md) | `qmi8658` available; display/touch/RTC/audio/GPIO expander should use ESPHome built-ins. |
 | Wireless-Tag | WT32-SC01 / Plus | [hardware](../ref/hardware/wireless-tag/wt32-sc01/wt32-sc01.md) | Built-in display/touch/RS485/audio support; Plus has tight 2MB PSRAM for LVGL. |
 
 ## Components Not In ESPHome Official
@@ -61,14 +60,13 @@ These live under [components/](components/) and are provided by this repository.
 | `bmi270` | 6-axis IMU | Paper S3 | 🧪 | Native I2C rewrite landed on `new`; compiles with Paper S3 on ESPHome 2026.4.5. |
 | `ed047tc1` | 4.7 inch e-paper display | Paper S3 | 🧪 | Supports `partial_update()` and ESPHome 2026.x EPDIY board init compatibility. Requires EPDIY fork below. |
 | `esp_sr_wake_word` | ESP-SR wake word integration | CoreS3 SE ESP-SR variant | 🔄 | Local experimental component used only by `m5cores3se-espsr.yaml`. |
+| `74hc138_keypad` | 3-to-8 decoder keyboard matrix | M5Stack Cardputer V1.1 | 🧪 | First-pass ESP-IDF component using M5 official IO-matrix scan mapping; config OK, compile/hardware verification pending. |
 | `pca9505` | I2C GPIO expander | None currently | 🔄 | Existing local component; pending ESPHome 2026.x verification/rewrite. |
 | `qmi8658` | 6-axis IMU | Waveshare Matrix, Touch AMOLED 2.41, Touch LCD 1.85C | ✅ | Written from scratch following ESPHome BMI160 pattern. Verified on hardware with ESP32-S3-Matrix. |
 
 ### Planned Components
 
-| Component | Type | Target devices | Status | Notes |
-| --- | --- | --- | :---: | --- |
-| `74hc138_keypad` | 3-to-8 decoder keyboard matrix | M5Stack Cardputer V1.1 | 🆕 | Needed because ESPHome `matrix_keypad` cannot model this decoder topology. |
+None currently.
 
 ### Replaced / Archived
 

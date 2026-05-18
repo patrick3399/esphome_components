@@ -1,6 +1,12 @@
 esphome:
   name: esp32s3-matrix
   friendly_name: ESP32-S3 Matrix
+  on_boot:
+    priority: -100
+    then:
+      - light.turn_on:
+          id: board_8x8_light
+          brightness: 10%
 
 packages:
   common: !include ../../packages/common.yaml
@@ -26,7 +32,7 @@ i2c:
 globals:
   - id: display_brightness
     type: float
-    initial_value: '0.5'
+    initial_value: '0.1'
   # Tilt globals updated at IMU rate (100 ms) for spirit level display
   - id: g_tilt_x
     type: float
@@ -100,12 +106,13 @@ light:
     rgb_order: GRB
     gamma_correct: 1.0
 
-  # Brightness knob: keep below 30% for sustained use; full brightness causes heat.
+  # Brightness knob: hard cap 50% in display lambda; full brightness causes heat.
   - platform: monochromatic
     name: "Display Brightness"
     id: board_8x8_light
     output: board_8x8_output
     gamma_correct: 1.0
+    restore_mode: ALWAYS_ON
 
 output:
   - platform: template
@@ -131,6 +138,7 @@ display:
 
       float brightness = id(display_brightness);
       int bv = (int)(255.0f * brightness);
+      if (bv > 127) bv = 127;  // hard cap 50%
       if (bv == 2) bv = 1;
 
       it.fill(Color::BLACK);
