@@ -163,13 +163,13 @@ sensor:
       - multiply: 2.0
   - platform: bmi270
     address: 0x68
-    accel_x:
+    acceleration_x:
       name: "BMI270 Accel X"
       id: accel_x_val
-    accel_y:
+    acceleration_y:
       name: "BMI270 Accel Y"
       id: accel_y_val
-    accel_z:
+    acceleration_z:
       name: "BMI270 Accel Z"
       id: accel_z_val
       on_value:
@@ -179,13 +179,13 @@ sensor:
             then:
               - script.execute: update_imu
               - lambda: id(pending_partial_refresh) = true;
-    gyro_x:
+    gyroscope_x:
       name: "BMI270 Gyro X"
       id: gyro_x_val
-    gyro_y:
+    gyroscope_y:
       name: "BMI270 Gyro Y"
       id: gyro_y_val
-    gyro_z:
+    gyroscope_z:
       name: "BMI270 Gyro Z"
       id: gyro_z_val
     temperature:

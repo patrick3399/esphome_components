@@ -10,106 +10,111 @@ namespace bmi270 {
 
 static const char *const TAG = "bmi270";
 
-static const uint8_t REG_CHIP_ID        = 0x00;
-static const uint8_t REG_INTERNAL_STATUS = 0x21;
-static const uint8_t REG_ACC_DATA       = 0x0C;
-static const uint8_t REG_TEMP_DATA      = 0x22;
-static const uint8_t REG_ACC_CONF       = 0x40;
-static const uint8_t REG_ACC_RANGE      = 0x41;
-static const uint8_t REG_GYR_CONF       = 0x42;
-static const uint8_t REG_GYR_RANGE      = 0x43;
-static const uint8_t REG_INIT_CTRL      = 0x59;
-static const uint8_t REG_INIT_ADDR_0    = 0x5B;
-static const uint8_t REG_INIT_ADDR_1    = 0x5C;
-static const uint8_t REG_INIT_DATA      = 0x5E;
-static const uint8_t REG_PWR_CONF       = 0x7C;
-static const uint8_t REG_PWR_CTRL       = 0x7D;
-static const uint8_t REG_CMD            = 0x7E;
+// Register map
+static const uint8_t BMI270_REG_CHIP_ID = 0x00;
+static const uint8_t BMI270_REG_INTERNAL_STATUS = 0x21;
+static const uint8_t BMI270_REG_ACC_DATA = 0x0C;
+static const uint8_t BMI270_REG_TEMP_DATA = 0x22;
+static const uint8_t BMI270_REG_ACC_CONF = 0x40;
+static const uint8_t BMI270_REG_ACC_RANGE = 0x41;
+static const uint8_t BMI270_REG_GYR_CONF = 0x42;
+static const uint8_t BMI270_REG_GYR_RANGE = 0x43;
+static const uint8_t BMI270_REG_INIT_CTRL = 0x59;
+static const uint8_t BMI270_REG_INIT_ADDR_0 = 0x5B;
+static const uint8_t BMI270_REG_INIT_ADDR_1 = 0x5C;
+static const uint8_t BMI270_REG_INIT_DATA = 0x5E;
+static const uint8_t BMI270_REG_PWR_CONF = 0x7C;
+static const uint8_t BMI270_REG_PWR_CTRL = 0x7D;
+static const uint8_t BMI270_REG_CMD = 0x7E;
 
-static const uint8_t CHIP_ID            = 0x24;
-static const uint8_t CMD_SOFT_RESET     = 0xB6;
+static const uint8_t BMI270_CHIP_ID = 0x24;
+static const uint8_t BMI270_CMD_SOFT_RESET = 0xB6;
+
+// Sensitivity constants — ±2g range, ±2000 dps range
+static const float BMI270_ACCEL_2G_SENSITIVITY = 1.0f / 16384.0f;  // g/LSB
+static const float BMI270_GYRO_2000DPS_SENSITIVITY = 1.0f / 16.4f;  // dps/LSB
+static const float GRAVITY_EARTH = 9.80665f;
 
 void BMI270Component::setup() {
   ESP_LOGCONFIG(TAG, "Setting up BMI270...");
 
-  uint8_t val = CMD_SOFT_RESET;
-  this->write_register(REG_CMD, &val, 1);
-  delay(100);
+  // Soft reset; datasheet specifies 2 ms POR time after reset
+  uint8_t val = BMI270_CMD_SOFT_RESET;
+  this->write_register(BMI270_REG_CMD, &val, 1);
+  delay(2);
 
   uint8_t chip_id = 0;
-  if (this->read_register(REG_CHIP_ID, &chip_id, 1) != i2c::ERROR_OK || chip_id != CHIP_ID) {
-    ESP_LOGE(TAG, "Unexpected chip ID: 0x%02X (expected 0x%02X)", chip_id, CHIP_ID);
+  if (this->read_register(BMI270_REG_CHIP_ID, &chip_id, 1) != i2c::ERROR_OK || chip_id != BMI270_CHIP_ID) {
+    ESP_LOGE(TAG, "Unexpected chip ID: 0x%02X (expected 0x%02X)", chip_id, BMI270_CHIP_ID);
     this->mark_failed();
     return;
   }
 
-  if (!this->bmi270_init_config_file()) {
+  if (!this->load_config_file_()) {
     ESP_LOGE(TAG, "Failed to load BMI270 config file");
     this->mark_failed();
     return;
   }
 
-  // Enable accel, gyro, temperature
+  // Enable accelerometer, gyroscope, temperature sensor
   val = 0x0E;
-  this->write_register(REG_PWR_CTRL, &val, 1);
-  delay(50);
+  this->write_register(BMI270_REG_PWR_CTRL, &val, 1);
 
-  // Accel: ODR=100Hz, BWP=normal, perf mode, range=±2g → 16384 LSB/g
+  // Accel: ODR=100 Hz, BWP=normal, performance mode, ±2 g → 16384 LSB/g
   uint8_t acc_conf = 0xA8, acc_range = 0x00;
-  this->write_register(REG_ACC_CONF, &acc_conf, 1);
-  this->write_register(REG_ACC_RANGE, &acc_range, 1);
-  this->accel_sensitivity_ = 16384.0f;
+  this->write_register(BMI270_REG_ACC_CONF, &acc_conf, 1);
+  this->write_register(BMI270_REG_ACC_RANGE, &acc_range, 1);
 
-  // Gyro: ODR=100Hz, BWP=normal, perf mode, range=±2000 dps → 16.4 LSB/dps
+  // Gyro: ODR=100 Hz, BWP=normal, performance mode, ±2000 dps → 16.4 LSB/dps
   uint8_t gyr_conf = 0xA8, gyr_range = 0x00;
-  this->write_register(REG_GYR_CONF, &gyr_conf, 1);
-  this->write_register(REG_GYR_RANGE, &gyr_range, 1);
-  this->gyro_sensitivity_ = 16.4f;
+  this->write_register(BMI270_REG_GYR_CONF, &gyr_conf, 1);
+  this->write_register(BMI270_REG_GYR_RANGE, &gyr_range, 1);
 
-  this->apply_power_save_mode();
-  this->sensors_active_ = true;
+  this->apply_power_save_mode_();
+  this->setup_complete_ = true;
   ESP_LOGI(TAG, "BMI270 setup complete");
 }
 
-bool BMI270Component::bmi270_init_config_file() {
-  // Disable advanced power save before writing config
+bool BMI270Component::load_config_file_() {
+  // Disable advanced power save before uploading config blob
   uint8_t val = 0x00;
-  this->write_register(REG_PWR_CONF, &val, 1);
+  this->write_register(BMI270_REG_PWR_CONF, &val, 1);
   delay(1);
 
-  val = 0x00;
-  this->write_register(REG_INIT_CTRL, &val, 1);
+  // Halt config load
+  this->write_register(BMI270_REG_INIT_CTRL, &val, 1);
   delay(2);
 
   const size_t config_len = sizeof(bmi270_config_file);
-  static constexpr size_t CHUNK = 16;
+  static constexpr size_t CHUNK = 64;
   uint8_t chunk[CHUNK];
   for (size_t i = 0; i < config_len; i += CHUNK) {
-    uint16_t addr = (uint16_t)(i / 2);
-    uint8_t addr_lo = (uint8_t)(addr & 0x0F);
-    uint8_t addr_hi = (uint8_t)((addr >> 4) & 0xFF);
-    if (this->write_register(REG_INIT_ADDR_0, &addr_lo, 1) != i2c::ERROR_OK ||
-        this->write_register(REG_INIT_ADDR_1, &addr_hi, 1) != i2c::ERROR_OK) {
-      ESP_LOGE(TAG, "BMI270 config upload: I2C address write failed at offset %d", (int)i);
+    uint16_t addr = static_cast<uint16_t>(i / 2);
+    uint8_t addr_lo = static_cast<uint8_t>(addr & 0x0F);
+    uint8_t addr_hi = static_cast<uint8_t>((addr >> 4) & 0xFF);
+    if (this->write_register(BMI270_REG_INIT_ADDR_0, &addr_lo, 1) != i2c::ERROR_OK ||
+        this->write_register(BMI270_REG_INIT_ADDR_1, &addr_hi, 1) != i2c::ERROR_OK) {
+      ESP_LOGE(TAG, "BMI270 config upload: I2C address write failed at offset %d", static_cast<int>(i));
       return false;
     }
     size_t chunk_size = std::min(CHUNK, config_len - i);
     memcpy(chunk, bmi270_config_file + i, chunk_size);
-    if (this->write_register(REG_INIT_DATA, chunk, chunk_size) != i2c::ERROR_OK) {
-      ESP_LOGE(TAG, "BMI270 config upload: I2C data write failed at offset %d", (int)i);
+    if (this->write_register(BMI270_REG_INIT_DATA, chunk, chunk_size) != i2c::ERROR_OK) {
+      ESP_LOGE(TAG, "BMI270 config upload: I2C data write failed at offset %d", static_cast<int>(i));
       return false;
     }
   }
 
+  // Signal config load complete
   val = 0x01;
-  this->write_register(REG_INIT_CTRL, &val, 1);
+  this->write_register(BMI270_REG_INIT_CTRL, &val, 1);
 
-  // Poll INTERNAL_STATUS until bit[3:0]==0x01 (init_ok), timeout 150ms
+  // Poll INTERNAL_STATUS until bits[3:0] == 0x01 (init_ok); timeout ~150 ms
   uint8_t status = 0;
   bool init_ok = false;
   for (int attempt = 0; attempt < 15; attempt++) {
     delay(10);
-    if (this->read_register(REG_INTERNAL_STATUS, &status, 1) != i2c::ERROR_OK) {
+    if (this->read_register(BMI270_REG_INTERNAL_STATUS, &status, 1) != i2c::ERROR_OK) {
       ESP_LOGE(TAG, "Failed to read INTERNAL_STATUS");
       return false;
     }
@@ -127,53 +132,90 @@ bool BMI270Component::bmi270_init_config_file() {
   return true;
 }
 
-void BMI270Component::apply_power_save_mode() {
+void BMI270Component::apply_power_save_mode_() {
   uint8_t val = (this->power_save_mode_ == POWER_SAVE_MODE_LOW_POWER) ? 0x03 : 0x00;
-  this->write_register(REG_PWR_CONF, &val, 1);
+  this->write_register(BMI270_REG_PWR_CONF, &val, 1);
 }
 
 void BMI270Component::update() {
-  if (!this->sensors_active_)
+  if (!this->setup_complete_)
     return;
 
-  // Read accel (0x0C–0x11) + gyro (0x12–0x17) in one burst: 12 bytes
+  // Burst-read accel (0x0C–0x11) + gyro (0x12–0x17): 12 bytes
   uint8_t data[12];
-  if (this->read_register(REG_ACC_DATA, data, 12) != i2c::ERROR_OK) {
+  if (this->read_register(BMI270_REG_ACC_DATA, data, 12) != i2c::ERROR_OK) {
+    this->status_set_warning();
     ESP_LOGW(TAG, "Failed to read sensor data");
     return;
   }
 
-  auto raw = [&](int i) -> int16_t { return (int16_t)((data[i + 1] << 8) | data[i]); };
+  auto raw = [&](int i) -> int16_t { return static_cast<int16_t>((data[i + 1] << 8) | data[i]); };
 
-  if (this->accel_x_sensor_) this->accel_x_sensor_->publish_state(raw(0) / this->accel_sensitivity_);
-  if (this->accel_y_sensor_) this->accel_y_sensor_->publish_state(raw(2) / this->accel_sensitivity_);
-  if (this->accel_z_sensor_) this->accel_z_sensor_->publish_state(raw(4) / this->accel_sensitivity_);
-  if (this->gyro_x_sensor_)  this->gyro_x_sensor_->publish_state(raw(6) / this->gyro_sensitivity_);
-  if (this->gyro_y_sensor_)  this->gyro_y_sensor_->publish_state(raw(8) / this->gyro_sensitivity_);
-  if (this->gyro_z_sensor_)  this->gyro_z_sensor_->publish_state(raw(10) / this->gyro_sensitivity_);
+  float accel_x = raw(0) * BMI270_ACCEL_2G_SENSITIVITY * GRAVITY_EARTH;
+  float accel_y = raw(2) * BMI270_ACCEL_2G_SENSITIVITY * GRAVITY_EARTH;
+  float accel_z = raw(4) * BMI270_ACCEL_2G_SENSITIVITY * GRAVITY_EARTH;
+  float gyro_x = raw(6) * BMI270_GYRO_2000DPS_SENSITIVITY;
+  float gyro_y = raw(8) * BMI270_GYRO_2000DPS_SENSITIVITY;
+  float gyro_z = raw(10) * BMI270_GYRO_2000DPS_SENSITIVITY;
 
-  if (this->temperature_sensor_) {
+  float temp_c = NAN;
+  if (this->temperature_sensor_ != nullptr) {
     uint8_t temp_data[2];
-    if (this->read_register(REG_TEMP_DATA, temp_data, 2) == i2c::ERROR_OK) {
-      int16_t raw_temp = (int16_t)((temp_data[1] << 8) | temp_data[0]);
-      this->temperature_sensor_->publish_state((raw_temp / 512.0f) + 23.0f);
+    if (this->read_register(BMI270_REG_TEMP_DATA, temp_data, 2) == i2c::ERROR_OK) {
+      int16_t raw_temp = static_cast<int16_t>((temp_data[1] << 8) | temp_data[0]);
+      temp_c = (raw_temp / 512.0f) + 23.0f;
     }
   }
+
+  ESP_LOGD(TAG,
+           "Got accel={x=%.3f m/s², y=%.3f m/s², z=%.3f m/s²}, gyro={x=%.3f °/s, y=%.3f °/s, z=%.3f °/s}, "
+           "temp=%.1f°C",
+           accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, temp_c);
+
+  if (this->accel_x_sensor_ != nullptr)
+    this->accel_x_sensor_->publish_state(accel_x);
+  if (this->accel_y_sensor_ != nullptr)
+    this->accel_y_sensor_->publish_state(accel_y);
+  if (this->accel_z_sensor_ != nullptr)
+    this->accel_z_sensor_->publish_state(accel_z);
+  if (this->gyro_x_sensor_ != nullptr)
+    this->gyro_x_sensor_->publish_state(gyro_x);
+  if (this->gyro_y_sensor_ != nullptr)
+    this->gyro_y_sensor_->publish_state(gyro_y);
+  if (this->gyro_z_sensor_ != nullptr)
+    this->gyro_z_sensor_->publish_state(gyro_z);
+  if (this->temperature_sensor_ != nullptr && !std::isnan(temp_c))
+    this->temperature_sensor_->publish_state(temp_c);
+
+  this->status_clear_warning();
 }
 
 void BMI270Component::dump_config() {
   ESP_LOGCONFIG(TAG, "BMI270:");
   LOG_I2C_DEVICE(this);
   if (this->is_failed()) {
+    ESP_LOGE(TAG, ESP_LOG_MSG_COMM_FAIL);
     if (this->setup_status_ == 0xFF) {
       ESP_LOGE(TAG, "  Setup failed before config upload (chip ID mismatch or I2C error)");
     } else {
-      ESP_LOGE(TAG, "  Setup failed: INTERNAL_STATUS=0x%02X", this->setup_status_);
+      ESP_LOGE(TAG, "  INTERNAL_STATUS=0x%02X", this->setup_status_);
     }
   }
+  LOG_UPDATE_INTERVAL(this);
+  ESP_LOGCONFIG(TAG, "  Power save mode: %s",
+                this->power_save_mode_ == POWER_SAVE_MODE_LOW_POWER ? "LOW_POWER" : "NORMAL");
+  LOG_SENSOR("  ", "Acceleration X", this->accel_x_sensor_);
+  LOG_SENSOR("  ", "Acceleration Y", this->accel_y_sensor_);
+  LOG_SENSOR("  ", "Acceleration Z", this->accel_z_sensor_);
+  LOG_SENSOR("  ", "Gyroscope X", this->gyro_x_sensor_);
+  LOG_SENSOR("  ", "Gyroscope Y", this->gyro_y_sensor_);
+  LOG_SENSOR("  ", "Gyroscope Z", this->gyro_z_sensor_);
+  LOG_SENSOR("  ", "Temperature", this->temperature_sensor_);
 }
 
-float BMI270Component::get_setup_priority() const { return setup_priority::DATA; }
+float BMI270Component::get_setup_priority() const {
+  return setup_priority::DATA;
+}
 
 }  // namespace bmi270
 }  // namespace esphome

@@ -2,11 +2,21 @@ import esphome.codegen as cg
 from esphome.components import i2c, sensor
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_ACCELERATION_X,
+    CONF_ACCELERATION_Y,
+    CONF_ACCELERATION_Z,
+    CONF_GYROSCOPE_X,
+    CONF_GYROSCOPE_Y,
+    CONF_GYROSCOPE_Z,
     CONF_ID,
     CONF_TEMPERATURE,
     DEVICE_CLASS_TEMPERATURE,
-    ICON_BRIEFCASE_DOWNLOAD,
-    ICON_SCREEN_ROTATION,
+    ICON_ACCELERATION_X,
+    ICON_ACCELERATION_Y,
+    ICON_ACCELERATION_Z,
+    ICON_GYROSCOPE_X,
+    ICON_GYROSCOPE_Y,
+    ICON_GYROSCOPE_Z,
     STATE_CLASS_MEASUREMENT,
     UNIT_CELSIUS,
     UNIT_DEGREE_PER_SECOND,
@@ -15,12 +25,6 @@ from esphome.const import (
 
 DEPENDENCIES = ["i2c"]
 
-CONF_ACCEL_X = "accel_x"
-CONF_ACCEL_Y = "accel_y"
-CONF_ACCEL_Z = "accel_z"
-CONF_GYRO_X = "gyro_x"
-CONF_GYRO_Y = "gyro_y"
-CONF_GYRO_Z = "gyro_z"
 CONF_POWER_SAVE_MODE = "power_save_mode"
 
 bmi270_ns = cg.esphome_ns.namespace("bmi270")
@@ -34,36 +38,51 @@ POWER_SAVE_MODES = {
     "LOW_POWER": PowerSaveMode.POWER_SAVE_MODE_LOW_POWER,
 }
 
-accel_schema = sensor.sensor_schema(
-    unit_of_measurement=UNIT_METER_PER_SECOND_SQUARED,
-    icon=ICON_BRIEFCASE_DOWNLOAD,
-    accuracy_decimals=2,
-    state_class=STATE_CLASS_MEASUREMENT,
-)
-gyro_schema = sensor.sensor_schema(
-    unit_of_measurement=UNIT_DEGREE_PER_SECOND,
-    icon=ICON_SCREEN_ROTATION,
-    accuracy_decimals=2,
-    state_class=STATE_CLASS_MEASUREMENT,
-)
-temperature_schema = sensor.sensor_schema(
-    unit_of_measurement=UNIT_CELSIUS,
-    accuracy_decimals=2,
-    device_class=DEVICE_CLASS_TEMPERATURE,
-    state_class=STATE_CLASS_MEASUREMENT,
-)
+accel_schema = {
+    "unit_of_measurement": UNIT_METER_PER_SECOND_SQUARED,
+    "accuracy_decimals": 2,
+    "state_class": STATE_CLASS_MEASUREMENT,
+}
+gyro_schema = {
+    "unit_of_measurement": UNIT_DEGREE_PER_SECOND,
+    "accuracy_decimals": 2,
+    "state_class": STATE_CLASS_MEASUREMENT,
+}
 
 CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(BMI270Component),
-            cv.Optional(CONF_ACCEL_X): accel_schema,
-            cv.Optional(CONF_ACCEL_Y): accel_schema,
-            cv.Optional(CONF_ACCEL_Z): accel_schema,
-            cv.Optional(CONF_GYRO_X): gyro_schema,
-            cv.Optional(CONF_GYRO_Y): gyro_schema,
-            cv.Optional(CONF_GYRO_Z): gyro_schema,
-            cv.Optional(CONF_TEMPERATURE): temperature_schema,
+            cv.Optional(CONF_ACCELERATION_X): sensor.sensor_schema(
+                icon=ICON_ACCELERATION_X,
+                **accel_schema,
+            ),
+            cv.Optional(CONF_ACCELERATION_Y): sensor.sensor_schema(
+                icon=ICON_ACCELERATION_Y,
+                **accel_schema,
+            ),
+            cv.Optional(CONF_ACCELERATION_Z): sensor.sensor_schema(
+                icon=ICON_ACCELERATION_Z,
+                **accel_schema,
+            ),
+            cv.Optional(CONF_GYROSCOPE_X): sensor.sensor_schema(
+                icon=ICON_GYROSCOPE_X,
+                **gyro_schema,
+            ),
+            cv.Optional(CONF_GYROSCOPE_Y): sensor.sensor_schema(
+                icon=ICON_GYROSCOPE_Y,
+                **gyro_schema,
+            ),
+            cv.Optional(CONF_GYROSCOPE_Z): sensor.sensor_schema(
+                icon=ICON_GYROSCOPE_Z,
+                **gyro_schema,
+            ),
+            cv.Optional(CONF_TEMPERATURE): sensor.sensor_schema(
+                unit_of_measurement=UNIT_CELSIUS,
+                accuracy_decimals=1,
+                device_class=DEVICE_CLASS_TEMPERATURE,
+                state_class=STATE_CLASS_MEASUREMENT,
+            ),
             cv.Optional(CONF_POWER_SAVE_MODE, default="NORMAL"): cv.enum(
                 POWER_SAVE_MODES, upper=True
             ),
@@ -83,12 +102,12 @@ async def to_code(config):
         cg.add(var.set_power_save_mode(config[CONF_POWER_SAVE_MODE]))
 
     for d in ["x", "y", "z"]:
-        accel_key = f"accel_{d}"
+        accel_key = f"acceleration_{d}"
         if accel_key in config:
             sens = await sensor.new_sensor(config[accel_key])
             cg.add(getattr(var, f"set_accel_{d}_sensor")(sens))
 
-        gyro_key = f"gyro_{d}"
+        gyro_key = f"gyroscope_{d}"
         if gyro_key in config:
             sens = await sensor.new_sensor(config[gyro_key])
             cg.add(getattr(var, f"set_gyro_{d}_sensor")(sens))
