@@ -1,0 +1,73 @@
+# Test: ESP32-S3 + ESP-IDF + ESP-SR wake word component
+# Validates that esp_sr_wake_word compiles with the WakeNet9 backend.
+#
+# NOTE: Requires a 'model' partition in your device's partition table (~6 MB).
+# See components/esp_sr_wake_word/README.md for partition setup and first-flash instructions.
+# This test YAML omits partition config — the component itself compiles without it;
+# srmodels.bin is a separate artifact flashed once via esptool.
+
+esphome:
+  name: test-esp32s3-esp-sr
+  on_boot:
+    - esp_sr_wake_word.start:
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+  partitions:
+    - name: model
+      type: data
+      subtype: undefined
+      size: 0x600000
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+# Use local components source for this test
+external_components:
+  - source: ../components
+    components: [esp_sr_wake_word]
+
+# Placeholder I2S bus — pins are unused in compile-only validation
+i2s_audio:
+  id: i2s_audio_bus
+  i2s_lrclk_pin: GPIO4
+  i2s_bclk_pin: GPIO5
+
+microphone:
+  - platform: i2s_audio
+    id: i2s_mic
+    i2s_din_pin: GPIO6
+    adc_type: external
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    i2s_audio_id: i2s_audio_bus
+
+esp_sr_wake_word:
+  id: esp_sr_ww
+  microphone: i2s_mic
+  models:
+    - id: esp_sr_nihaoxiaozhi
+      model: wn9_nihaoxiaozhi_tts
+    - id: esp_sr_hiesp_small
+      model: wn9s_hiesp
+  on_wake_word_detected:
+    - logger.log:
+        format: "Wake word: %s"
+        args: [wake_word.c_str()]
+    - esp_sr_wake_word.disable_model: esp_sr_nihaoxiaozhi
+    - esp_sr_wake_word.enable_model: esp_sr_hiesp_small
+    - if:
+        condition:
+          esp_sr_wake_word.model_is_enabled: esp_sr_hiesp_small
+        then:
+          - esp_sr_wake_word.stop:
+        else:
+          - esp_sr_wake_word.enable_model: esp_sr_nihaoxiaozhi
