@@ -279,9 +279,8 @@ void ED047TC1Display::draw_absolute_pixel_internal(int x, int y, Color color) {
   uint32_t g_val = color.g;
   uint32_t b_val = color.b;
   uint8_t gray_value = static_cast<uint8_t>((r_val + g_val + b_val) / 3);
-  uint8_t inverted_gray_value = 255 - gray_value;
 
-  this->buffer_[(y * get_width_internal()) + x] = inverted_gray_value;
+  this->buffer_[(y * get_width_internal()) + x] = gray_value;
 }
 
 void ED047TC1Display::dump_config() {
