@@ -675,16 +675,15 @@ bluetooth_proxy:
 font:
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 300
-      italic: true
     id: font_request
     size: 19
     glyphsets:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 300
     id: font_response
     size: 19
@@ -692,7 +691,7 @@ font:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 600
     id: font_phase
     size: 38
@@ -700,7 +699,7 @@ font:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 500
     id: font_clock
     size: 32
@@ -708,7 +707,7 @@ font:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 500
     id: font_status
     size: 20
@@ -716,12 +715,48 @@ font:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 400
     id: font_small
     size: 16
     glyphsets:
       - GF_Latin_Core
+    glyphs:
+      - 天
+      - 氣
+      - 你
+      - 好
+      - 助
+      - 理
+      - 今
+      - 日
+      - 明
+      - 現
+      - 在
+      - 溫
+      - 度
+      - 濕
+      - 下
+      - 雨
+      - 晴
+      - 陰
+      - 雲
+      - 風
+      - 早
+      - 午
+      - 晚
+      - 幫
+      - 我
+      - 請
+      - 問
+      - 開
+      - 關
+      - 燈
+      - 音
+      - 量
+      - 時
+      - 間
+      - 謝
   - file: https://raw.githubusercontent.com/Templarian/MaterialDesign-Webfont/master/fonts/materialdesignicons-webfont.ttf
     id: mdi_icon_128
     size: 128
@@ -933,7 +968,13 @@ lvgl:
                         align: CENTER
                         text_font: font_status
                   on_click:
-                    - script.execute: show_volume_overlay
+                    - if:
+                        condition:
+                          lambda: return id(volume_overlay_visible);
+                        then:
+                          - script.execute: hide_volume_overlay
+                        else:
+                          - script.execute: show_volume_overlay
         - obj:
             id: volume_popup
             styles: volume_overlay
@@ -1064,6 +1105,13 @@ script:
     mode: restart
     then:
       - delay: 5s
+      - lambda: id(volume_overlay_visible) = false;
+      - lvgl.widget.hide: volume_popup
+
+  - id: hide_volume_overlay
+    mode: restart
+    then:
+      - script.stop: hide_volume_overlay_later
       - lambda: id(volume_overlay_visible) = false;
       - lvgl.widget.hide: volume_popup
 

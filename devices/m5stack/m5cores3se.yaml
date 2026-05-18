@@ -481,12 +481,38 @@ media_player:
     on_volume:
       - lvgl.slider.update:
           id: volume_slider
-          value: !lambda return int(x * 100.0f);
+          value: !lambda |-
+            if (id(va_media_player).is_muted()) return 0;
+            int value = int((x - 0.5f) * 100.0f / 0.3f);
+            if (value < 0) return 0;
+            if (value > 100) return 100;
+            return value;
       - lvgl.label.update:
           id: volume_value_label
-          text:
-            format: "%d%%"
-            args: [ 'int(x * 100.0f)' ]
+          text: !lambda |-
+            if (id(va_media_player).is_muted()) return std::string("Muted");
+            int value = std::min(100, std::max(1, int((x - 0.5f) * 100.0f / 0.3f)));
+            return std::to_string(value) + "%";
+    on_mute:
+      - lvgl.slider.update:
+          id: volume_slider
+          value: 0
+      - lvgl.label.update:
+          id: volume_value_label
+          text: "Muted"
+    on_unmute:
+      - lvgl.slider.update:
+          id: volume_slider
+          value: !lambda |-
+            int value = int((id(va_media_player).volume - 0.5f) * 100.0f / 0.3f);
+            if (value < 1) return 1;
+            if (value > 100) return 100;
+            return value;
+      - lvgl.label.update:
+          id: volume_value_label
+          text: !lambda |-
+            int value = std::min(100, std::max(1, int((id(va_media_player).volume - 0.5f) * 100.0f / 0.3f)));
+            return std::to_string(value) + "%";
 
 micro_wake_word:
   id: mww
@@ -633,53 +659,88 @@ bluetooth_proxy:
 font:
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 300
-      italic: true
     id: font_request
-    size: 15
+    size: 19
     glyphsets:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 300
     id: font_response
-    size: 15
+    size: 19
     glyphsets:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 600
     id: font_phase
-    size: 30
+    size: 38
     glyphsets:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 500
     id: font_clock
-    size: 26
+    size: 32
     glyphsets:
       - GF_Latin_Core
   - file:
       type: gfonts
-      family: Figtree
+      family: Noto Sans TC
       weight: 500
     id: font_status
+    size: 20
+    glyphsets:
+      - GF_Latin_Core
+  - file:
+      type: gfonts
+      family: Noto Sans TC
+      weight: 400
+    id: font_small
     size: 16
     glyphsets:
       - GF_Latin_Core
-  - file:
-      type: gfonts
-      family: Figtree
-      weight: 400
-    id: font_small
-    size: 12
-    glyphsets:
-      - GF_Latin_Core
+    glyphs:
+      - 天
+      - 氣
+      - 你
+      - 好
+      - 助
+      - 理
+      - 今
+      - 日
+      - 明
+      - 現
+      - 在
+      - 溫
+      - 度
+      - 濕
+      - 下
+      - 雨
+      - 晴
+      - 陰
+      - 雲
+      - 風
+      - 早
+      - 午
+      - 晚
+      - 幫
+      - 我
+      - 請
+      - 問
+      - 開
+      - 關
+      - 燈
+      - 音
+      - 量
+      - 時
+      - 間
+      - 謝
   - file: https://raw.githubusercontent.com/Templarian/MaterialDesign-Webfont/master/fonts/materialdesignicons-webfont.ttf
     id: mdi_icon_128
     size: 128
@@ -719,9 +780,10 @@ lvgl:
       border_opa: TRANSP
       shadow_opa: TRANSP
       pad_all: 0
+      scrollbar_mode: "OFF"
     - id: control_button
-      width: 92
-      height: 38
+      width: 96
+      height: 42
       radius: 8
       bg_color: 0x263238
       border_opa: TRANSP
@@ -729,14 +791,15 @@ lvgl:
       text_color: 0xFFFFFF
     - id: volume_overlay
       width: 280
-      height: 132
+      height: 130
       radius: 8
       bg_color: 0x1D252C
       bg_opa: COVER
       border_color: 0x3B4650
       border_width: 1
       shadow_opa: TRANSP
-      pad_all: 14
+      pad_all: 12
+      scrollbar_mode: "OFF"
   pages:
     - id: va_page
       bg_color: 0x101418
@@ -746,8 +809,8 @@ lvgl:
             styles: transparent_panel
             align: TOP_MID
             width: 300
-            height: 42
-            y: 8
+            height: 52
+            y: 4
             layout:
               type: FLEX
               flex_flow: ROW
@@ -769,8 +832,8 @@ lvgl:
             styles: transparent_panel
             align: CENTER
             width: 300
-            height: 112
-            y: -12
+            height: 108
+            y: -20
             layout:
               type: FLEX
               flex_flow: COLUMN
@@ -796,8 +859,8 @@ lvgl:
             styles: transparent_panel
             align: BOTTOM_MID
             width: 300
-            height: 72
-            y: -48
+            height: 68
+            y: -50
             layout:
               type: FLEX
               flex_flow: COLUMN
@@ -826,7 +889,7 @@ lvgl:
             styles: transparent_panel
             align: BOTTOM_MID
             width: 300
-            height: 42
+            height: 46
             y: -4
             layout:
               type: FLEX
@@ -889,23 +952,33 @@ lvgl:
                         align: CENTER
                         text_font: font_status
                   on_click:
-                    - script.execute: show_volume_overlay
+                    - if:
+                        condition:
+                          lambda: return id(volume_overlay_visible);
+                        then:
+                          - script.execute: hide_volume_overlay
+                        else:
+                          - script.execute: show_volume_overlay
         - obj:
             id: volume_popup
             styles: volume_overlay
             align: CENTER
             hidden: true
+            scrollable: false
+            scrollbar_mode: "OFF"
             layout:
               type: FLEX
               flex_flow: COLUMN
               flex_align_main: CENTER
               flex_align_cross: CENTER
-              pad_row: 12
+              pad_row: 8
             widgets:
               - obj:
                   styles: transparent_panel
                   width: 252
-                  height: 24
+                  height: 32
+                  scrollable: false
+                  scrollbar_mode: "OFF"
                   layout:
                     type: FLEX
                     flex_flow: ROW
@@ -924,24 +997,33 @@ lvgl:
               - slider:
                   id: volume_slider
                   width: 252
-                  height: 24
-                  min_value: 50
-                  max_value: 80
-                  value: 60
+                  height: 28
+                  min_value: 0
+                  max_value: 100
+                  value: 33
                   bg_color: 0x3B4650
                   indicator:
                     bg_color: 0x8AB4F8
                   knob:
                     bg_color: 0xFFFFFF
                   on_release:
-                    - media_player.volume_set:
-                        id: va_media_player
-                        volume: !lambda return x / 100.0f;
+                    - if:
+                        condition:
+                          lambda: return x <= 0;
+                        then:
+                          - media_player.mute:
+                              id: va_media_player
+                        else:
+                          - media_player.unmute:
+                              id: va_media_player
+                          - media_player.volume_set:
+                              id: va_media_player
+                              volume: !lambda return 0.5f + (x / 100.0f) * 0.3f;
                     - lvgl.label.update:
                         id: volume_value_label
-                        text:
-                          format: "%d%%"
-                          args: [ 'int(x)' ]
+                        text: !lambda |-
+                          if (x <= 0) return std::string("Muted");
+                          return std::to_string(int(x)) + "%";
                     - script.execute: hide_volume_overlay_later
 
 touchscreen:
@@ -988,12 +1070,18 @@ script:
       - lambda: id(volume_overlay_visible) = true;
       - lvgl.slider.update:
           id: volume_slider
-          value: !lambda return int(id(va_media_player).volume * 100.0f);
+          value: !lambda |-
+            if (id(va_media_player).is_muted()) return 0;
+            int value = int((id(va_media_player).volume - 0.5f) * 100.0f / 0.3f);
+            if (value < 0) return 0;
+            if (value > 100) return 100;
+            return value;
       - lvgl.label.update:
           id: volume_value_label
-          text:
-            format: "%d%%"
-            args: [ 'int(id(va_media_player).volume * 100.0f)' ]
+          text: !lambda |-
+            if (id(va_media_player).is_muted()) return std::string("Muted");
+            int value = std::min(100, std::max(1, int((id(va_media_player).volume - 0.5f) * 100.0f / 0.3f)));
+            return std::to_string(value) + "%";
       - lvgl.widget.show: volume_popup
       - script.execute: hide_volume_overlay_later
 
@@ -1001,6 +1089,13 @@ script:
     mode: restart
     then:
       - delay: 5s
+      - lambda: id(volume_overlay_visible) = false;
+      - lvgl.widget.hide: volume_popup
+
+  - id: hide_volume_overlay
+    mode: restart
+    then:
+      - script.stop: hide_volume_overlay_later
       - lambda: id(volume_overlay_visible) = false;
       - lvgl.widget.hide: volume_popup
 
