@@ -23,6 +23,18 @@ i2c:
   scan: false
   frequency: 400kHz
 
+globals:
+  - id: display_brightness
+    type: float
+    initial_value: '0.5'
+  # Tilt globals updated at IMU rate (100 ms) for spirit level display
+  - id: g_tilt_x
+    type: float
+    initial_value: '0.0'
+  - id: g_tilt_y
+    type: float
+    initial_value: '0.0'
+
 # ─── QMI8658 6-axis IMU ───────────────────────────────────────────────────────
 sensor:
   - platform: qmi8658
@@ -31,21 +43,40 @@ sensor:
     address: 0x6B
     accelerometer_range: 4G
     gyroscope_range: 256DPS
-    update_interval: 5s
+    # 100 ms for responsive display; HA publish throttled per sensor below
+    update_interval: 100ms
     acceleration_x:
       name: "Accel X"
+      filters:
+        - throttle: 5s
+      on_raw_value:
+        - lambda: id(g_tilt_x) = x;
     acceleration_y:
       name: "Accel Y"
+      filters:
+        - throttle: 5s
+      on_raw_value:
+        - lambda: id(g_tilt_y) = x;
     acceleration_z:
       name: "Accel Z"
+      filters:
+        - throttle: 5s
     gyroscope_x:
       name: "Gyro X"
+      filters:
+        - throttle: 5s
     gyroscope_y:
       name: "Gyro Y"
+      filters:
+        - throttle: 5s
     gyroscope_z:
       name: "Gyro Z"
+      filters:
+        - throttle: 5s
     temperature:
       name: "IMU Temp"
+      filters:
+        - throttle: 30s
   - platform: internal_temperature
     name: "Chip Temp"
     update_interval: 30s
@@ -76,11 +107,6 @@ light:
     output: board_8x8_output
     gamma_correct: 1.0
 
-globals:
-  - id: display_brightness
-    type: float
-    initial_value: '0.1'
-
 output:
   - platform: template
     id: board_8x8_output
@@ -95,23 +121,30 @@ display:
     addressable_light_id: board_8x8
     width: 8
     height: 8
-    rotation: 180°
+    rotation: 90°
     update_interval: 16ms
     lambda: |-
-      if (id(board_8x8_light).current_values.is_on()) {
-        float brightness = id(display_brightness);
-        int bright_val = (int)(255.0f * brightness);
-        if (bright_val == 2) {
-          bright_val = 1;
-        }
-        Color red   = Color(bright_val, 0, 0);
-        Color green = Color(0, bright_val, 0);
-        Color blue  = Color(0, 0, bright_val);
-        it.rectangle(0, 0, 8, 8, red);
-        it.rectangle(1, 1, 6, 6, green);
-        it.rectangle(2, 2, 4, 4, blue);
-        it.rectangle(3, 3, 2, 2, red);
-      } else {
+      if (!id(board_8x8_light).current_values.is_on()) {
         it.fill(Color::BLACK);
+        return;
       }
 
+      float brightness = id(display_brightness);
+      int bv = (int)(255.0f * brightness);
+      if (bv == 2) bv = 1;
+
+      it.fill(Color::BLACK);
+
+      // Spirit level: single LED dot follows the gravity vector in the XY plane.
+      // ±4.9 m/s² (≈ ±0.5 g, ~30° tilt) covers the full 8×8 grid edge-to-edge.
+      // Positive accel_x = right side lower → dot moves right (higher px).
+      // Positive accel_y = front side lower → dot moves down (higher py).
+      float scale = 4.9f;
+      float fx = 3.5f + (id(g_tilt_x) / scale) * 3.5f;
+      float fy = 3.5f + (id(g_tilt_y) / scale) * 3.5f;
+      int px = (int)roundf(fx);
+      int py = (int)roundf(fy);
+      if (px < 0) px = 0; if (px > 7) px = 7;
+      if (py < 0) py = 0; if (py > 7) py = 7;
+
+      it.draw_pixel_at(px, py, Color(bv, bv, bv));
