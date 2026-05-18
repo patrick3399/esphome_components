@@ -79,36 +79,51 @@ bool BMI270Component::bmi270_init_config_file() {
 
   val = 0x00;
   this->write_register(REG_INIT_CTRL, &val, 1);
+  delay(2);
 
   const size_t config_len = sizeof(bmi270_config_file);
-  uint8_t chunk[32];
-  for (size_t i = 0; i < config_len; i += 32) {
+  static constexpr size_t CHUNK = 16;
+  uint8_t chunk[CHUNK];
+  for (size_t i = 0; i < config_len; i += CHUNK) {
     uint16_t addr = (uint16_t)(i / 2);
-    uint8_t addr_lo = (uint8_t)(addr & 0xFF);
-    uint8_t addr_hi = (uint8_t)((addr >> 8) & 0xFF);
-    this->write_register(REG_INIT_ADDR_0, &addr_lo, 1);
-    this->write_register(REG_INIT_ADDR_1, &addr_hi, 1);
-
-    size_t chunk_size = std::min((size_t)32, config_len - i);
+    uint8_t addr_lo = (uint8_t)(addr & 0x0F);
+    uint8_t addr_hi = (uint8_t)((addr >> 4) & 0xFF);
+    if (this->write_register(REG_INIT_ADDR_0, &addr_lo, 1) != i2c::ERROR_OK ||
+        this->write_register(REG_INIT_ADDR_1, &addr_hi, 1) != i2c::ERROR_OK) {
+      ESP_LOGE(TAG, "BMI270 config upload: I2C address write failed at offset %d", (int)i);
+      return false;
+    }
+    size_t chunk_size = std::min(CHUNK, config_len - i);
     memcpy(chunk, bmi270_config_file + i, chunk_size);
-    this->write_register(REG_INIT_DATA, chunk, chunk_size);
+    if (this->write_register(REG_INIT_DATA, chunk, chunk_size) != i2c::ERROR_OK) {
+      ESP_LOGE(TAG, "BMI270 config upload: I2C data write failed at offset %d", (int)i);
+      return false;
+    }
   }
 
   val = 0x01;
   this->write_register(REG_INIT_CTRL, &val, 1);
-  delay(20);
 
+  // Poll INTERNAL_STATUS until bit[3:0]==0x01 (init_ok), timeout 150ms
   uint8_t status = 0;
-  if (this->read_register(REG_INTERNAL_STATUS, &status, 1) != i2c::ERROR_OK) {
-    ESP_LOGE(TAG, "Failed to read INTERNAL_STATUS");
+  bool init_ok = false;
+  for (int attempt = 0; attempt < 15; attempt++) {
+    delay(10);
+    if (this->read_register(REG_INTERNAL_STATUS, &status, 1) != i2c::ERROR_OK) {
+      ESP_LOGE(TAG, "Failed to read INTERNAL_STATUS");
+      return false;
+    }
+    if ((status & 0x0F) == 0x01) {
+      init_ok = true;
+      break;
+    }
+  }
+  this->setup_status_ = status;
+  if (!init_ok) {
+    ESP_LOGE(TAG, "BMI270 init timed out, INTERNAL_STATUS=0x%02X (expected 0x01)", status);
     return false;
   }
-  if ((status & 0x0F) != 0x01) {
-    ESP_LOGE(TAG, "BMI270 init failed, INTERNAL_STATUS=0x%02X", status);
-    return false;
-  }
-
-  ESP_LOGI(TAG, "BMI270 config file loaded successfully");
+  ESP_LOGI(TAG, "BMI270 config loaded, INTERNAL_STATUS=0x%02X", status);
   return true;
 }
 
@@ -150,7 +165,11 @@ void BMI270Component::dump_config() {
   ESP_LOGCONFIG(TAG, "BMI270:");
   LOG_I2C_DEVICE(this);
   if (this->is_failed()) {
-    ESP_LOGE(TAG, "BMI270 communication failed");
+    if (this->setup_status_ == 0xFF) {
+      ESP_LOGE(TAG, "  Setup failed before config upload (chip ID mismatch or I2C error)");
+    } else {
+      ESP_LOGE(TAG, "  Setup failed: INTERNAL_STATUS=0x%02X", this->setup_status_);
+    }
   }
 }
 

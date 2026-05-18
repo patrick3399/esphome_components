@@ -61,8 +61,9 @@ class BMI270Component : public PollingComponent, public i2c::I2CDevice {
 
   float accel_sensitivity_{0.0f};
   float gyro_sensitivity_{0.0f};
-  PowerSaveMode power_save_mode_{POWER_SAVE_MODE_NORMAL};  // 新增，默認為 Normal
-  bool sensors_active_{false};  // 新增，追蹤傳感器是否已啟用
+  PowerSaveMode power_save_mode_{POWER_SAVE_MODE_NORMAL};
+  bool sensors_active_{false};
+  uint8_t setup_status_{0xFF};  // INTERNAL_STATUS value at init, 0xFF = not reached
 };
 
 }  // namespace bmi270
