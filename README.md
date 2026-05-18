@@ -28,6 +28,26 @@ device uses.
 `devices/m5stack/secrets.yaml` is local secret material and is not a device
 configuration.
 
+## Candidate Hardware
+
+Reference notes live under [../ref/hardware/](../ref/hardware/). These devices
+do not have baseline YAMLs in this repository yet.
+
+| Vendor | Device | Reference | ESPHome notes |
+| --- | --- | --- | --- |
+| Guition | ESP32-S3-4848S040 | [hardware](../ref/hardware/guition/esp32-s3-4848s040.md) | ESPHome built-ins should cover display/touch/relays; relay GPIOs still need confirmation. |
+| Guition | JC3636K518 | [hardware](../ref/hardware/guition/jc3636k518.md) | Built-ins cover QSPI display, touch, audio, encoder; note Quad PSRAM and dual-MCU audio path. |
+| Guition | JC3636W518 | [hardware](../ref/hardware/guition/jc3636w518.md) | Built-ins cover QSPI display, touch, audio; note Octal PSRAM and V1/V2 mic differences. |
+| M5Stack | Cardputer V1.1 | [hardware](../ref/hardware/m5stack/cardputer-v1.1.md) | Needs planned `74hc138_keypad`; display/audio/IR use ESPHome built-ins. |
+| Waveshare | ESP32-S3-ETH | [hardware](../ref/hardware/waveshare/esp32-s3-eth/esp32-s3-eth.md) | Built-in W5500 Ethernet; GPIO33-37 reserved by Octal PSRAM. |
+| Waveshare | ESP32-S3-ETH-8DI-8RO | [hardware](../ref/hardware/waveshare/esp32-s3-eth-8di-8ro/esp32-s3-eth-8di-8ro.md) | Built-in W5500 Ethernet, `pca9554` for TCA9554 relay expander, RS485 via `uart`. |
+| Waveshare | ESP32-S3-GEEK | [hardware](../ref/hardware/waveshare/esp32-s3-geek/esp32-s3-geek.md) | Built-in SPI display support. |
+| Waveshare | ESP32-S3-Matrix | [hardware](../ref/hardware/waveshare/esp32-s3-matrix/esp32-s3-matrix.md) | Needs planned `qmi8658`; LED matrix uses ESPHome built-ins. |
+| Waveshare | ESP32-S3-Relay-6CH | [hardware](../ref/hardware/waveshare/esp32-s3-relay-6ch/esp32-s3-relay-6ch.md) | Built-in GPIO relays and RS485; several relay pins are strapping pins. |
+| Waveshare | ESP32-S3-Touch-AMOLED-2.41 | [hardware](../ref/hardware/waveshare/esp32-s3-touch-amoled-2.41/esp32-s3-touch-amoled-2.41.md) | Needs planned `qmi8658`; display/touch/RTC/GPIO expander should use ESPHome built-ins. |
+| Waveshare | ESP32-S3-Touch-LCD-1.85C | [hardware](../ref/hardware/waveshare/esp32-s3-touch-lcd-1.85c/esp32-s3-touch-lcd-1.85c.md) | Needs planned `qmi8658`; display/touch/RTC/audio/GPIO expander should use ESPHome built-ins. |
+| Wireless-Tag | WT32-SC01 / Plus | [hardware](../ref/hardware/wireless-tag/wt32-sc01/wt32-sc01.md) | Built-in display/touch/RS485/audio support; Plus has tight 2MB PSRAM for LVGL. |
+
 ## Components Not In ESPHome Official
 
 ### Active / Local Components
