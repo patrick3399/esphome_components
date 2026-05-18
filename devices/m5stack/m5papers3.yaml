@@ -6,11 +6,18 @@ esphome:
     build_flags: "-DBOARD_HAS_PSRAM"
   libraries:
     - EPDIY=https://github.com/patrick3399/epdiy
+  includes:
+    - m5papers3_helpers.h
   on_boot:
     then:
       - rtttl.play: 'siren:d=8,o=5,b=100:d,e,d,e,d,e,d,e'
       - delay: 5s
-      - component.update: ed047tc1_display
+      - script.execute: update_status
+      - script.execute: update_time
+      # Set flag so on_refr_ready triggers the initial GC16 after LVGL renders
+      - lambda: id(pending_full_refresh) = true;
+      # Wait for LVGL render + GC16 (~600ms) to complete before enabling triggers
+      - delay: 3s
       - lambda: |-
           id(system_initialized) = true;
 
@@ -25,14 +32,24 @@ esp32:
     version: latest
     sdkconfig_options:
       CONFIG_EPD_OUTPUT_LUT_ASSEMBLY: "y"
-      CONFIG_ESP32S3_INSTRUCTION_SET_AI_DSP: "y"
-      CONFIG_ESP32S3_VECTOR_INSTRUCTIONS_SUPPORT: "y"
+      CONFIG_SPIRAM_USE_MALLOC: "y"
+      CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL: "16384"
 
 globals:
   - id: system_initialized
     type: bool
     restore_value: no
     initial_value: 'false'
+  - id: pending_partial_refresh
+    type: bool
+    initial_value: 'false'
+  - id: pending_full_refresh
+    type: bool
+    initial_value: 'false'
+  - id: current_page
+    type: int
+    initial_value: '0'
+    # 0=main, 1=imu, 2=system, 3=rtttl
 
 psram:
   mode: octal
@@ -66,14 +83,6 @@ touchscreen:
     mirror_x: true
     mirror_y: true
     swap_xy: false
-  on_touch:
-    - lambda: |-
-          ESP_LOGI("cal", "x=%d, y=%d, x_raw=%d, y_raw=%0d",
-              touch.x,
-              touch.y,
-              touch.x_raw,
-              touch.y_raw
-              );
 
 light:
   - platform: monochromatic
@@ -81,8 +90,8 @@ light:
     name: "Status LED"
     output: gpio_0
     restore_mode: ALWAYS_OFF
-    internal: True
-    disabled_by_default: True
+    internal: true
+    disabled_by_default: true
 
 output:
   - platform: ledc
@@ -91,7 +100,7 @@ output:
   - platform: ledc
     id: gpio_0
     pin: 0
-    inverted: True
+    inverted: true
 
 rtttl:
   output: rtttl_pin
@@ -104,26 +113,47 @@ text_sensor:
       name: "Device Info"
     reset_reason:
       name: "Reset Reason"
+      id: reset_reason_val
 
 sensor:
   - platform: debug
     free:
       name: "Heap Free"
+      id: heap_free_val
+      on_value:
+        - if:
+            condition:
+              lambda: 'return id(system_initialized) && id(current_page) == 2;'
+            then:
+              - script.execute: update_system
+              - lambda: id(pending_partial_refresh) = true;
     block:
       name: "Heap Max Block"
+      id: heap_block_val
     loop_time:
       name: "Loop Time"
+      id: loop_time_val
     psram:
       name: "Free PSRAM"
+      id: free_psram_val
   - platform: internal_temperature
     name: "Chip Temp"
+    id: chip_temp_val
   - platform: adc
     pin: GPIO3
+    id: battery_voltage
     name: "Battery Voltage"
     update_interval: 30s
     attenuation: 12db
     filters:
       - multiply: 2.0
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(system_initialized);'
+          then:
+            - script.execute: update_status
+            - lambda: id(pending_partial_refresh) = true;
   - platform: adc
     pin: GPIO5
     name: "USB DET"
@@ -135,18 +165,32 @@ sensor:
     address: 0x68
     accel_x:
       name: "BMI270 Accel X"
+      id: accel_x_val
     accel_y:
       name: "BMI270 Accel Y"
+      id: accel_y_val
     accel_z:
       name: "BMI270 Accel Z"
+      id: accel_z_val
+      on_value:
+        - if:
+            condition:
+              lambda: 'return id(system_initialized) && id(current_page) == 1;'
+            then:
+              - script.execute: update_imu
+              - lambda: id(pending_partial_refresh) = true;
     gyro_x:
       name: "BMI270 Gyro X"
+      id: gyro_x_val
     gyro_y:
       name: "BMI270 Gyro Y"
+      id: gyro_y_val
     gyro_z:
       name: "BMI270 Gyro Z"
+      id: gyro_z_val
     temperature:
       name: "BMI270 Temperature"
+      id: bmi270_temp_val
     power_save_mode: LOW_POWER
     update_interval: 60s
 
@@ -154,24 +198,99 @@ binary_sensor:
   - platform: gpio
     pin:
       number: 4
-      inverted: True
+      inverted: true
+    id: charge_status
     name: "Charge Status"
     device_class: battery_charging
+    on_state:
+      - if:
+          condition:
+            lambda: 'return id(system_initialized);'
+          then:
+            - script.execute: update_status
+            - lambda: id(pending_partial_refresh) = true;
 
 time:
-  - platform: pcf8563
-    id: pcf8563_time
-    address: 0x51
+  # bm8563 drives display updates — always available, no HA dependency
+  - platform: bm8563
+    id: bm8563_time
     timezone: Asia/Taipei
-    update_interval: never
+    update_interval: 30s
+    on_time:
+      - seconds: 0
+        then:
+          - if:
+              condition:
+                lambda: 'return id(system_initialized);'
+              then:
+                - script.execute: update_time
+                # Hourly: GC16 full refresh (ghost clearing); otherwise GL16 partial
+                - lambda: |-
+                    auto now = id(bm8563_time).now();
+                    if (now.is_valid() && now.minute == 0) {
+                      id(pending_full_refresh) = true;
+                    } else {
+                      id(pending_partial_refresh) = true;
+                    }
+  # homeassistant_time: time sync only — no on_time display trigger
   - platform: homeassistant
     id: homeassistant_time
     timezone: Asia/Taipei
     update_interval: 1h
     on_time_sync:
       then:
-        pcf8563.write_time:
-          id: pcf8563_time
+        bm8563.write_time:
+          id: bm8563_time
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_time
+    size: 128
+    bpp: 4
+    glyphs: "0123456789: "
+  - file: "gfonts://Noto+Sans+TC"
+    id: font_date
+    size: 52
+    bpp: 4
+    glyphs: "0123456789月日星期一二三四五六 "
+  - file: "gfonts://Roboto"
+    id: font_status
+    size: 38
+    bpp: 4
+    glyphs: "0123456789% "
+  - file: "gfonts://Roboto"
+    id: font_title
+    size: 52
+    bpp: 4
+    glyphs: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz "
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 30
+    bpp: 4
+    glyphs: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.:+-/%<> "
+  - file: "https://cdn.jsdelivr.net/npm/@mdi/font@7.2.96/fonts/materialdesignicons-webfont.ttf"
+    id: font_mdi
+    size: 48
+    bpp: 4
+    glyphs:
+      - "\U000F05A9"  # mdi:wifi
+      - "\U000F05AA"  # mdi:wifi-off
+      - "\U000F0564"  # mdi:server-network
+      - "\U000F0565"  # mdi:server-network-off
+      - "\U000F007A"  # mdi:battery-outline  (0%)
+      - "\U000F007B"  # mdi:battery-10
+      - "\U000F007C"  # mdi:battery-20
+      - "\U000F007D"  # mdi:battery-30
+      - "\U000F007E"  # mdi:battery-40
+      - "\U000F007F"  # mdi:battery-50
+      - "\U000F0080"  # mdi:battery-60
+      - "\U000F0081"  # mdi:battery-70
+      - "\U000F0082"  # mdi:battery-80
+      - "\U000F0086"  # mdi:battery-90
+      - "\U000F0079"  # mdi:battery (100%)
+      - "\U000F0295"  # mdi:lightning-bolt
+      - "\U000F0141"  # mdi:chevron-left
+      - "\U000F0142"  # mdi:chevron-right
 
 display:
   - platform: ed047tc1
@@ -192,204 +311,1005 @@ display:
     d6_pin: GPIO8
     d7_pin: GPIO10
     update_interval: never
-    rotation: 90
-    lambda: |-
-       it.print(it.get_width() / 2, it.get_height() / 12 *1 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline01).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *2 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline02).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *3 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline03).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *4 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline04).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *5 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline05).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *6 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline06).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *7 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline07).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *8 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline08).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *9 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline09).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *10 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline10).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() / 12 *11 , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline11).state.c_str());
-       it.print(it.get_width() / 2, it.get_height() , id(Roboto70), TextAlign::BOTTOM_CENTER, id(textline12).state.c_str());
 
-font:
-  - file: "gfonts://Roboto"
-    id: Roboto70
-    size: 70
+lvgl:
+  displays:
+    - ed047tc1_display
+  touchscreens:
+    - my_touchscreen
+  buffer_size: 10%
+  # Fix 2: false = only re-render dirty regions; the rest of the buffer retains
+  # the previous correct content, so full-screen partial_update() is still valid
+  full_refresh: false
+  draw_rounding: 8
+  rotation: 90
+  bg_color: 0xFFFFFF
+  default_font: font_date
 
-text:
-  - platform: template
-    name: "Text Line 01"
-    id: textline01
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 01'
-    mode: text
-    on_value:
+  # Fix 1: on_refr_ready fires AFTER LVGL has rendered all dirty regions to the
+  # ed047tc1 buffer — only then trigger the hardware e-paper refresh.
+  # This eliminates the race condition where partial_update() ran before LVGL
+  # had written new label text into the buffer.
+  on_refr_ready:
+    - lambda: |-
+        if (id(pending_full_refresh)) {
+          id(pending_full_refresh) = false;
+          id(pending_partial_refresh) = false;
+          id(ed047tc1_display).update();
+        } else if (id(pending_partial_refresh)) {
+          id(pending_partial_refresh) = false;
+          id(ed047tc1_display).partial_update(0, 0, 960, 540);
+        }
+
+  # Periodic ghost clearing: fires when no touch input for 10 min.
+  # Direct call (no flag) — buffer already has current content, no label update needed.
+  # Light sleep at 30 min idle.
+  on_idle:
+    - timeout: 10min
       then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 02"
-    id: textline02
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 02'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 03"
-    id: textline03
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 03'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 04"
-    id: textline04
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 04'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 05"
-    id: textline05
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 05'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 06"
-    id: textline06
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 06'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 07"
-    id: textline07
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 07'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 08"
-    id: textline08
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 08'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 09"
-    id: textline09
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 09'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 10"
-    id: textline10
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 10'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 11"
-    id: textline11
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 11'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
-  - platform: template
-    name: "Text Line 12"
-    id: textline12
-    optimistic: true
-    min_length: 0
-    max_length: 26
-    initial_value: 'TEXT 12'
-    mode: text
-    on_value:
-      then:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) == true;'
-            then:
-              - component.update: ed047tc1_display
+        - lambda: id(ed047tc1_display).update();
+    # Light sleep disabled — re-enable after stability verified
+    # - timeout: 30min
+    #   then:
+    #     - if:
+    #         condition:
+    #           lambda: 'return id(system_initialized);'
+    #         then:
+    #           - lambda: |-
+    #               gpio_wakeup_enable(GPIO_NUM_48, GPIO_INTR_LOW_LEVEL);
+    #               esp_sleep_enable_gpio_wakeup();
+    #               esp_light_sleep_start();
+    #               gpio_wakeup_enable(GPIO_NUM_48, GPIO_INTR_LOW_LEVEL);
+    #               esp_sleep_enable_gpio_wakeup();
+
+  pages:
+    - id: main_page
+      bg_color: 0xFFFFFF
+      widgets:
+        # Border frame
+        - obj:
+            id: border_frame
+            x: 8
+            y: 8
+            width: 524
+            height: 944
+            bg_opa: TRANSP
+            border_color: 0x000000
+            border_width: 2
+            radius: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+
+        # Status left: WiFi + API icons
+        - obj:
+            id: status_left
+            x: 18
+            y: 14
+            width: 120
+            height: 52
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            shadow_opa: TRANSP
+            pad_all: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: START
+              flex_align_cross: CENTER
+              pad_column: 6
+            widgets:
+              - label:
+                  id: lbl_wifi
+                  text: "\U000F05AA"
+                  text_font: font_mdi
+                  text_color: 0x000000
+              - label:
+                  id: lbl_api
+                  text: "\U000F0565"
+                  text_font: font_mdi
+                  text_color: 0x000000
+
+        # Status right: battery% + charging bolt + battery level icon
+        - obj:
+            id: status_right
+            align: TOP_RIGHT
+            x: -18
+            y: 14
+            width: 230
+            height: 52
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            shadow_opa: TRANSP
+            pad_all: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: END
+              flex_align_cross: CENTER
+              pad_column: 4
+            widgets:
+              - label:
+                  id: lbl_batt_pct
+                  text: "--%"
+                  text_font: font_status
+                  text_color: 0x000000
+              - label:
+                  id: lbl_bolt
+                  text: "\U000F0295"
+                  text_font: font_mdi
+                  text_color: 0x000000
+                  hidden: true
+              - label:
+                  id: lbl_batt_icon
+                  text: "\U000F007A"
+                  text_font: font_mdi
+                  text_color: 0x000000
+
+        # Date
+        - label:
+            id: lbl_date
+            align: TOP_MID
+            y: 90
+            text: "--月--日 星期-"
+            text_font: font_date
+            text_color: 0x000000
+            text_align: CENTER
+
+        # Time area — tap: GL16 refresh (direct, no label change);
+        # long-press: GC16 full refresh (direct, no label change)
+        - obj:
+            id: time_area
+            align: TOP_MID
+            y: 170
+            width: 500
+            height: 175
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            shadow_opa: TRANSP
+            scrollable: false
+            scrollbar_mode: "OFF"
+            clickable: true
+            on_click:
+              - if:
+                  condition:
+                    lambda: 'return id(system_initialized);'
+                  then:
+                    # Direct call: no label update pending, buffer is current
+                    - lambda: id(ed047tc1_display).partial_update(0, 0, 960, 540);
+            on_long_press:
+              - lambda: id(ed047tc1_display).update();
+            widgets:
+              - label:
+                  id: lbl_time
+                  align: CENTER
+                  text: "--:--"
+                  text_font: font_time
+                  text_color: 0x000000
+
+        # Separator line
+        - line:
+            id: separator
+            points:
+              - "20, 430"
+              - "520, 430"
+            line_color: 0x000000
+            line_width: 2
+
+        # Nav bar: left="< RTTTL", center="Clock", right="IMU >"
+        - obj:
+            id: nav_main
+            align: BOTTOM_MID
+            y: -15
+            width: 510
+            height: 65
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            shadow_opa: TRANSP
+            pad_all: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              # Left: < RTTTL
+              - obj:
+                  width: 80
+                  height: 65
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  clickable: true
+                  on_click:
+                    - lvgl.page.show: rtttl_page
+                    - lambda: |-
+                        id(current_page) = 3;
+                        id(pending_full_refresh) = true;
+                  widgets:
+                    - label:
+                        text: "< RTTTL"
+                        text_font: font_small
+                        text_color: 0x000000
+              # Center: Clock
+              - label:
+                  text: "Clock"
+                  text_font: font_small
+                  text_color: 0x000000
+              # Right: IMU >
+              - obj:
+                  width: 80
+                  height: 65
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  clickable: true
+                  on_click:
+                    - script.execute: update_imu
+                    - lvgl.page.show: imu_page
+                    - lambda: |-
+                        id(current_page) = 1;
+                        id(pending_full_refresh) = true;
+                  widgets:
+                    - label:
+                        text: "IMU >"
+                        text_font: font_small
+                        text_color: 0x000000
+
+    - id: imu_page
+      bg_color: 0xFFFFFF
+      widgets:
+        # Border frame
+        - obj:
+            x: 8
+            y: 8
+            width: 524
+            height: 944
+            bg_opa: TRANSP
+            border_color: 0x000000
+            border_width: 2
+            radius: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+
+        # Title: IMU
+        - label:
+            align: TOP_MID
+            y: 25
+            text: "IMU"
+            text_font: font_title
+            text_color: 0x000000
+
+        # Accel X
+        - label:
+            x: 30
+            y: 120
+            text: "Accel X:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_accel_x
+            x: 290
+            y: 120
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Accel Y
+        - label:
+            x: 30
+            y: 185
+            text: "Accel Y:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_accel_y
+            x: 290
+            y: 185
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Accel Z
+        - label:
+            x: 30
+            y: 250
+            text: "Accel Z:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_accel_z
+            x: 290
+            y: 250
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Separator line
+        - line:
+            points:
+              - "30, 320"
+              - "510, 320"
+            line_color: 0x000000
+            line_width: 2
+
+        # Gyro X
+        - label:
+            x: 30
+            y: 345
+            text: "Gyro X:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_gyro_x
+            x: 290
+            y: 345
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Gyro Y
+        - label:
+            x: 30
+            y: 410
+            text: "Gyro Y:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_gyro_y
+            x: 290
+            y: 410
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Gyro Z
+        - label:
+            x: 30
+            y: 475
+            text: "Gyro Z:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_gyro_z
+            x: 290
+            y: 475
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Separator line
+        - line:
+            points:
+              - "30, 545"
+              - "510, 545"
+            line_color: 0x000000
+            line_width: 2
+
+        # Temperature
+        - label:
+            x: 30
+            y: 570
+            text: "Temp:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_bmi270_temp
+            x: 290
+            y: 570
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Nav bar: left="< Clock", center="IMU", right="Sys >"
+        - obj:
+            id: nav_imu
+            align: BOTTOM_MID
+            y: -15
+            width: 510
+            height: 65
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            shadow_opa: TRANSP
+            pad_all: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              # Left: < Clock
+              - obj:
+                  width: 80
+                  height: 65
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  clickable: true
+                  on_click:
+                    - lvgl.page.show: main_page
+                    - lambda: |-
+                        id(current_page) = 0;
+                        id(pending_full_refresh) = true;
+                  widgets:
+                    - label:
+                        text: "< Clock"
+                        text_font: font_small
+                        text_color: 0x000000
+              # Center: IMU
+              - label:
+                  text: "IMU"
+                  text_font: font_small
+                  text_color: 0x000000
+              # Right: Sys >
+              - obj:
+                  width: 80
+                  height: 65
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  clickable: true
+                  on_click:
+                    - script.execute: update_system
+                    - lvgl.page.show: system_page
+                    - lambda: |-
+                        id(current_page) = 2;
+                        id(pending_full_refresh) = true;
+                  widgets:
+                    - label:
+                        text: "Sys >"
+                        text_font: font_small
+                        text_color: 0x000000
+
+    - id: system_page
+      bg_color: 0xFFFFFF
+      widgets:
+        # Border frame
+        - obj:
+            x: 8
+            y: 8
+            width: 524
+            height: 944
+            bg_opa: TRANSP
+            border_color: 0x000000
+            border_width: 2
+            radius: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+
+        # Title: System
+        - label:
+            align: TOP_MID
+            y: 25
+            text: "System"
+            text_font: font_title
+            text_color: 0x000000
+
+        # Heap Free
+        - label:
+            x: 30
+            y: 120
+            text: "Heap:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_heap_free
+            x: 280
+            y: 120
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Heap Block
+        - label:
+            x: 30
+            y: 185
+            text: "Block:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_heap_block
+            x: 280
+            y: 185
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Free PSRAM
+        - label:
+            x: 30
+            y: 250
+            text: "PSRAM:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_free_psram
+            x: 280
+            y: 250
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Loop Time
+        - label:
+            x: 30
+            y: 315
+            text: "Loop:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_loop_time
+            x: 280
+            y: 315
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Chip Temp
+        - label:
+            x: 30
+            y: 380
+            text: "Chip:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_chip_temp
+            x: 280
+            y: 380
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Separator line
+        - line:
+            points:
+              - "30, 450"
+              - "510, 450"
+            line_color: 0x000000
+            line_width: 2
+
+        # Reset Reason
+        - label:
+            x: 30
+            y: 475
+            text: "Reset:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_reset_reason
+            x: 30
+            y: 515
+            width: 480
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+            text_align: LEFT
+
+        # Nav bar: left="< IMU", center="System", right="RTTTL >"
+        - obj:
+            id: nav_system
+            align: BOTTOM_MID
+            y: -15
+            width: 510
+            height: 65
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            shadow_opa: TRANSP
+            pad_all: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              # Left: < IMU
+              - obj:
+                  width: 80
+                  height: 65
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  clickable: true
+                  on_click:
+                    - script.execute: update_imu
+                    - lvgl.page.show: imu_page
+                    - lambda: |-
+                        id(current_page) = 1;
+                        id(pending_full_refresh) = true;
+                  widgets:
+                    - label:
+                        text: "< IMU"
+                        text_font: font_small
+                        text_color: 0x000000
+              # Center: System
+              - label:
+                  text: "System"
+                  text_font: font_small
+                  text_color: 0x000000
+              # Right: RTTTL >
+              - obj:
+                  width: 80
+                  height: 65
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  clickable: true
+                  on_click:
+                    - lvgl.page.show: rtttl_page
+                    - lambda: |-
+                        id(current_page) = 3;
+                        id(pending_full_refresh) = true;
+                  widgets:
+                    - label:
+                        text: "RTTTL >"
+                        text_font: font_small
+                        text_color: 0x000000
+
+    - id: rtttl_page
+      bg_color: 0xFFFFFF
+      widgets:
+        # Border frame
+        - obj:
+            x: 8
+            y: 8
+            width: 524
+            height: 944
+            bg_opa: TRANSP
+            border_color: 0x000000
+            border_width: 2
+            radius: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+
+        # Title: RTTTL
+        - label:
+            align: TOP_MID
+            y: 25
+            text: "RTTTL"
+            text_font: font_title
+            text_color: 0x000000
+
+        # Song 1: Siren
+        - obj:
+            id: btn_song1
+            x: 30
+            y: 115
+            width: 480
+            height: 100
+            bg_opa: TRANSP
+            border_color: 0x000000
+            border_width: 1
+            radius: 4
+            scrollable: false
+            scrollbar_mode: "OFF"
+            clickable: true
+            on_click:
+              - rtttl.play: 'siren:d=8,o=5,b=100:d,e,d,e,d,e,d,e'
+              - lvgl.label.update:
+                  id: lbl_rtttl_now
+                  text: "Siren"
+              - lambda: id(pending_partial_refresh) = true;
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Siren"
+                  text_font: font_small
+                  text_color: 0x000000
+
+        # Song 2: Mario
+        - obj:
+            id: btn_song2
+            x: 30
+            y: 235
+            width: 480
+            height: 100
+            bg_opa: TRANSP
+            border_color: 0x000000
+            border_width: 1
+            radius: 4
+            scrollable: false
+            scrollbar_mode: "OFF"
+            clickable: true
+            on_click:
+              - rtttl.play: 'mario:d=4,o=5,b=200:16e6,16e6,32p,8e6,16c6,8e6,8g6,8p,8g5'
+              - lvgl.label.update:
+                  id: lbl_rtttl_now
+                  text: "Mario"
+              - lambda: id(pending_partial_refresh) = true;
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Mario"
+                  text_font: font_small
+                  text_color: 0x000000
+
+        # Song 3: Star Wars
+        - obj:
+            id: btn_song3
+            x: 30
+            y: 355
+            width: 480
+            height: 100
+            bg_opa: TRANSP
+            border_color: 0x000000
+            border_width: 1
+            radius: 4
+            scrollable: false
+            scrollbar_mode: "OFF"
+            clickable: true
+            on_click:
+              - rtttl.play: 'starwars:d=4,o=5,b=45:32p,8f,8f,8f,2a#.,2f.'
+              - lvgl.label.update:
+                  id: lbl_rtttl_now
+                  text: "Star Wars"
+              - lambda: id(pending_partial_refresh) = true;
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Star Wars"
+                  text_font: font_small
+                  text_color: 0x000000
+
+        # Song 4: Tetris
+        - obj:
+            id: btn_song4
+            x: 30
+            y: 475
+            width: 480
+            height: 100
+            bg_opa: TRANSP
+            border_color: 0x000000
+            border_width: 1
+            radius: 4
+            scrollable: false
+            scrollbar_mode: "OFF"
+            clickable: true
+            on_click:
+              - rtttl.play: 'tetris:d=4,o=5,b=160:e6,8b5,8c6,d6,16c6,16b5,a5,8a5,8c6,e6,8d6,8c6,b5'
+              - lvgl.label.update:
+                  id: lbl_rtttl_now
+                  text: "Tetris"
+              - lambda: id(pending_partial_refresh) = true;
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Tetris"
+                  text_font: font_small
+                  text_color: 0x000000
+
+        # Now playing label
+        - label:
+            x: 30
+            y: 615
+            text: "Now playing:"
+            text_font: font_small
+            text_color: 0x000000
+        - label:
+            id: lbl_rtttl_now
+            x: 30
+            y: 655
+            text: "---"
+            text_font: font_small
+            text_color: 0x000000
+
+        # Nav bar: left="< System", center="RTTTL", right="Clock >"
+        - obj:
+            id: nav_rtttl
+            align: BOTTOM_MID
+            y: -15
+            width: 510
+            height: 65
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            shadow_opa: TRANSP
+            pad_all: 0
+            scrollable: false
+            scrollbar_mode: "OFF"
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              # Left: < System
+              - obj:
+                  width: 80
+                  height: 65
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  clickable: true
+                  on_click:
+                    - script.execute: update_system
+                    - lvgl.page.show: system_page
+                    - lambda: |-
+                        id(current_page) = 2;
+                        id(pending_full_refresh) = true;
+                  widgets:
+                    - label:
+                        text: "< System"
+                        text_font: font_small
+                        text_color: 0x000000
+              # Center: RTTTL
+              - label:
+                  text: "RTTTL"
+                  text_font: font_small
+                  text_color: 0x000000
+              # Right: Clock >
+              - obj:
+                  width: 80
+                  height: 65
+                  bg_opa: TRANSP
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 6
+                  scrollable: false
+                  scrollbar_mode: "OFF"
+                  clickable: true
+                  on_click:
+                    - lvgl.page.show: main_page
+                    - lambda: |-
+                        id(current_page) = 0;
+                        id(pending_full_refresh) = true;
+                  widgets:
+                    - label:
+                        text: "Clock >"
+                        text_font: font_small
+                        text_color: 0x000000
+
+script:
+  # Scripts only update LVGL labels; callers are responsible for setting
+  # pending_partial_refresh or pending_full_refresh to trigger hardware refresh
+  - id: update_time
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: lbl_date
+          text: !lambda |-
+            auto now = id(homeassistant_time).now();
+            if (!now.is_valid()) now = id(bm8563_time).now();
+            if (!now.is_valid()) return std::string("--月--日 星期-");
+            const char* dow_cn[] = {"?", "日", "一", "二", "三", "四", "五", "六"};
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%02d月%02d日 星期%s",
+                     now.month, now.day_of_month, dow_cn[now.day_of_week]);
+            return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_time
+          text: !lambda |-
+            auto now = id(homeassistant_time).now();
+            if (!now.is_valid()) now = id(bm8563_time).now();
+            if (!now.is_valid()) return std::string("--:--");
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%02d:%02d", now.hour, now.minute);
+            return std::string(buf);
+
+  - id: update_status
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: lbl_wifi
+          text: !lambda |-
+            return std::string(wifi::global_wifi_component->is_connected()
+                               ? "\U000F05A9" : "\U000F05AA");
+      - lvgl.label.update:
+          id: lbl_api
+          text: !lambda |-
+            return std::string(api::global_api_server->is_connected()
+                               ? "\U000F0564" : "\U000F0565");
+      - lvgl.label.update:
+          id: lbl_batt_pct
+          text: !lambda |-
+            float v = id(battery_voltage).state;
+            int pct = (int)std::max(0.0f, std::min(100.0f, (v - 3.0f) / 1.2f * 100.0f));
+            char buf[8];
+            snprintf(buf, sizeof(buf), "%d%%", pct);
+            return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_batt_icon
+          text: !lambda |-
+            const char* icons[] = {
+              "\U000F007A", "\U000F007B", "\U000F007C", "\U000F007D", "\U000F007E",
+              "\U000F007F", "\U000F0080", "\U000F0081", "\U000F0082", "\U000F0086",
+              "\U000F0079"
+            };
+            float v = id(battery_voltage).state;
+            int pct = (int)std::max(0.0f, std::min(100.0f, (v - 3.0f) / 1.2f * 100.0f));
+            return std::string(icons[std::min(10, pct / 10)]);
+      - if:
+          condition:
+            lambda: 'return id(charge_status).state;'
+          then:
+            - lvgl.widget.show: lbl_bolt
+          else:
+            - lvgl.widget.hide: lbl_bolt
+
+  - id: update_imu
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: lbl_accel_x
+          text: !lambda |-
+            char buf[16]; snprintf(buf, sizeof(buf), "%.2f", id(accel_x_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_accel_y
+          text: !lambda |-
+            char buf[16]; snprintf(buf, sizeof(buf), "%.2f", id(accel_y_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_accel_z
+          text: !lambda |-
+            char buf[16]; snprintf(buf, sizeof(buf), "%.2f", id(accel_z_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_gyro_x
+          text: !lambda |-
+            char buf[16]; snprintf(buf, sizeof(buf), "%.2f", id(gyro_x_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_gyro_y
+          text: !lambda |-
+            char buf[16]; snprintf(buf, sizeof(buf), "%.2f", id(gyro_y_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_gyro_z
+          text: !lambda |-
+            char buf[16]; snprintf(buf, sizeof(buf), "%.2f", id(gyro_z_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_bmi270_temp
+          text: !lambda |-
+            char buf[16]; snprintf(buf, sizeof(buf), "%.1f C", id(bmi270_temp_val).state); return std::string(buf);
+
+  - id: update_system
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: lbl_heap_free
+          text: !lambda |-
+            char buf[24]; snprintf(buf, sizeof(buf), "%.0f B", id(heap_free_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_heap_block
+          text: !lambda |-
+            char buf[24]; snprintf(buf, sizeof(buf), "%.0f B", id(heap_block_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_free_psram
+          text: !lambda |-
+            char buf[24]; snprintf(buf, sizeof(buf), "%.0f B", id(free_psram_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_loop_time
+          text: !lambda |-
+            char buf[24]; snprintf(buf, sizeof(buf), "%.0f ms", id(loop_time_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_chip_temp
+          text: !lambda |-
+            char buf[16]; snprintf(buf, sizeof(buf), "%.1f C", id(chip_temp_val).state); return std::string(buf);
+      - lvgl.label.update:
+          id: lbl_reset_reason
+          text: !lambda |-
+            return id(reset_reason_val).state;
