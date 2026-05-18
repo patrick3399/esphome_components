@@ -1,0 +1,351 @@
+substitutions:
+  devicename: "m5cardputer"
+  friendly_name: "M5Stack Cardputer"
+
+esphome:
+  name: $devicename
+  friendly_name: $friendly_name
+  min_version: "2026.1.0"
+  on_boot:
+    - priority: 600
+      then:
+        - light.turn_on:
+            id: lcd_backlight
+            brightness: 80%
+
+packages:
+  common: !include ../../packages/common.yaml
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 8MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      CONFIG_MBEDTLS_SSL_PROTO_TLS1_3: "y"
+
+api:
+  reboot_timeout: 4h
+  encryption:
+    key: !secret api_key
+
+wifi:
+  ap:
+
+captive_portal:
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  baud_rate: 115200
+  level: DEBUG
+  logs:
+    wifi: WARN
+    esp-idf: WARN
+
+debug:
+  update_interval: 10s
+
+spi:
+  id: lcd_spi
+  clk_pin: GPIO36
+  mosi_pin: GPIO35
+  miso_pin: GPIO39
+
+i2s_audio:
+  # Hardware uses GPIO43 for both the PDM mic clock and speaker LRCLK.
+  # ESPHome cannot currently model the M5 official split-port setup
+  # (mic on I2S0, speaker on I2S1) because that reuses GPIO43 across buses.
+  # Keep one bus for first bring-up; if mic/speaker switching is unstable,
+  # move the audio path to an external component.
+  id: i2s_audio_bus
+  i2s_lrclk_pin: GPIO43
+  i2s_bclk_pin: GPIO41
+
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO44
+  carrier_duty_percent: 50%
+  non_blocking: true
+
+output:
+  - platform: ledc
+    id: lcd_backlight_output
+    pin: GPIO38
+    frequency: 200Hz
+
+light:
+  - platform: monochromatic
+    id: lcd_backlight
+    name: "LCD Backlight"
+    icon: "mdi:television"
+    output: lcd_backlight_output
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+binary_sensor:
+  - platform: gpio
+    id: user_button
+    name: "User Button"
+    pin:
+      number: GPIO0
+      inverted: true
+      ignore_strapping_warning: true
+      mode:
+        input: true
+        pullup: true
+
+text_sensor:
+  - platform: template
+    id: keyboard_input_text
+    name: "Keyboard Input"
+    update_interval: never
+
+74hc138_keypad:
+  id: keyboard
+  address_pins:
+    - pin: GPIO8
+    - pin: GPIO9
+    - pin: GPIO11
+  input_pins:
+    - pin:
+        number: GPIO13
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO15
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO3
+        inverted: true
+        ignore_strapping_warning: true
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO4
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO5
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO6
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO7
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+  debounce_time: 5ms
+  on_key:
+    - lambda: |-
+        std::string text = id(keyboard_input_text).state;
+        if (x == 0x08) {
+          if (!text.empty()) {
+            text.pop_back();
+          }
+        } else if (x >= 0x20 && x <= 0x7e) {
+          if (text.length() < 64) {
+            text.push_back(static_cast<char>(x));
+          }
+        } else {
+          return;
+        }
+        id(keyboard_input_text).publish_state(text);
+        const uint32_t display_start = millis();
+        id(lcd).update();
+        id(display_update_time).publish_state(millis() - display_start);
+
+sensor:
+  - platform: internal_temperature
+    id: chip_temperature
+    name: "Chip Temperature"
+
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Max Block"
+    loop_time:
+      id: loop_time_sensor
+      name: "Loop Time"
+
+  - platform: template
+    id: display_update_time
+    name: "Display Update Time"
+    unit_of_measurement: "ms"
+    accuracy_decimals: 0
+    update_interval: never
+
+  - platform: adc
+    id: battery_voltage
+    name: "Battery Voltage"
+    pin: GPIO10
+    attenuation: 12db
+    update_interval: 30s
+    filters:
+      # M5 official demo reads calibrated millivolts and doubles the value.
+      - multiply: 2.0
+
+  - platform: template
+    id: battery_level
+    name: "Battery Level"
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: 30s
+    lambda: |-
+      const float v = id(battery_voltage).state;
+      if (isnan(v)) return NAN;
+      if (v >= 4.12f) return 100.0f;
+      if (v >= 3.88f) return 75.0f;
+      if (v >= 3.61f) return 50.0f;
+      if (v >= 3.40f) return 25.0f;
+      return 0.0f;
+
+  - platform: sound_level
+    id: mic_sound_level
+    microphone: cardputer_mic
+    measurement_duration: 1000ms
+    passive: false
+    peak:
+      id: mic_peak_level
+      name: "Mic Peak Sound Level"
+    rms:
+      id: mic_rms_level
+      name: "Mic RMS Sound Level"
+
+microphone:
+  - platform: i2s_audio
+    id: cardputer_mic
+    i2s_audio_id: i2s_audio_bus
+    adc_type: external
+    i2s_din_pin:
+      number: GPIO46
+      ignore_strapping_warning: true
+    pdm: true
+    channel: right
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    correct_dc_offset: true
+
+speaker:
+  - platform: i2s_audio
+    id: cardputer_speaker
+    i2s_audio_id: i2s_audio_bus
+    dac_type: external
+    i2s_dout_pin: GPIO42
+    channel: right
+    sample_rate: 48000
+    bits_per_sample: 16bit
+    buffer_duration: 500ms
+
+media_player:
+  - platform: speaker
+    id: cardputer_media_player
+    name: "Speaker Media Player"
+    volume_initial: 0.4
+    announcement_pipeline:
+      speaker: cardputer_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+
+display:
+  - platform: st7789v
+    id: lcd
+    model: CUSTOM
+    height: 240
+    width: 135
+    offset_height: 40
+    offset_width: 52
+    cs_pin: GPIO37
+    dc_pin: GPIO34
+    reset_pin: GPIO33
+    backlight_pin: false
+    rotation: 90
+    data_rate: 40MHz
+    update_interval: 20s
+    lambda: |-
+      it.fill(Color::BLACK);
+      const bool wifi_connected = wifi::global_wifi_component != nullptr && wifi::global_wifi_component->is_connected();
+      const bool api_connected = api::global_api_server != nullptr && api::global_api_server->is_connected();
+      it.printf(8, 5, id(font_small), Color(0x60, 0xC0, 0xFF), "W:%s A:%s", wifi_connected ? "on" : "off", api_connected ? "on" : "off");
+      it.printf(154, 5, id(font_small), Color::WHITE, "%.2fV %.0f%%", id(battery_voltage).state, id(battery_level).state);
+
+      it.printf(8, 31, id(font_small), Color(0xFF, 0xFF, 0x60), "INPUT");
+      std::string input = id(keyboard_input_text).state;
+      if (input.length() > 24) {
+        input = input.substr(input.length() - 24);
+      }
+      for (auto &ch : input) {
+        if (ch == ' ') ch = '_';
+      }
+      if (input.empty()) {
+        it.printf(8, 57, id(font_key), Color(0x60, 0x60, 0x60), "--");
+      } else {
+        it.printf(8, 60, id(font_small), Color(0xFF, 0xFF, 0x60), "%s", input.c_str());
+      }
+
+      it.printf(8, 104, id(font_small), Color::WHITE, "Loop:%.0f LCD:%.0f", id(loop_time_sensor).state, id(display_update_time).state);
+
+font:
+  - file: "gfonts://Roboto Mono"
+    id: font_small
+    size: 14
+  - file: "gfonts://Roboto Mono"
+    id: font_key
+    size: 38
+
+button:
+  - platform: template
+    name: "Start Mic Level"
+    on_press:
+      - sound_level.start:
+          id: mic_sound_level
+
+  - platform: template
+    name: "Stop Mic Level"
+    on_press:
+      - sound_level.stop:
+          id: mic_sound_level
+
+  - platform: template
+    name: "Speaker Click"
+    on_press:
+      - speaker.play:
+          id: cardputer_speaker
+          data: [0x00, 0x20, 0x40, 0x60, 0x7F, 0x60, 0x40, 0x20, 0x00, 0xE0, 0xC0, 0xA0, 0x80, 0xA0, 0xC0, 0xE0]
+
+  - platform: template
+    name: "IR NEC Test"
+    on_press:
+      - remote_transmitter.transmit_nec:
+          transmitter_id: ir_tx
+          address: 0x0010
+          command: 0x0001
+
+# Keyboard hardware notes:
+# - 74HC138 address pins: GPIO8, GPIO9, GPIO11
+# - Active-low input pins: GPIO13, GPIO15, GPIO3, GPIO4, GPIO5, GPIO6, GPIO7
+# - ESPHome matrix_keypad cannot model this decoder topology; use the local
+#   74hc138_keypad external component above.

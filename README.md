@@ -24,7 +24,7 @@ device uses.
 | M5Stack StamPLC | [devices/m5stack/m5stamplc.yaml](devices/m5stack/m5stamplc.yaml) | 🔄 Needs cleanup for ESPHome 2026.x | Our `aw9523`; ⚠️ `pi4ioe5v6408` is archived/pending replacement |
 | M5Stack CoreS3 SE | [devices/m5stack/m5cores3se.yaml](devices/m5stack/m5cores3se.yaml) | ✅ Voice Assistant working | M5Stack official `axp2101`, `aw88298`, `aw9523b` |
 | M5Stack CoreS3 SE ESP-SR variant | [devices/m5stack/m5cores3se-espsr.yaml](devices/m5stack/m5cores3se-espsr.yaml) | 🔄 Experimental/local validation pending | M5Stack official `axp2101`, `aw88298`, `aw9523b`; our `esp_sr_wake_word` |
-| M5Stack Cardputer | [devices/m5stack/m5cardputer.yaml](devices/m5stack/m5cardputer.yaml) | 🧪 Config OK; compile/hardware verification pending | ESPHome built-ins; our `74hc138_keypad` |
+| M5Stack Cardputer | [devices/m5stack/m5cardputer.yaml](devices/m5stack/m5cardputer.yaml) | 🧪 Compile/OTA OK; keyboard/display bring-up verified; audio pending | ESPHome built-ins; our `74hc138_keypad` |
 | Waveshare ESP32-S3-Matrix | [devices/waveshare/esp32s3-matrix.yaml](devices/waveshare/esp32s3-matrix.yaml) | ✅ Verified on hardware | Our `qmi8658`; 8×8 WS2812B matrix via ESPHome built-ins |
 
 `devices/m5stack/secrets.yaml` is local secret material and is not a device
@@ -60,7 +60,7 @@ These live under [components/](components/) and are provided by this repository.
 | `bmi270` | 6-axis IMU | Paper S3 | 🧪 | Native I2C rewrite landed on `new`; compiles with Paper S3 on ESPHome 2026.4.5. |
 | `ed047tc1` | 4.7 inch e-paper display | Paper S3 | 🧪 | Supports `partial_update()` and ESPHome 2026.x EPDIY board init compatibility. Requires EPDIY fork below. |
 | `esp_sr_wake_word` | ESP-SR wake word integration | CoreS3 SE ESP-SR variant | 🔄 | Local experimental component used only by `m5cores3se-espsr.yaml`. |
-| `74hc138_keypad` | 3-to-8 decoder keyboard matrix | M5Stack Cardputer V1.1 | 🧪 | First-pass ESP-IDF component using M5 official IO-matrix scan mapping; config OK, compile/hardware verification pending. |
+| `74hc138_keypad` | 3-to-8 decoder keyboard matrix | M5Stack Cardputer V1.1 | 🧪 | First-pass ESP-IDF component using M5 official IO-matrix scan mapping; compile/OTA OK and basic key input verified. Modifier keys remain unhandled in YAML. |
 | `pca9505` | I2C GPIO expander | None currently | 🔄 | Existing local component; pending ESPHome 2026.x verification/rewrite. |
 | `qmi8658` | 6-axis IMU | Waveshare Matrix, Touch AMOLED 2.41, Touch LCD 1.85C | ✅ | Written from scratch following ESPHome BMI160 pattern. Verified on hardware with ESP32-S3-Matrix. |
 
