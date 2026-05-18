@@ -28,6 +28,10 @@ DEPENDENCIES = ["i2c"]
 
 CONF_ACCEL_RANGE = "accelerometer_range"
 CONF_GYRO_RANGE = "gyroscope_range"
+CONF_ACCEL_ODR = "accelerometer_odr"
+CONF_GYRO_ODR = "gyroscope_odr"
+CONF_ACCEL_LPF = "accelerometer_lpf_mode"
+CONF_GYRO_LPF = "gyroscope_lpf_mode"
 
 qmi8658_ns = cg.esphome_ns.namespace("qmi8658")
 QMI8658Component = qmi8658_ns.class_(
@@ -52,6 +56,42 @@ GYRO_RANGES = {
     "512DPS": GyroRange.GYRO_RANGE_512DPS,
     "1024DPS": GyroRange.GYRO_RANGE_1024DPS,
     "2048DPS": GyroRange.GYRO_RANGE_2048DPS,
+}
+
+AccelODR = qmi8658_ns.enum("AccelODR")
+ACCEL_ODRS = {
+    "1000HZ": AccelODR.ACCEL_ODR_1000HZ,
+    "500HZ": AccelODR.ACCEL_ODR_500HZ,
+    "250HZ": AccelODR.ACCEL_ODR_250HZ,
+    "125HZ": AccelODR.ACCEL_ODR_125HZ,
+    "62HZ": AccelODR.ACCEL_ODR_62HZ,
+    "31HZ": AccelODR.ACCEL_ODR_31HZ,
+    "128HZ_LP": AccelODR.ACCEL_ODR_128HZ_LP,
+    "21HZ_LP": AccelODR.ACCEL_ODR_21HZ_LP,
+    "11HZ_LP": AccelODR.ACCEL_ODR_11HZ_LP,
+    "3HZ_LP": AccelODR.ACCEL_ODR_3HZ_LP,
+}
+
+GyroODR = qmi8658_ns.enum("GyroODR")
+GYRO_ODRS = {
+    "7174HZ": GyroODR.GYRO_ODR_7174HZ,
+    "3587HZ": GyroODR.GYRO_ODR_3587HZ,
+    "1793HZ": GyroODR.GYRO_ODR_1793HZ,
+    "896HZ": GyroODR.GYRO_ODR_896HZ,
+    "448HZ": GyroODR.GYRO_ODR_448HZ,
+    "224HZ": GyroODR.GYRO_ODR_224HZ,
+    "112HZ": GyroODR.GYRO_ODR_112HZ,
+    "56HZ": GyroODR.GYRO_ODR_56HZ,
+    "28HZ": GyroODR.GYRO_ODR_28HZ,
+}
+
+LpfMode = qmi8658_ns.enum("LpfMode")
+LPF_MODES = {
+    "DISABLED": LpfMode.LPF_DISABLED,
+    "0": LpfMode.LPF_MODE_0,
+    "1": LpfMode.LPF_MODE_1,
+    "2": LpfMode.LPF_MODE_2,
+    "3": LpfMode.LPF_MODE_3,
 }
 
 accel_schema = {
@@ -105,6 +145,18 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_GYRO_RANGE, default="256DPS"): cv.enum(
                 GYRO_RANGES, upper=True
             ),
+            cv.Optional(CONF_ACCEL_ODR, default="250HZ"): cv.enum(
+                ACCEL_ODRS, upper=True
+            ),
+            cv.Optional(CONF_GYRO_ODR, default="224HZ"): cv.enum(
+                GYRO_ODRS, upper=True
+            ),
+            cv.Optional(CONF_ACCEL_LPF, default="DISABLED"): cv.enum(
+                LPF_MODES, upper=True
+            ),
+            cv.Optional(CONF_GYRO_LPF, default="DISABLED"): cv.enum(
+                LPF_MODES, upper=True
+            ),
         }
     )
     .extend(cv.polling_component_schema("60s"))
@@ -119,6 +171,10 @@ async def to_code(config):
 
     cg.add(var.set_accel_range(config[CONF_ACCEL_RANGE]))
     cg.add(var.set_gyro_range(config[CONF_GYRO_RANGE]))
+    cg.add(var.set_accel_odr(config[CONF_ACCEL_ODR]))
+    cg.add(var.set_gyro_odr(config[CONF_GYRO_ODR]))
+    cg.add(var.set_accel_lpf_mode(config[CONF_ACCEL_LPF]))
+    cg.add(var.set_gyro_lpf_mode(config[CONF_GYRO_LPF]))
 
     for d in ["x", "y", "z"]:
         accel_key = f"acceleration_{d}"
