@@ -1,0 +1,117 @@
+esphome:
+  name: esp32s3-matrix
+  friendly_name: ESP32-S3 Matrix
+
+packages:
+  common: !include ../../packages/common.yaml
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+api:
+  encryption:
+    key: !secret api_key
+  reboot_timeout: 6h
+
+# QMI8658 is on GPIO11 (SDA) / GPIO12 (SCL); from hardware testing.
+i2c:
+  id: main_i2c
+  sda: GPIO11
+  scl: GPIO12
+  scan: false
+  frequency: 400kHz
+
+# ─── QMI8658 6-axis IMU ───────────────────────────────────────────────────────
+sensor:
+  - platform: qmi8658
+    id: imu
+    i2c_id: main_i2c
+    address: 0x6B
+    accelerometer_range: 4G
+    gyroscope_range: 256DPS
+    update_interval: 5s
+    acceleration_x:
+      name: "Accel X"
+    acceleration_y:
+      name: "Accel Y"
+    acceleration_z:
+      name: "Accel Z"
+    gyroscope_x:
+      name: "Gyro X"
+    gyroscope_y:
+      name: "Gyro Y"
+    gyroscope_z:
+      name: "Gyro Z"
+    temperature:
+      name: "IMU Temp"
+  - platform: internal_temperature
+    name: "Chip Temp"
+    update_interval: 30s
+    on_value_range:
+      above: 75
+      then:
+        - light.turn_off: board_8x8_light
+
+# ─── 8×8 WS2812B LED Matrix ───────────────────────────────────────────────────
+# LED pin from hardware testing (GPIO14). Hardware doc states IO6 — discrepancy
+# unresolved; trust the tested value until schematic is verified.
+# 64 LEDs total. No pixel_mapper: matrix is wired in simple row-major order.
+# gamma_correct: 1.0 disables ESPHome's gamma curve so display colour math is linear.
+light:
+  - platform: esp32_rmt_led_strip
+    id: board_8x8
+    internal: true
+    pin: GPIO14
+    num_leds: 64
+    chipset: ws2812
+    rgb_order: GRB
+    gamma_correct: 1.0
+
+  # Brightness knob: keep below 30% for sustained use; full brightness causes heat.
+  - platform: monochromatic
+    name: "Display Brightness"
+    id: board_8x8_light
+    output: board_8x8_output
+    gamma_correct: 1.0
+
+globals:
+  - id: display_brightness
+    type: float
+    initial_value: '0.1'
+
+output:
+  - platform: template
+    id: board_8x8_output
+    type: float
+    write_action:
+      - lambda: |-
+          id(display_brightness) = state;
+
+display:
+  - platform: addressable_light
+    id: board_8x8_display
+    addressable_light_id: board_8x8
+    width: 8
+    height: 8
+    rotation: 180°
+    update_interval: 16ms
+    lambda: |-
+      if (id(board_8x8_light).current_values.is_on()) {
+        float brightness = id(display_brightness);
+        int bright_val = (int)(255.0f * brightness);
+        if (bright_val == 2) {
+          bright_val = 1;
+        }
+        Color red   = Color(bright_val, 0, 0);
+        Color green = Color(0, bright_val, 0);
+        Color blue  = Color(0, 0, bright_val);
+        it.rectangle(0, 0, 8, 8, red);
+        it.rectangle(1, 1, 6, 6, green);
+        it.rectangle(2, 2, 4, 4, blue);
+        it.rectangle(3, 3, 2, 2, red);
+      } else {
+        it.fill(Color::BLACK);
+      }
+
