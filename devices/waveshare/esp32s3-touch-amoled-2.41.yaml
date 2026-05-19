@@ -91,6 +91,10 @@ globals:
     type: bool
     restore_value: no
     initial_value: "true"
+  - id: last_touch_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
 
 # ─── I2C (shared: touch / RTC / GPIO expander / IMU) ─────────────────────────
 i2c:
@@ -165,16 +169,21 @@ font:
         glyphs: "²"
 
 display:
-  - platform: qspi_dbi
+  - platform: mipi_spi
     model: RM690B0
     id: main_display
     spi_id: display_qspi
+    bus_mode: quad
     data_rate: 80MHz
     dimensions:
       width: 450
       height: 600
+      offset_width: 16
     cs_pin: GPIO9
     reset_pin: GPIO21
+    brightness: 0xD0
+    init_sequence:
+      - [0x53, 0x20]   # WRCTRLD: enable BCTRL so 0x51 brightness register is active
     update_interval: never
 
 # ─── Touchscreen (FT6336) ─────────────────────────────────────────────────────
@@ -195,7 +204,12 @@ touchscreen:
       y_max: 600
     on_touch:
       - lambda: |-
+          id(last_touch_ms) = millis();
           ESP_LOGI("touch", "x=%d y=%d", touch.x, touch.y);
+          auto call = id(display_brightness).make_call();
+          call.set_brightness(0.816f);
+          call.set_state(true);
+          call.perform();
 
 # ─── Bluetooth Proxy ──────────────────────────────────────────────────────────
 bluetooth_proxy:
@@ -234,6 +248,43 @@ binary_sensor:
     name: "Boot Button"
     on_press:
       - logger.log: "Boot button pressed"
+
+# ─── Display brightness (monochromatic light → QspiDbi::set_brightness) ──────
+output:
+  - platform: template
+    id: display_brightness_out
+    type: float
+    write_action:
+      # state已是brightness^2.8（monochromatic gamma）；powf(x,1/2.8)還原為線性
+      - lambda: id(main_display).set_brightness((uint8_t)(powf(state, 1.0f / 2.8f) * 255.0f));
+
+light:
+  - platform: monochromatic
+    name: "Display Brightness"
+    id: display_brightness
+    output: display_brightness_out
+    default_transition_length: 300ms
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_off:
+      # Wait for fade-out to finish, then pause LVGL to stop rendering
+      - delay: 350ms
+      - lvgl.pause:
+          show_snow: false
+    on_turn_on:
+      # Resume LVGL before brightness fades in — no flash, clean transition
+      - lvgl.resume:
+
+# Auto-dim: 60 s of no touch → 5 %; checked every 15 s
+interval:
+  - interval: 15s
+    then:
+      - lambda: |-
+          if (millis() - id(last_touch_ms) > 60000) {
+            auto call = id(display_brightness).make_call();
+            call.set_brightness(0.05f);
+            call.set_state(true);
+            call.perform();
+          }
 
 # ─── Sensors ──────────────────────────────────────────────────────────────────
 sensor:
