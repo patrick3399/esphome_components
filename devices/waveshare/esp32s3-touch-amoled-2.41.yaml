@@ -1,0 +1,591 @@
+# ─── Waveshare ESP32-S3-Touch-AMOLED-2.41 ────────────────────────────────────
+# MCU:      ESP32-S3R8 · 16 MB Flash · 8 MB Octal PSRAM (GPIO33-37 unavailable)
+# Display:  RM690B0 · QSPI 4-wire · 450×600 AMOLED
+#           CS=GPIO9  CLK=GPIO10  D0-D3=GPIO11-14  RST=GPIO21
+#           AMOLED_EN=EXIO1 (TCA9554)  AMOLED_TE=EXIO0 (TCA9554)
+# Touch:    FT6336 · I2C 0x38 · RST=GPIO3 (strapping pin) · INT=EXIO2 (TCA9554)
+# Expander: TCA9554 · I2C 0x20 (pca9554-compatible, 8-pin)
+# RTC:      PCF85063 · I2C 0x51
+# IMU:      QMI8658C · I2C 0x6B (SA0 high)
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  devicename: "ws-amoled241"
+  upper_devicename: "WS-AMOLED-2.41"
+
+esphome:
+  name: $devicename
+  friendly_name: $upper_devicename
+  min_version: "2026.4.0"
+  on_boot:
+    - priority: 600
+      then:
+        - pcf85063.read_time
+
+packages:
+  common: !include ../../packages/common.yaml
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [qmi8658]
+    refresh: 0s
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+  logs:
+    api.service: WARN
+    wifi: WARN
+    esp-idf: NONE
+
+api:
+  reboot_timeout: 4h
+  encryption:
+    key: !secret api_key
+  on_client_connected:
+    - lambda: id(init_in_progress) = false;
+    - script.execute: draw_display
+  on_client_disconnected:
+    - script.execute: draw_display
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 4h
+  ap:
+  on_connect:
+    - script.execute: draw_display
+  on_disconnect:
+    - script.execute: draw_display
+
+captive_portal:
+
+debug:
+  update_interval: 10s
+
+globals:
+  - id: init_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "true"
+
+# ─── I2C (shared: touch / RTC / GPIO expander / IMU) ─────────────────────────
+i2c:
+  id: main_i2c
+  sda: GPIO47
+  scl: GPIO48
+  scan: true
+  frequency: 400kHz
+
+# ─── GPIO Expander (TCA9554, pca9554-compatible, addr 0x20) ──────────────────
+# EXIO0 = AMOLED_TE   EXIO1 = AMOLED_EN   EXIO2 = TP_INT
+# EXIO3 = IMU_INT2    EXIO4 = IMU_INT1 / RTC_INT
+pca9554:
+  - id: tca9554_dev
+    i2c_id: main_i2c
+    address: 0x20
+
+# ─── RTC (PCF85063) ──────────────────────────────────────────────────────────
+time:
+  - platform: pcf85063
+    id: rtc_time
+    i2c_id: main_i2c
+    update_interval: never
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: update_clock_label
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      then:
+        - pcf85063.write_time
+        - script.execute: update_clock_label
+
+# ─── QSPI Display (RM690B0, 450×600 AMOLED) ──────────────────────────────────
+spi:
+  id: display_qspi
+  type: quad
+  clk_pin: GPIO10
+  data_pins: [GPIO11, GPIO12, GPIO13, GPIO14]
+
+font:
+  - file:
+      type: gfonts
+      family: Noto Sans TC
+      weight: 500
+    id: font_clock
+    size: 112
+    glyphsets:
+      - GF_Latin_Kernel
+  - file:
+      type: gfonts
+      family: Noto Sans TC
+      weight: 400
+    id: font_label
+    size: 36
+    glyphsets:
+      - GF_Latin_Kernel
+  - file:
+      type: gfonts
+      family: Noto Sans TC
+      weight: 300
+    id: font_small
+    size: 28
+    glyphsets:
+      - GF_Latin_Kernel
+    extras:
+      - file:
+          type: gfonts
+          family: Noto Sans TC
+          weight: 300
+        glyphs: "²"
+
+display:
+  - platform: qspi_dbi
+    model: RM690B0
+    id: main_display
+    spi_id: display_qspi
+    data_rate: 80MHz
+    dimensions:
+      width: 450
+      height: 600
+    cs_pin: GPIO9
+    reset_pin: GPIO21
+    update_interval: never
+
+# ─── Touchscreen (FT6336) ─────────────────────────────────────────────────────
+# RST=GPIO3 (strapping pin — ignore_strapping_warning required)
+# INT=EXIO2 via TCA9554 — cannot be used as hardware interrupt; polling mode
+touchscreen:
+  - platform: ft63x6
+    id: touch
+    i2c_id: main_i2c
+    address: 0x38
+    reset_pin:
+      number: GPIO3
+      ignore_strapping_warning: true
+    calibration:
+      x_min: 0
+      x_max: 450
+      y_min: 0
+      y_max: 600
+    on_touch:
+      - lambda: |-
+          ESP_LOGI("touch", "x=%d y=%d", touch.x, touch.y);
+
+# ─── Bluetooth Proxy ──────────────────────────────────────────────────────────
+bluetooth_proxy:
+  active: true
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+
+# ─── Switches ─────────────────────────────────────────────────────────────────
+switch:
+  # AMOLED_EN must be HIGH before display init; ALWAYS_ON ensures this during setup.
+  - platform: gpio
+    id: amoled_enable
+    internal: true
+    pin:
+      pca9554: tca9554_dev
+      number: 1
+      mode:
+        output: true
+    restore_mode: ALWAYS_ON
+
+button:
+  - platform: restart
+    name: "Restart"
+    entity_category: diagnostic
+
+binary_sensor:
+  - platform: status
+    name: "Status"
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Boot Button"
+    on_press:
+      - logger.log: "Boot button pressed"
+
+# ─── Sensors ──────────────────────────────────────────────────────────────────
+sensor:
+  # QMI8658C 6-axis IMU (SA0 high → 0x6B)
+  - platform: qmi8658
+    id: imu
+    i2c_id: main_i2c
+    address: 0x6B
+    accelerometer_range: 4G
+    gyroscope_range: 256DPS
+    update_interval: 500ms
+    acceleration_x:
+      name: "Accel X"
+      id: accel_x
+      on_value:
+        - script.execute: update_imu_labels
+    acceleration_y:
+      name: "Accel Y"
+      id: accel_y
+    acceleration_z:
+      name: "Accel Z"
+      id: accel_z
+    gyroscope_x:
+      name: "Gyro X"
+      id: gyro_x
+    gyroscope_y:
+      name: "Gyro Y"
+      id: gyro_y
+    gyroscope_z:
+      name: "Gyro Z"
+      id: gyro_z
+    temperature:
+      name: "IMU Temp"
+      id: imu_temp
+
+  - platform: internal_temperature
+    name: "Chip Temp"
+    id: chip_temp_sensor
+    update_interval: 60s
+    on_value:
+      - lvgl.label.update:
+          id: chip_temp_label
+          text: !lambda 'return str_sprintf("Chip: %.1f °C", x);'
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_sensor
+    update_interval: 60s
+    on_value:
+      - lvgl.label.update:
+          id: wifi_label
+          text: !lambda 'return str_sprintf("%.0f dBm", x);'
+
+  - platform: uptime
+    name: "Uptime"
+    type: seconds
+
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Max Block"
+    loop_time:
+      name: "Loop Time"
+    psram:
+      name: "Free PSRAM"
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"
+
+# ─── LVGL UI (450×600 portrait AMOLED) ───────────────────────────────────────
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch
+  rotation: 180
+  buffer_size: 15%
+  default_font: font_label
+  bg_color: 0x000000
+
+  style_definitions:
+    - id: transparent_panel
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      shadow_opa: TRANSP
+      pad_all: 0
+      scrollbar_mode: "OFF"
+    - id: card_style
+      bg_color: 0x0D1B2A
+      bg_opa: COVER
+      border_color: 0x1C3A5C
+      border_width: 1
+      border_opa: COVER
+      radius: 14
+      shadow_opa: TRANSP
+      pad_all: 14
+      scrollbar_mode: "OFF"
+    - id: row_style
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      shadow_opa: TRANSP
+      pad_all: 0
+      scrollbar_mode: "OFF"
+
+  pages:
+    - id: main_page
+      bg_color: 0x000000
+
+      widgets:
+        # ── Status bar ────────────────────────────────────────────────────────
+        - obj:
+            styles: transparent_panel
+            align: TOP_MID
+            width: 420
+            height: 44
+            y: 10
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              - label:
+                  id: connection_label
+                  text: "Booting"
+                  text_font: font_small
+                  text_color: 0x9FB3C8
+              - label:
+                  id: wifi_label
+                  text: "-- dBm"
+                  text_font: font_small
+                  text_color: 0x9FB3C8
+
+        # ── Clock ─────────────────────────────────────────────────────────────
+        - obj:
+            styles: transparent_panel
+            align: TOP_MID
+            width: 420
+            height: 190
+            y: 62
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_row: 2
+            widgets:
+              - label:
+                  id: time_label
+                  text: "--:--"
+                  text_font: font_clock
+                  text_color: 0xFFFFFF
+                  text_align: CENTER
+              - label:
+                  id: date_label
+                  text: "----/--/--"
+                  text_font: font_label
+                  text_color: 0x607D8B
+                  text_align: CENTER
+
+        # ── IMU card ──────────────────────────────────────────────────────────
+        - obj:
+            id: imu_card
+            styles: card_style
+            align: TOP_MID
+            width: 420
+            height: 300
+            y: 262
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: START
+              flex_align_cross: STRETCH
+              pad_row: 8
+
+            widgets:
+              - label:
+                  text: "IMU  —  QMI8658C"
+                  text_font: font_small
+                  text_color: 0x5C85D6
+
+              # Accel section
+              - label:
+                  text: "Accel (m/s²)"
+                  text_font: font_small
+                  text_color: 0x7EE787
+              - obj:
+                  styles: row_style
+                  width: 100%
+                  height: 36
+                  layout:
+                    type: FLEX
+                    flex_flow: ROW
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: CENTER
+                  widgets:
+                    - label:
+                        id: accel_x_label
+                        text: "X: --"
+                        text_font: font_small
+                        text_color: 0xE0E0E0
+                    - label:
+                        id: accel_y_label
+                        text: "Y: --"
+                        text_font: font_small
+                        text_color: 0xE0E0E0
+                    - label:
+                        id: accel_z_label
+                        text: "Z: --"
+                        text_font: font_small
+                        text_color: 0xE0E0E0
+
+              # Gyro section
+              - label:
+                  text: "Gyro (°/s)"
+                  text_font: font_small
+                  text_color: 0xD2A8FF
+              - obj:
+                  styles: row_style
+                  width: 100%
+                  height: 36
+                  layout:
+                    type: FLEX
+                    flex_flow: ROW
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: CENTER
+                  widgets:
+                    - label:
+                        id: gyro_x_label
+                        text: "X: --"
+                        text_font: font_small
+                        text_color: 0xE0E0E0
+                    - label:
+                        id: gyro_y_label
+                        text: "Y: --"
+                        text_font: font_small
+                        text_color: 0xE0E0E0
+                    - label:
+                        id: gyro_z_label
+                        text: "Z: --"
+                        text_font: font_small
+                        text_color: 0xE0E0E0
+
+              # Divider
+              - obj:
+                  width: 100%
+                  height: 1
+                  bg_color: 0x1C3A5C
+                  bg_opa: COVER
+                  border_opa: TRANSP
+                  shadow_opa: TRANSP
+                  pad_all: 0
+
+              # Temp row (IMU + Chip on same line)
+              - obj:
+                  styles: row_style
+                  width: 100%
+                  height: 36
+                  layout:
+                    type: FLEX
+                    flex_flow: ROW
+                    flex_align_main: SPACE_BETWEEN
+                    flex_align_cross: CENTER
+                  widgets:
+                    - label:
+                        id: imu_temp_label
+                        text: "IMU: -- °C"
+                        text_font: font_small
+                        text_color: 0xFF9E64
+                    - label:
+                        id: chip_temp_label
+                        text: "Chip: -- °C"
+                        text_font: font_small
+                        text_color: 0xFF9E64
+
+
+# ─── Scripts ──────────────────────────────────────────────────────────────────
+script:
+  - id: update_clock_label
+    mode: restart
+    then:
+      - if:
+          condition:
+            time.has_time:
+              id: rtc_time
+          then:
+            - lvgl.label.update:
+                id: time_label
+                text: !lambda |-
+                  auto t = id(rtc_time).now();
+                  return t.strftime("%H:%M").c_str();
+            - lvgl.label.update:
+                id: date_label
+                text: !lambda |-
+                  auto t = id(rtc_time).now();
+                  return t.strftime("%Y/%m/%d").c_str();
+          else:
+            - if:
+                condition:
+                  time.has_time:
+                    id: ha_time
+                then:
+                  - lvgl.label.update:
+                      id: time_label
+                      text: !lambda |-
+                        auto t = id(ha_time).now();
+                        return t.strftime("%H:%M").c_str();
+                  - lvgl.label.update:
+                      id: date_label
+                      text: !lambda |-
+                        auto t = id(ha_time).now();
+                        return t.strftime("%Y/%m/%d").c_str();
+
+  - id: update_imu_labels
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: accel_x_label
+          text: !lambda 'return str_sprintf("X:% .2f", id(accel_x).state);'
+      - lvgl.label.update:
+          id: accel_y_label
+          text: !lambda 'return str_sprintf("Y:% .2f", id(accel_y).state);'
+      - lvgl.label.update:
+          id: accel_z_label
+          text: !lambda 'return str_sprintf("Z:% .2f", id(accel_z).state);'
+      - lvgl.label.update:
+          id: gyro_x_label
+          text: !lambda 'return str_sprintf("X:% .1f", id(gyro_x).state);'
+      - lvgl.label.update:
+          id: gyro_y_label
+          text: !lambda 'return str_sprintf("Y:% .1f", id(gyro_y).state);'
+      - lvgl.label.update:
+          id: gyro_z_label
+          text: !lambda 'return str_sprintf("Z:% .1f", id(gyro_z).state);'
+      - lvgl.label.update:
+          id: imu_temp_label
+          text: !lambda 'return str_sprintf("IMU: %.1f °C", id(imu_temp).state);'
+
+  - id: draw_display
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: connection_label
+          text: !lambda |-
+            if (id(init_in_progress)) return std::string("Booting");
+            if (!wifi::global_wifi_component->is_connected()) return std::string("No WiFi");
+            if (!api::global_api_server->is_connected()) return std::string("No HA");
+            return std::string("Connected");
+      - script.execute: update_clock_label
+      - script.execute: update_imu_labels
