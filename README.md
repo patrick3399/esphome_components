@@ -25,7 +25,10 @@ device uses.
 | M5Stack CoreS3 SE | [devices/m5stack/m5cores3se.yaml](devices/m5stack/m5cores3se.yaml) | ✅ Voice Assistant working | M5Stack official `axp2101`, `aw88298`, `aw9523b` |
 | M5Stack CoreS3 SE ESP-SR variant | [devices/m5stack/m5cores3se-espsr.yaml](devices/m5stack/m5cores3se-espsr.yaml) | 🔄 Experimental/local validation pending | M5Stack official `axp2101`, `aw88298`, `aw9523b`; our `esp_sr_wake_word` |
 | M5Stack Cardputer | [devices/m5stack/m5cardputer.yaml](devices/m5stack/m5cardputer.yaml) | 🧪 Compile/OTA OK; keyboard/display bring-up verified; audio pending | ESPHome built-ins; our `74hc138_keypad` |
+| Waveshare ESP32-S3-Touch-AMOLED-2.41 | [devices/waveshare/esp32s3-touch-amoled-2.41.yaml](devices/waveshare/esp32s3-touch-amoled-2.41.yaml) | 🧪 Config OK; hardware verification pending | Our `qmi8658`; display/touch/RTC/GPIO expander via ESPHome built-ins (`qspi_dbi`, `ft63x6`, `pcf85063`, `pca9554`) |
 | Waveshare ESP32-S3-Matrix | [devices/waveshare/esp32s3-matrix.yaml](devices/waveshare/esp32s3-matrix.yaml) | ✅ Verified on hardware | Our `qmi8658`; 8×8 WS2812B matrix via ESPHome built-ins |
+| Waveshare ESP32-S3-ETH | [devices/waveshare/esp32s3-eth.yaml](devices/waveshare/esp32s3-eth.yaml) | 🧪 Compile OK; hardware verification pending | ESPHome built-ins only: `ethernet` (W5500), `esp32_camera` (OV2640/OV5640), `ethernet_info`, `bluetooth_proxy` |
+| Waveshare ESP32-S3-GEEK | [devices/waveshare/esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ✅ Verified on hardware | ESPHome built-ins only: `st7789v` display, `ledc` backlight, `bluetooth_proxy` |
 
 `devices/m5stack/secrets.yaml` is local secret material and is not a device
 configuration.
@@ -42,9 +45,9 @@ do not have baseline YAMLs in this repository yet.
 | Guition | JC3636W518 | [hardware](../ref/hardware/guition/jc3636w518.md) | Built-ins cover QSPI display, touch, audio; note Octal PSRAM and V1/V2 mic differences. |
 | Waveshare | ESP32-S3-ETH | [hardware](../ref/hardware/waveshare/esp32-s3-eth/esp32-s3-eth.md) | Built-in W5500 Ethernet; GPIO33-37 reserved by Octal PSRAM. |
 | Waveshare | ESP32-S3-ETH-8DI-8RO | [hardware](../ref/hardware/waveshare/esp32-s3-eth-8di-8ro/esp32-s3-eth-8di-8ro.md) | Built-in W5500 Ethernet, `pca9554` for TCA9554 relay expander, RS485 via `uart`. |
-| Waveshare | ESP32-S3-GEEK | [hardware](../ref/hardware/waveshare/esp32-s3-geek/esp32-s3-geek.md) | Built-in SPI display support. |
+| ~~Waveshare~~ | ~~ESP32-S3-GEEK~~ | ~~[hardware](../ref/hardware/waveshare/esp32-s3-geek/esp32-s3-geek.md)~~ | Graduated to Device YAMLs above. |
 | Waveshare | ESP32-S3-Relay-6CH | [hardware](../ref/hardware/waveshare/esp32-s3-relay-6ch/esp32-s3-relay-6ch.md) | Built-in GPIO relays and RS485; several relay pins are strapping pins. |
-| Waveshare | ESP32-S3-Touch-AMOLED-2.41 | [hardware](../ref/hardware/waveshare/esp32-s3-touch-amoled-2.41/esp32-s3-touch-amoled-2.41.md) | `qmi8658` available; display/touch/RTC/GPIO expander should use ESPHome built-ins. |
+| ~~Waveshare~~ | ~~ESP32-S3-Touch-AMOLED-2.41~~ | ~~[hardware](../ref/hardware/waveshare/esp32-s3-touch-amoled-2.41/esp32-s3-touch-amoled-2.41.md)~~ | Graduated to Device YAMLs above. |
 | Waveshare | ESP32-S3-Touch-LCD-1.85C | [hardware](../ref/hardware/waveshare/esp32-s3-touch-lcd-1.85c/esp32-s3-touch-lcd-1.85c.md) | `qmi8658` available; display/touch/RTC/audio/GPIO expander should use ESPHome built-ins. |
 | Wireless-Tag | WT32-SC01 / Plus | [hardware](../ref/hardware/wireless-tag/wt32-sc01/wt32-sc01.md) | Built-in display/touch/RS485/audio support; Plus has tight 2MB PSRAM for LVGL. |
 
