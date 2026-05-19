@@ -79,28 +79,35 @@ The partition name must be exactly `model`; ESP-SR looks it up at runtime with
 ## Model Image
 
 The `espressif/esp-sr` IDF component adds an `srmodels_bin` CMake build target
-when it finds the `model` partition. The target writes:
-
-```text
-<build>/srmodels/srmodels.bin
-```
-
-For the local staging helper, the CoreS3 SE ESP-SR model path is:
-
-```text
-esphome_components/.dev/devices/m5stack/.esphome/build/m5cores3se-espsr/.pio/build/m5cores3se-espsr/srmodels/srmodels.bin
-```
-
-If a normal ESPHome compile does not leave that file behind, build the target
-from the generated CMake build tree:
+when it finds the `model` partition. ESPHome's `compile` action runs this target
+automatically, but only if the IDF configure step has already completed. If
+`srmodels.bin` is missing after a compile, generate it manually with `movemodel.py`
+(no cmake invocation required):
 
 ```powershell
-C:\Users\Yuni\.platformio\packages\tool-cmake\bin\cmake.exe --build esphome_components\.dev\devices\m5stack\.esphome\build\m5cores3se-espsr\.pio\build\m5cores3se-espsr --target srmodels_bin
+# Paths for ws-185c — adjust <vendor>/<device> for other targets
+$comp = "esphome_components\.dev\devices\<vendor>\.esphome\build\<device>\managed_components\espressif__esp-sr"
+$build = "esphome_components\.dev\devices\<vendor>\.esphome\build\<device>\.pioenvs\<device>"
+$sdk  = "esphome_components\.dev\devices\<vendor>\.esphome\build\<device>\sdkconfig.<device>"
+
+.\venv\Scripts\python.exe "$comp\model\movemodel.py" -d1 $sdk -d2 $comp -d3 $build
+# Output: $build\srmodels\srmodels.bin
 ```
 
-For a first serial flash, flash the normal factory firmware and the model image.
-Use the generated partition table to determine the current `model` offset, or
-let PlatformIO/ESP-IDF flash by partition name through its `flash` target.
+The model partition offset is in `flasher_args.json` (same directory as `firmware.bin`):
 
-OTA updates replace only the application image; they do not populate or update
-the `model` data partition.
+```powershell
+Get-Content "$build\flasher_args.json" | ConvertFrom-Json | Select-Object -ExpandProperty flash_files
+# "model": { "offset": "0xa00000", "file": "srmodels/srmodels.bin" }
+```
+
+Flash with esptool — device can be running normally (no bootloader mode needed):
+
+```powershell
+.\esptool-windows-amd64\esptool.exe --chip esp32s3 --port COM<N> --baud 921600 `
+    write-flash <offset> "$build\srmodels\srmodels.bin"
+```
+
+**OTA updates replace only the application image; they do not populate or update
+the `model` data partition.** Re-flash `srmodels.bin` only when the esp-sr component
+version changes (i.e. different models are included) — not on every firmware update.

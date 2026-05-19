@@ -1,0 +1,723 @@
+# ─── Hardware version: V1 ────────────────────────────────────────────────────
+# Audio: PCM5101APWR DAC (I2S, no I2C) + NS8002 amp (always-on) + MEMS digital mic
+# GPIO2=MIC_WS  GPIO15=MIC_SCK  GPIO39=MIC_SD  GPIO47=I2S_DIN  GPIO38=LRCK  GPIO48=BCK
+# NO QMI8658 IMU, NO ES8311, NO ES7210 on this board.
+# V2 differences: ES8311 codec (0x18) + ES7210 ADC (0x40) + GPIO2=MCLK + GPIO15=PA_CTRL
+# ─────────────────────────────────────────────────────────────────────────────
+substitutions:
+  devicename: "ws-185c"
+  upper_devicename: "WS-1.85C"
+
+esphome:
+  name: $devicename
+  friendly_name: $upper_devicename
+  on_boot:
+    - priority: 600
+      then:
+        - pcf85063.read_time
+    - priority: -100
+      then:
+        - light.turn_on:
+            id: backlight
+            brightness: 80%
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_BT_ALLOCATION_FROM_SPIRAM_FIRST: "y"
+      CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+  partitions:
+    - name: model
+      type: data
+      subtype: undefined
+      size: 0x600000  # 6MB WakeNet model; on-device wake word needs serial flash
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+packages:
+  common: !include ../../packages/common.yaml
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [esp_sr_wake_word]
+    refresh: 0s
+
+globals:
+  - id: init_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "true"
+  - id: voice_assistant_phase
+    type: int
+    restore_value: no
+    initial_value: "10"  # 10=not_ready 1=idle 2=listening 3=thinking 4=replying 11=error 12=muted
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+
+api:
+  reboot_timeout: 4h
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 4h
+
+# ─── I2C (shared: touch / RTC / GPIO expander / IMU / audio codecs) ─────────
+i2c:
+  id: main_i2c
+  sda: GPIO11
+  scl: GPIO10
+  scan: false
+  frequency: 400kHz
+
+# ─── GPIO Expander (TCA9554PWR, pca9554-compatible, addr 0x20) ──────────────
+# EXIO0 = TP_RST   EXIO1 = LCD_RST   EXIO2 = SD_D3   EXIO3 = RTC_INT
+pca9554:
+  - id: tca9554_dev
+    i2c_id: main_i2c
+    address: 0x20
+
+# ─── RTC (PCF85063) ──────────────────────────────────────────────────────────
+time:
+  - platform: pcf85063
+    id: rtc_time
+    i2c_id: main_i2c
+    update_interval: never
+  - platform: homeassistant
+    on_time_sync:
+      then:
+        - pcf85063.write_time
+
+# ─── Audio (V1: PCM5101 DAC + NS8002 amp + MEMS mic) ─────────────────────────
+# Mic and speaker share BCK/LRCK via separate I2S bus instances so each
+# can declare its own CLK pins (mic uses GPIO2/GPIO15, speaker uses GPIO38/GPIO48).
+i2s_audio:
+  - id: i2s_out
+    i2s_lrclk_pin: GPIO38
+    i2s_bclk_pin: GPIO48
+  - id: i2s_in
+    i2s_lrclk_pin: GPIO2
+    i2s_bclk_pin: GPIO15
+
+speaker:
+  - platform: i2s_audio
+    id: i2s_speaker
+    i2s_audio_id: i2s_out
+    i2s_dout_pin: GPIO47
+    dac_type: external
+    channel: stereo
+
+microphone:
+  - platform: i2s_audio
+    id: i2s_microphone
+    i2s_audio_id: i2s_in
+    i2s_din_pin: GPIO39
+    adc_type: external
+    pdm: false
+    channel: right
+    sample_rate: 16000
+    bits_per_sample: 16bit
+
+# ─── Backlight ───────────────────────────────────────────────────────────────
+output:
+  - platform: ledc
+    pin: GPIO5
+    id: backlight_output
+
+switch:
+  - platform: gpio
+    pin: GPIO18
+    id: lcd_te
+    internal: true
+
+  - platform: template
+    name: "Microphone Mute"
+    id: mic_mute
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - microphone.mute:
+      - lambda: id(voice_assistant_phase) = 12;
+      - component.update: main_display
+    on_turn_off:
+      - microphone.unmute:
+      - lambda: id(voice_assistant_phase) = 1;
+      - component.update: main_display
+
+light:
+  - platform: monochromatic
+    name: "Backlight"
+    id: backlight
+    icon: "mdi:television"
+    entity_category: config
+    output: backlight_output
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+select:
+  - platform: template
+    entity_category: config
+    name: "Wake Word Engine"
+    id: wake_word_engine_location
+    icon: "mdi:account-voice"
+    optimistic: true
+    restore_value: true
+    options:
+      - "In Home Assistant"
+      - "On device"
+    initial_option: "In Home Assistant"
+    on_value:
+      - if:
+          condition:
+            lambda: return !id(init_in_progress);
+          then:
+            - if:
+                condition:
+                  lambda: return x == "In Home Assistant";
+                then:
+                  - esp_sr_wake_word.stop:
+                  - lambda: id(va).set_use_wake_word(true);
+                  - voice_assistant.start_continuous:
+            - if:
+                condition:
+                  lambda: return x == "On device";
+                then:
+                  - lambda: id(va).set_use_wake_word(false);
+                  - voice_assistant.stop:
+                  - esp_sr_wake_word.start:
+
+  - platform: template
+    entity_category: config
+    name: "Wake Word Model"
+    id: wake_word_model_select
+    icon: "mdi:account-voice"
+    optimistic: true
+    restore_value: true
+    options:
+      - "Hi Lily"
+      - "Hi ESP"
+      - "Hi Lexin"
+    initial_option: "Hi Lily"
+    on_value:
+      - if:
+          condition:
+            lambda: return x == "Hi Lily";
+          then:
+            - esp_sr_wake_word.enable_model: esp_sr_hilili
+      - if:
+          condition:
+            lambda: return x == "Hi ESP";
+          then:
+            - esp_sr_wake_word.enable_model: esp_sr_hiesp
+      - if:
+          condition:
+            lambda: return x == "Hi Lexin";
+          then:
+            - esp_sr_wake_word.enable_model: esp_sr_hilexin
+      - if:
+          condition:
+            and:
+              - lambda: return id(wake_word_engine_location).current_option() == "On device";
+              - switch.is_off: mic_mute
+          then:
+            - esp_sr_wake_word.start:
+
+# ─── Sensors ─────────────────────────────────────────────────────────────────
+sensor:
+  - platform: adc
+    pin: GPIO8
+    name: "Battery Voltage"
+    attenuation: 12db
+    update_interval: 60s
+    filters:
+      - multiply: 2.0  # on-board voltage divider
+
+  - platform: internal_temperature
+    name: "Chip Temp"
+    update_interval: 30s
+
+  - platform: sound_level
+    microphone: i2s_microphone
+    passive: true
+    measurement_duration: 500ms
+    rms:
+      name: "Mic RMS Level"
+      id: mic_rms_level
+    peak:
+      name: "Mic Peak Level"
+      id: mic_peak_level
+
+# ─── Voice Assistant ─────────────────────────────────────────────────────────
+# ESP-SR on-device wake word requires serial flash (model partition 6MB).
+# Default "In Home Assistant" mode works immediately after OTA.
+esp_sr_wake_word:
+  id: esp_sr_ww
+  microphone: i2s_microphone
+  stop_after_detection: true
+  models:
+    - id: esp_sr_hilili
+      model: wn9_hilili_tts
+    - id: esp_sr_hiesp
+      model: wn9_hiesp
+    - id: esp_sr_hilexin
+      model: wn9_hilexin
+  on_wake_word_detected:
+    - voice_assistant.start:
+        wake_word: !lambda return wake_word;
+
+voice_assistant:
+  id: va
+  microphone: i2s_microphone
+  media_player: va_media_player
+  use_wake_word: false
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  on_listening:
+    - lambda: id(voice_assistant_phase) = 2;
+    - component.update: main_display
+  on_stt_vad_end:
+    - lambda: id(voice_assistant_phase) = 3;
+    - component.update: main_display
+  on_tts_start:
+    - lambda: id(voice_assistant_phase) = 4;
+    - component.update: main_display
+  on_end:
+    - wait_until:
+        not:
+          speaker.is_playing:
+    - script.execute: set_idle_or_mute_phase
+    - if:
+        condition:
+          lambda: return id(wake_word_engine_location).current_option() == "On device";
+        then:
+          - lambda: id(va).set_use_wake_word(false);
+          - esp_sr_wake_word.start:
+    - component.update: main_display
+  on_error:
+    - if:
+        condition:
+          and:
+            - lambda: return !id(init_in_progress);
+            - lambda: return code != "duplicate_wake_up_detected";
+            - lambda: return code != "stt-no-text-recognized";
+        then:
+          - lambda: id(voice_assistant_phase) = 11;
+          - component.update: main_display
+          - delay: 2s
+          - script.execute: set_idle_or_mute_phase
+          - component.update: main_display
+  on_client_connected:
+    - lambda: id(init_in_progress) = false;
+    - script.execute: start_wake_word
+    - script.execute: set_idle_or_mute_phase
+    - component.update: main_display
+  on_client_disconnected:
+    - script.execute: stop_wake_word
+    - lambda: id(voice_assistant_phase) = 10;
+    - component.update: main_display
+
+media_player:
+  - platform: speaker
+    name: "Voice Assistant"
+    id: va_media_player
+    volume_initial: 0.7
+    announcement_pipeline:
+      speaker: i2s_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+
+# ─── Display (QSPI round 360×360, init sequence from Waveshare sample) ───────
+spi:
+  id: display_qspi
+  type: quad
+  clk_pin: GPIO40
+  data_pins: [GPIO46, GPIO45, GPIO42, GPIO41]
+
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: roboto_clock
+    size: 60
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: roboto_label
+    size: 22
+
+display:
+  - platform: qspi_dbi
+    model: CUSTOM
+    id: main_display
+    spi_id: display_qspi
+    data_rate: 40MHz
+    invert_colors: true
+    color_order: rgb
+    dimensions:
+      height: 360
+      width: 360
+    cs_pin: GPIO21
+    reset_pin:
+      pca9554: tca9554_dev
+      number: 1
+    auto_clear_enabled: true
+    update_interval: 1s
+    init_sequence:
+      - [ 0xF0, 0x08 ]
+      - [ 0xF2, 0x08 ]
+      - [ 0x9B, 0x51 ]
+      - [ 0x86, 0x53 ]
+      - [ 0xF2, 0x80 ]
+      - [ 0xF0, 0x00 ]
+      - [ 0xF0, 0x01 ]
+      - [ 0xF1, 0x01 ]
+      - [ 0xB0, 0x54 ]
+      - [ 0xB1, 0x3F ]
+      - [ 0xB2, 0x2A ]
+      - [ 0xB4, 0x46 ]
+      - [ 0xB5, 0x34 ]
+      - [ 0xB6, 0xD5 ]
+      - [ 0xB7, 0x30 ]
+      - [ 0xBA, 0x00 ]
+      - [ 0xBB, 0x08 ]
+      - [ 0xBC, 0x08 ]
+      - [ 0xBD, 0x00 ]
+      - [ 0xC0, 0x80 ]
+      - [ 0xC1, 0x10 ]
+      - [ 0xC2, 0x37 ]
+      - [ 0xC3, 0x80 ]
+      - [ 0xC4, 0x10 ]
+      - [ 0xC5, 0x37 ]
+      - [ 0xC6, 0xA9 ]
+      - [ 0xC7, 0x41 ]
+      - [ 0xC8, 0x51 ]
+      - [ 0xC9, 0xA9 ]
+      - [ 0xCA, 0x41 ]
+      - [ 0xCB, 0x51 ]
+      - [ 0xD0, 0x91 ]
+      - [ 0xD1, 0x68 ]
+      - [ 0xD2, 0x69 ]
+      - [ 0xF5, 0x00, 0xA5 ]
+      - [ 0xDD, 0x3F ]
+      - [ 0xDE, 0x3F ]
+      - [ 0xF1, 0x10 ]
+      - [ 0xF0, 0x00 ]
+      - [ 0xF0, 0x02 ]
+      - [ 0xE0, 0xF0, 0x06, 0x0B, 0x09, 0x09, 0x16, 0x32, 0x44, 0x4A, 0x37, 0x13, 0x13, 0x2E, 0x34 ]
+      - [ 0xE1, 0xF0, 0x06, 0x0B, 0x09, 0x08, 0x05, 0x32, 0x33, 0x49, 0x17, 0x13, 0x13, 0x2E, 0x34 ]
+      - [ 0xF0, 0x10 ]
+      - [ 0xF3, 0x10 ]
+      - [ 0xE0, 0x0A ]
+      - [ 0xE1, 0x00 ]
+      - [ 0xE2, 0x00 ]
+      - [ 0xE3, 0x00 ]
+      - [ 0xE4, 0xE0 ]
+      - [ 0xE5, 0x06 ]
+      - [ 0xE6, 0x21 ]
+      - [ 0xE7, 0x00 ]
+      - [ 0xE8, 0x05 ]
+      - [ 0xE9, 0x82 ]
+      - [ 0xEA, 0xDF ]
+      - [ 0xEB, 0x89 ]
+      - [ 0xEC, 0x20 ]
+      - [ 0xED, 0x14 ]
+      - [ 0xEE, 0xFF ]
+      - [ 0xEF, 0x00 ]
+      - [ 0xF8, 0xFF ]
+      - [ 0xF9, 0x00 ]
+      - [ 0xFA, 0x00 ]
+      - [ 0xFB, 0x30 ]
+      - [ 0xFC, 0x00 ]
+      - [ 0xFD, 0x00 ]
+      - [ 0xFE, 0x00 ]
+      - [ 0xFF, 0x00 ]
+      - [ 0x60, 0x42 ]
+      - [ 0x61, 0xE0 ]
+      - [ 0x62, 0x40 ]
+      - [ 0x63, 0x40 ]
+      - [ 0x64, 0x02 ]
+      - [ 0x65, 0x00 ]
+      - [ 0x66, 0x40 ]
+      - [ 0x67, 0x03 ]
+      - [ 0x68, 0x00 ]
+      - [ 0x69, 0x00 ]
+      - [ 0x6A, 0x00 ]
+      - [ 0x6B, 0x00 ]
+      - [ 0x70, 0x42 ]
+      - [ 0x71, 0xE0 ]
+      - [ 0x72, 0x40 ]
+      - [ 0x73, 0x40 ]
+      - [ 0x74, 0x02 ]
+      - [ 0x75, 0x00 ]
+      - [ 0x76, 0x40 ]
+      - [ 0x77, 0x03 ]
+      - [ 0x78, 0x00 ]
+      - [ 0x79, 0x00 ]
+      - [ 0x7A, 0x00 ]
+      - [ 0x7B, 0x00 ]
+      - [ 0x80, 0x48 ]
+      - [ 0x81, 0x00 ]
+      - [ 0x82, 0x05 ]
+      - [ 0x83, 0x02 ]
+      - [ 0x84, 0xDD ]
+      - [ 0x85, 0x00 ]
+      - [ 0x86, 0x00 ]
+      - [ 0x87, 0x00 ]
+      - [ 0x88, 0x48 ]
+      - [ 0x89, 0x00 ]
+      - [ 0x8A, 0x07 ]
+      - [ 0x8B, 0x02 ]
+      - [ 0x8C, 0xDF ]
+      - [ 0x8D, 0x00 ]
+      - [ 0x8E, 0x00 ]
+      - [ 0x8F, 0x00 ]
+      - [ 0x90, 0x48 ]
+      - [ 0x91, 0x00 ]
+      - [ 0x92, 0x09 ]
+      - [ 0x93, 0x02 ]
+      - [ 0x94, 0xE1 ]
+      - [ 0x95, 0x00 ]
+      - [ 0x96, 0x00 ]
+      - [ 0x97, 0x00 ]
+      - [ 0x98, 0x48 ]
+      - [ 0x99, 0x00 ]
+      - [ 0x9A, 0x0B ]
+      - [ 0x9B, 0x02 ]
+      - [ 0x9C, 0xE3 ]
+      - [ 0x9D, 0x00 ]
+      - [ 0x9E, 0x00 ]
+      - [ 0x9F, 0x00 ]
+      - [ 0xA0, 0x48 ]
+      - [ 0xA1, 0x00 ]
+      - [ 0xA2, 0x04 ]
+      - [ 0xA3, 0x02 ]
+      - [ 0xA4, 0xDC ]
+      - [ 0xA5, 0x00 ]
+      - [ 0xA6, 0x00 ]
+      - [ 0xA7, 0x00 ]
+      - [ 0xA8, 0x48 ]
+      - [ 0xA9, 0x00 ]
+      - [ 0xAA, 0x06 ]
+      - [ 0xAB, 0x02 ]
+      - [ 0xAC, 0xDE ]
+      - [ 0xAD, 0x00 ]
+      - [ 0xAE, 0x00 ]
+      - [ 0xAF, 0x00 ]
+      - [ 0xB0, 0x48 ]
+      - [ 0xB1, 0x00 ]
+      - [ 0xB2, 0x08 ]
+      - [ 0xB3, 0x02 ]
+      - [ 0xB4, 0xE0 ]
+      - [ 0xB5, 0x00 ]
+      - [ 0xB6, 0x00 ]
+      - [ 0xB7, 0x00 ]
+      - [ 0xB8, 0x48 ]
+      - [ 0xB9, 0x00 ]
+      - [ 0xBA, 0x0A ]
+      - [ 0xBB, 0x02 ]
+      - [ 0xBC, 0xE2 ]
+      - [ 0xBD, 0x00 ]
+      - [ 0xBE, 0x00 ]
+      - [ 0xBF, 0x00 ]
+      - [ 0xC0, 0x12 ]
+      - [ 0xC1, 0xAA ]
+      - [ 0xC2, 0x65 ]
+      - [ 0xC3, 0x74 ]
+      - [ 0xC4, 0x47 ]
+      - [ 0xC5, 0x56 ]
+      - [ 0xC6, 0x00 ]
+      - [ 0xC7, 0x88 ]
+      - [ 0xC8, 0x99 ]
+      - [ 0xC9, 0x33 ]
+      - [ 0xD0, 0x21 ]
+      - [ 0xD1, 0xAA ]
+      - [ 0xD2, 0x65 ]
+      - [ 0xD3, 0x74 ]
+      - [ 0xD4, 0x47 ]
+      - [ 0xD5, 0x56 ]
+      - [ 0xD6, 0x00 ]
+      - [ 0xD7, 0x88 ]
+      - [ 0xD8, 0x99 ]
+      - [ 0xD9, 0x33 ]
+      - [ 0xF3, 0x01 ]
+      - [ 0xF0, 0x00 ]
+      - [ 0xF0, 0x01 ]
+      - [ 0xF1, 0x01 ]
+      - [ 0xA0, 0x0B ]
+      - [ 0xA3, 0x2A ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x2B ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x2C ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x2D ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x2E ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x2F ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x30 ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x31 ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x32 ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA3, 0x33 ]
+      - [ 0xA5, 0xC3 ]
+      - delay 1ms
+      - [ 0xA0, 0x09 ]
+      - [ 0xF1, 0x10 ]
+      - [ 0xF0, 0x00 ]
+      - [ 0x2A, 0x00, 0x00, 0x01, 0x67 ]
+      - [ 0x2B, 0x01, 0x68, 0x01, 0x68 ]
+      - [ 0x4D, 0x00 ]
+      - [ 0x4E, 0x00 ]
+      - [ 0x4F, 0x00 ]
+      - [ 0x4C, 0x01 ]
+      - delay 10ms
+      - [ 0x4C, 0x00 ]
+      - [ 0x2A, 0x00, 0x00, 0x01, 0x67 ]
+      - [ 0x2B, 0x00, 0x00, 0x01, 0x67 ]
+      - [ 0x3A, 0x55 ]
+      - [ 0x21, 0x00 ]
+      - [ 0x11, 0x00 ]
+      - delay 120ms
+      - [ 0x29, 0x00 ]
+    lambda: |-
+      it.fill(Color(0x00, 0x00, 0x20));
+      it.strftime(180, 90, id(roboto_clock), Color(0xFF,0xFF,0xFF), TextAlign::CENTER, "%H:%M:%S", id(rtc_time).now());
+      auto p = id(voice_assistant_phase);
+      Color c = (p==2) ? Color(0x7E,0xE7,0x87) :
+                (p==3) ? Color(0xD2,0xA8,0xFF) :
+                (p==4) ? Color(0x8A,0xB4,0xF8) :
+                (p==11) ? Color(0xFF,0x7B,0x72) :
+                (p==12) ? Color(0xA7,0xB1,0xBC) :
+                (p==10) ? Color(0xFF,0xB8,0x6C) :
+                Color(0xFF,0xFF,0xFF);
+      const char* ph = (p==1)?"Ready":(p==2)?"Listening":(p==3)?"Thinking":
+                       (p==4)?"Replying":(p==10)?"Not Ready":(p==11)?"Error":
+                       (p==12)?"Muted":"--";
+      it.printf(180, 185, id(roboto_clock), c, TextAlign::CENTER, "%s", ph);
+      float rms = id(mic_rms_level).state;
+      float peak = id(mic_peak_level).state;
+      if (!isnan(rms)) {
+        it.printf(180, 255, id(roboto_label), Color(0x80,0xC0,0x80), TextAlign::CENTER,
+                  "RMS %.1f dB  Peak %.1f dB", rms, peak);
+      } else {
+        it.printf(180, 255, id(roboto_label), Color(0x40,0x40,0x60), TextAlign::CENTER, "Mic: waiting...");
+      }
+      it.printf(180, 295, id(roboto_label), Color(0x50,0x50,0x80), TextAlign::CENTER, "WS-1.85C | V1");
+
+# ─── Touchscreen (CST816S) ────────────────────────────────────────────────────
+touchscreen:
+  - platform: cst816
+    id: my_touchscreen
+    i2c_id: main_i2c
+    interrupt_pin: GPIO4
+    reset_pin:
+      pca9554: tca9554_dev
+      number: 0
+    display: main_display
+    on_touch:
+      - lambda: |-
+          ESP_LOGI("touch", "x=%d y=%d", touch.x, touch.y);
+
+# ─── Bluetooth Proxy ──────────────────────────────────────────────────────────
+bluetooth_proxy:
+  active: true
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Boot Button"
+    on_press:
+      - if:
+          condition:
+            and:
+              - lambda: return !id(init_in_progress);
+              - switch.is_off: mic_mute
+              - wifi.connected:
+              - api.connected:
+          then:
+            - script.execute: stop_wake_word
+            - delay: 50ms
+            - voice_assistant.start:
+
+script:
+  - id: start_wake_word
+    then:
+      - if:
+          condition:
+            lambda: return id(wake_word_engine_location).current_option() == "On device";
+          then:
+            - lambda: id(va).set_use_wake_word(false);
+            - esp_sr_wake_word.start:
+      - if:
+          condition:
+            lambda: return id(wake_word_engine_location).current_option() == "In Home Assistant";
+          then:
+            - lambda: id(va).set_use_wake_word(true);
+            - voice_assistant.start_continuous:
+
+  - id: stop_wake_word
+    then:
+      - if:
+          condition:
+            lambda: return id(wake_word_engine_location).current_option() == "In Home Assistant";
+          then:
+            - lambda: id(va).set_use_wake_word(false);
+            - voice_assistant.stop:
+      - if:
+          condition:
+            lambda: return id(wake_word_engine_location).current_option() == "On device";
+          then:
+            - esp_sr_wake_word.stop:
+
+  - id: set_idle_or_mute_phase
+    then:
+      - if:
+          condition:
+            switch.is_off: mic_mute
+          then:
+            - lambda: id(voice_assistant_phase) = 1;
+          else:
+            - lambda: id(voice_assistant_phase) = 12;
