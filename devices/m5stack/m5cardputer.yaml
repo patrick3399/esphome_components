@@ -57,15 +57,26 @@ spi:
   mosi_pin: GPIO35
   miso_pin: GPIO39
 
-i2s_audio:
-  # Hardware uses GPIO43 for both the PDM mic clock and speaker LRCLK.
-  # ESPHome cannot currently model the M5 official split-port setup
-  # (mic on I2S0, speaker on I2S1) because that reuses GPIO43 across buses.
-  # Keep one bus for first bring-up; if mic/speaker switching is unstable,
-  # move the audio path to an external component.
-  id: i2s_audio_bus
-  i2s_lrclk_pin: GPIO43
+m5cardputer_i2s_speaker:
+  id: direct_i2s_speaker_test
+
+m5cardputer_i2s_audio:
+  id: cardputer_fork_i2s_bus
+  i2s_port: 1
   i2s_bclk_pin: GPIO41
+  i2s_lrclk_pin: GPIO43
+
+speaker:
+  - platform: m5cardputer_i2s_audio
+    id: cardputer_fork_speaker
+    m5cardputer_i2s_audio_id: cardputer_fork_i2s_bus
+    dac_type: external
+    i2s_dout_pin: GPIO42
+    sample_rate: 48000
+    bits_per_sample: 16bit
+    channel: stereo
+    buffer_duration: 500ms
+    timeout: 500ms
 
 remote_transmitter:
   id: ir_tx
@@ -160,7 +171,9 @@ text_sensor:
   on_key:
     - lambda: |-
         std::string text = id(keyboard_input_text).state;
-        if (x == 0x08) {
+        if (x == '\n') {
+          return;
+        } else if (x == 0x08) {
           if (!text.empty()) {
             text.pop_back();
           }
@@ -222,53 +235,18 @@ sensor:
       if (v >= 3.40f) return 25.0f;
       return 0.0f;
 
-  - platform: sound_level
-    id: mic_sound_level
-    microphone: cardputer_mic
-    measurement_duration: 1000ms
-    passive: false
-    peak:
-      id: mic_peak_level
-      name: "Mic Peak Sound Level"
-    rms:
-      id: mic_rms_level
-      name: "Mic RMS Sound Level"
-
-microphone:
-  - platform: i2s_audio
-    id: cardputer_mic
-    i2s_audio_id: i2s_audio_bus
-    adc_type: external
-    i2s_din_pin:
-      number: GPIO46
-      ignore_strapping_warning: true
-    pdm: true
-    channel: right
-    sample_rate: 16000
-    bits_per_sample: 16bit
-    correct_dc_offset: true
-
-speaker:
-  - platform: i2s_audio
-    id: cardputer_speaker
-    i2s_audio_id: i2s_audio_bus
-    dac_type: external
-    i2s_dout_pin: GPIO42
-    channel: right
-    sample_rate: 48000
-    bits_per_sample: 16bit
-    buffer_duration: 500ms
-
-media_player:
-  - platform: speaker
-    id: cardputer_media_player
-    name: "Speaker Media Player"
-    volume_initial: 0.4
-    announcement_pipeline:
-      speaker: cardputer_speaker
-      format: FLAC
-      sample_rate: 48000
-      num_channels: 1
+  # Disabled during the legacy speaker-only boot test.
+  # - platform: sound_level
+  #   id: mic_sound_level
+  #   microphone: cardputer_mic
+  #   measurement_duration: 1000ms
+  #   passive: false
+  #   peak:
+  #     id: mic_peak_level
+  #     name: "Mic Peak Sound Level"
+  #   rms:
+  #     id: mic_rms_level
+  #     name: "Mic RMS Sound Level"
 
 display:
   - platform: st7789v
@@ -306,7 +284,8 @@ display:
         it.printf(8, 60, id(font_small), Color(0xFF, 0xFF, 0x60), "%s", input.c_str());
       }
 
-      it.printf(8, 104, id(font_small), Color::WHITE, "Loop:%.0f LCD:%.0f", id(loop_time_sensor).state, id(display_update_time).state);
+      it.printf(8, 88, id(font_small), Color(0x7E, 0xE7, 0x87), "New I2S speaker");
+      it.printf(8, 112, id(font_small), Color(0xD6, 0xE2, 0xEE), "Use HA button");
 
 font:
   - file: "gfonts://Roboto Mono"
@@ -318,23 +297,43 @@ font:
 
 button:
   - platform: template
-    name: "Start Mic Level"
+    name: "Speaker Tone"
     on_press:
-      - sound_level.start:
-          id: mic_sound_level
+      - lambda: id(direct_i2s_speaker_test).play_test_tone();
 
   - platform: template
-    name: "Stop Mic Level"
+    name: "Fork Speaker Tone"
     on_press:
-      - sound_level.stop:
-          id: mic_sound_level
+      - lambda: |-
+          id(cardputer_fork_speaker).set_audio_stream_info(esphome::audio::AudioStreamInfo(16, 2, 48000));
+          id(cardputer_fork_speaker).start();
 
-  - platform: template
-    name: "Speaker Click"
-    on_press:
-      - speaker.play:
-          id: cardputer_speaker
-          data: [0x00, 0x20, 0x40, 0x60, 0x7F, 0x60, 0x40, 0x20, 0x00, 0xE0, 0xC0, 0xA0, 0x80, 0xA0, 0xC0, 0xE0]
+          static constexpr size_t FRAMES_PER_CHUNK = 256;
+          static constexpr size_t CHUNKS = 96;
+          int16_t samples[FRAMES_PER_CHUNK * 2];
+          uint32_t sample_index = 0;
+
+          for (size_t chunk = 0; chunk < CHUNKS; chunk++) {
+            for (size_t frame = 0; frame < FRAMES_PER_CHUNK; frame++, sample_index++) {
+              const int16_t sample = ((sample_index / 27) % 2) ? 12000 : -12000;
+              samples[frame * 2] = sample;
+              samples[frame * 2 + 1] = sample;
+            }
+
+            const uint8_t *data = reinterpret_cast<const uint8_t *>(samples);
+            size_t remaining = sizeof(samples);
+            while (remaining > 0) {
+              const size_t written = id(cardputer_fork_speaker).play(data, remaining, pdMS_TO_TICKS(100));
+              if (written == 0) {
+                delay(5);
+                continue;
+              }
+              data += written;
+              remaining -= written;
+            }
+          }
+
+          id(cardputer_fork_speaker).finish();
 
   - platform: template
     name: "IR NEC Test"
