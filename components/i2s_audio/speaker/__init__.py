@@ -39,6 +39,7 @@ I2SAudioSpeaker = i2s_audio_ns.class_(
 
 CONF_DAC_TYPE = "dac_type"
 CONF_I2S_COMM_FMT = "i2s_comm_fmt"
+CONF_OUTPUT_GAIN = "output_gain"
 
 i2s_dac_mode_t = cg.global_ns.enum("i2s_dac_mode_t")
 INTERNAL_DAC_OPTIONS = {
@@ -130,6 +131,9 @@ BASE_SCHEMA = (
                 cv.positive_time_period_milliseconds,
                 cv.one_of(CONF_NEVER, lower=True),
             ),
+            cv.Optional(CONF_OUTPUT_GAIN, default=1.0): cv.float_range(
+                min=0.0, max=8.0
+            ),
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -189,6 +193,7 @@ async def to_code(config):
     elif config[CONF_I2S_COMM_FMT] in ["stand_pcm_short", "pcm_short", "pcm"]:
         fmt = "pcm"
     cg.add(var.set_i2s_comm_fmt(fmt))
+    cg.add(var.set_output_gain(config[CONF_OUTPUT_GAIN]))
     if config[CONF_TIMEOUT] != CONF_NEVER:
         cg.add(var.set_timeout(config[CONF_TIMEOUT]))
     cg.add(var.set_buffer_duration(config[CONF_BUFFER_DURATION]))

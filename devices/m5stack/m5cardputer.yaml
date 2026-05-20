@@ -50,7 +50,8 @@ api:
 wifi:
   ap:
 
-captive_portal:
+network:
+  enable_high_performance: false
 
 logger:
   hardware_uart: USB_SERIAL_JTAG
@@ -59,9 +60,6 @@ logger:
   logs:
     wifi: WARN
     esp-idf: WARN
-
-debug:
-  update_interval: 10s
 
 spi:
   id: lcd_spi
@@ -82,22 +80,30 @@ speaker:
     i2s_dout_pin: GPIO42
     sample_rate: 16000
     bits_per_sample: 16bit
-    channel: mono
+    channel: right
+    output_gain: 4.0
     # buffer_duration × sample_rate × channels × bytes_per_sample = ring buffer bytes.
     # 100 ms × 16000 × 1 × 2 = 3200 B (vs 96 KB at 48 kHz stereo / 500 ms). Heap budget on this
     # PSRAM-less SoC is brutally tight, so we trade audio fidelity for headroom.
     buffer_duration: 100ms
     timeout: 500ms
 
-# speaker_media_player needs >120 KB of contiguous pipeline allocation (HTTP reader, decoder,
-# transcoder, resampler) and starves speaker_task's ring-buffer allocation on this PSRAM-less SoC.
-# RTTTL synthesises PCM in-place and pushes it straight into speaker.play() — no pipeline, fits
-# easily in the available heap. It still exercises the full speaker_task lifecycle, which is what
-# Phase 2 (long-term fork stability) actually needs.
 rtttl:
   id: cardputer_rtttl
   speaker: cardputer_speaker
   gain: 0.6
+
+media_player:
+  - platform: speaker
+    id: cardputer_media_player
+    name: "Speaker Media Player"
+    buffer_size: 4000
+    volume_max: 0.85
+    announcement_pipeline:
+      speaker: cardputer_speaker
+      format: WAV
+      num_channels: 1
+      sample_rate: 16000
 
 remote_transmitter:
   id: ir_tx
@@ -215,15 +221,6 @@ sensor:
     id: chip_temperature
     name: "Chip Temperature"
 
-  - platform: debug
-    free:
-      name: "Heap Free"
-    block:
-      name: "Heap Max Block"
-    loop_time:
-      id: loop_time_sensor
-      name: "Loop Time"
-
   - platform: template
     id: display_update_time
     name: "Display Update Time"
@@ -305,8 +302,8 @@ display:
         it.printf(8, 60, id(font_small), Color(0xFF, 0xFF, 0x60), "%s", input.c_str());
       }
 
-      it.printf(8, 88, id(font_small), Color(0x7E, 0xE7, 0x87), "I2S patch test");
-      it.printf(8, 112, id(font_small), Color(0xD6, 0xE2, 0xEE), "RTTTL speaker");
+      it.printf(8, 88, id(font_small), Color(0x7E, 0xE7, 0x87), "I2S speaker");
+      it.printf(8, 112, id(font_small), Color(0xD6, 0xE2, 0xEE), "RTTTL + Media");
 
 font:
   - file: "gfonts://Roboto Mono"

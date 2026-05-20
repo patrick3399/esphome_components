@@ -9,6 +9,7 @@
 
 #include "esphome/core/application.h"
 #include "esphome/core/hal.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
 #include "esp_timer.h"
@@ -77,6 +78,7 @@ void I2SAudioSpeaker::dump_config() {
     ESP_LOGCONFIG(TAG, "  Timeout: %" PRIu32 " ms", this->timeout_.value());
   }
   ESP_LOGCONFIG(TAG, "  Communication format: %s", this->i2s_comm_fmt_.c_str());
+  ESP_LOGCONFIG(TAG, "  Output gain: %.2fx", float(this->output_gain_factor_) / INT16_MAX);
 }
 
 void I2SAudioSpeaker::loop() {
@@ -173,6 +175,11 @@ void I2SAudioSpeaker::set_volume(float volume) {
     ssize_t decibel_index = remap<ssize_t, float>(volume, 0.0f, 1.0f, 0, Q15_VOLUME_SCALING_FACTORS.size() - 1);
     this->q15_volume_factor_ = Q15_VOLUME_SCALING_FACTORS[decibel_index];
   }
+}
+
+void I2SAudioSpeaker::set_output_gain(float gain) {
+  gain = clamp(gain, 0.0f, 8.0f);
+  this->output_gain_factor_ = static_cast<int32_t>(gain * INT16_MAX);
 }
 
 void I2SAudioSpeaker::set_mute_state(bool mute_state) {
@@ -325,30 +332,19 @@ void I2SAudioSpeaker::speaker_task(void *params) {
       uint8_t *new_data = transfer_buffer->get_buffer_end() - bytes_read;
 
       if (bytes_read > 0) {
-        if (this_speaker->q15_volume_factor_ < INT16_MAX) {
-          // Apply the software volume adjustment by unpacking the sample into a Q31 fixed-point number, shifting it,
-          // multiplying by the volume factor, and packing the sample back into the original bytes per sample.
-
+        int64_t gain_factor =
+            (static_cast<int64_t>(this_speaker->q15_volume_factor_) * this_speaker->output_gain_factor_) / INT16_MAX;
+        if (gain_factor != INT16_MAX) {
           const size_t bytes_per_sample = this_speaker->current_stream_info_.samples_to_bytes(1);
           const uint32_t len = bytes_read / bytes_per_sample;
 
-          // Use Q16 for samples with 1 or 2 bytes: shifted_sample * gain_factor is Q16 * Q15 -> Q31
-          int32_t shift = 15;                                      // Q31 -> Q16
-          int32_t gain_factor = this_speaker->q15_volume_factor_;  // Q15
-
-          if (bytes_per_sample >= 3) {
-            // Use Q23 for samples with 3 or 4 bytes: shifted_sample * gain_factor is Q23 * Q8 -> Q31
-
-            shift = 8;          // Q31 -> Q23
-            gain_factor >>= 7;  // Q15 -> Q8
-          }
-
           for (uint32_t i = 0; i < len; ++i) {
-            int32_t sample =
+            int64_t sample =
                 audio::unpack_audio_sample_to_q31(&new_data[i * bytes_per_sample], bytes_per_sample);  // Q31
-            sample >>= shift;
-            sample *= gain_factor;  // Q31
-            audio::pack_q31_as_audio_sample(sample, &new_data[i * bytes_per_sample], bytes_per_sample);
+            sample = (sample * gain_factor) / INT16_MAX;
+            sample = clamp<int64_t>(sample, INT32_MIN, INT32_MAX);
+            audio::pack_q31_as_audio_sample(static_cast<int32_t>(sample), &new_data[i * bytes_per_sample],
+                                            bytes_per_sample);
           }
         }
 

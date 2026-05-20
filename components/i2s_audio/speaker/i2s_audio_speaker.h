@@ -31,6 +31,7 @@ class I2SAudioSpeaker : public I2SAudioOut, public speaker::Speaker, public Comp
   void set_timeout(uint32_t ms) { this->timeout_ = ms; }
   void set_dout_pin(uint8_t pin) { this->dout_pin_ = (gpio_num_t) pin; }
   void set_i2s_comm_fmt(std::string mode) { this->i2s_comm_fmt_ = std::move(mode); }
+  void set_output_gain(float gain);
 
   void start() override;
   void stop() override;
@@ -111,6 +112,7 @@ class I2SAudioSpeaker : public I2SAudioOut, public speaker::Speaker, public Comp
   bool pause_state_{false};
 
   int16_t q15_volume_factor_{INT16_MAX};
+  int32_t output_gain_factor_{INT16_MAX};
 
   audio::AudioStreamInfo current_stream_info_;  // The currently loaded driver's stream info
 
