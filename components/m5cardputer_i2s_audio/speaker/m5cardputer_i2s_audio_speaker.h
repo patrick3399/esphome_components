@@ -19,6 +19,12 @@
 namespace esphome {
 namespace m5cardputer_i2s_audio {
 
+enum StartupMode : uint8_t {
+  STARTUP_MODE_PRELOAD = 0,
+  STARTUP_MODE_WRITE,
+  STARTUP_MODE_PRELOAD_FALLBACK,
+};
+
 class I2SAudioSpeaker : public I2SAudioOut, public speaker::Speaker, public Component {
  public:
   float get_setup_priority() const override { return esphome::setup_priority::PROCESSOR; }
@@ -31,6 +37,8 @@ class I2SAudioSpeaker : public I2SAudioOut, public speaker::Speaker, public Comp
   void set_timeout(uint32_t ms) { this->timeout_ = ms; }
   void set_dout_pin(uint8_t pin) { this->dout_pin_ = (gpio_num_t) pin; }
   void set_i2s_comm_fmt(std::string mode) { this->i2s_comm_fmt_ = std::move(mode); }
+  void set_startup_mode(StartupMode startup_mode) { this->startup_mode_ = startup_mode; }
+  void play_test_tone(StartupMode startup_mode);
 
   void start() override;
   void stop() override;
@@ -70,6 +78,7 @@ class I2SAudioSpeaker : public I2SAudioOut, public speaker::Speaker, public Comp
   /// When stopping, it deallocates the buffers. It communicates its state and any errors via ``event_group_``.
   /// @param params I2SAudioSpeaker component
   static void speaker_task(void *params);
+  static void test_tone_task(void *params);
 
   /// @brief Sends a stop command to the speaker task via ``event_group_``.
   /// @param wait_on_empty If false, sends the COMMAND_STOP signal. If true, sends the COMMAND_STOP_GRACEFULLY signal.
@@ -117,6 +126,10 @@ class I2SAudioSpeaker : public I2SAudioOut, public speaker::Speaker, public Comp
   gpio_num_t dout_pin_;
   std::string i2s_comm_fmt_;
   i2s_chan_handle_t tx_handle_;
+  StartupMode startup_mode_{STARTUP_MODE_WRITE};
+  StartupMode test_tone_startup_mode_{STARTUP_MODE_WRITE};
+  TaskHandle_t test_tone_task_handle_{nullptr};
+  volatile uint32_t i2s_sent_event_count_{0};
 };
 
 }  // namespace m5cardputer_i2s_audio

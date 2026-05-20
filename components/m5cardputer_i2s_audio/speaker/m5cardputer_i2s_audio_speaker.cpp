@@ -18,6 +18,9 @@ namespace m5cardputer_i2s_audio {
 
 static const uint32_t DMA_BUFFER_DURATION_MS = 15;
 static const size_t DMA_BUFFERS_COUNT = 4;
+// Diagnostic: longer write timeout than DMA_BUFFER_DURATION_MS. Hypothesis being tested is that a 15 ms write timeout
+// is too tight given speaker_task iteration overhead; minimal ESP-IDF tone test uses 500 ms.
+static const uint32_t I2S_WRITE_TIMEOUT_MS = 100;
 
 static const size_t TASK_STACK_SIZE = 4096;
 static const ssize_t TASK_PRIORITY = 19;
@@ -25,6 +28,18 @@ static const ssize_t TASK_PRIORITY = 19;
 static const size_t I2S_EVENT_QUEUE_COUNT = DMA_BUFFERS_COUNT + 1;
 
 static const char *const TAG = "m5cardputer_i2s_audio.speaker";
+
+static const char *startup_mode_to_string(StartupMode startup_mode) {
+  switch (startup_mode) {
+    case STARTUP_MODE_PRELOAD:
+      return "preload";
+    case STARTUP_MODE_WRITE:
+      return "write";
+    case STARTUP_MODE_PRELOAD_FALLBACK:
+      return "preload_fallback";
+  }
+  return "unknown";
+}
 
 enum SpeakerEventGroupBits : uint32_t {
   COMMAND_START = (1 << 0),            // indicates loop should start speaker task
@@ -70,8 +85,10 @@ void I2SAudioSpeaker::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "Speaker:\n"
                 "  Pin: %d\n"
-                "  Buffer duration: %" PRIu32,
-                static_cast<int8_t>(this->dout_pin_), this->buffer_duration_ms_);
+                "  Buffer duration: %" PRIu32 "\n"
+                "  Startup mode: %s",
+                static_cast<int8_t>(this->dout_pin_), this->buffer_duration_ms_,
+                startup_mode_to_string(this->startup_mode_));
   if (this->timeout_.has_value()) {
     ESP_LOGCONFIG(TAG, "  Timeout: %" PRIu32 " ms", this->timeout_.value());
   }
@@ -223,6 +240,68 @@ size_t I2SAudioSpeaker::play(const uint8_t *data, size_t length, TickType_t tick
   return bytes_written;
 }
 
+void I2SAudioSpeaker::play_test_tone(StartupMode startup_mode) {
+  if (this->test_tone_task_handle_ != nullptr) {
+    ESP_LOGW(TAG, "Diagnostic tone is already running");
+    return;
+  }
+
+  this->test_tone_startup_mode_ = startup_mode;
+  xTaskCreate(I2SAudioSpeaker::test_tone_task, "i2s_test_tone", TASK_STACK_SIZE, this, TASK_PRIORITY - 1,
+              &this->test_tone_task_handle_);
+  if (this->test_tone_task_handle_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to create diagnostic tone task");
+  }
+}
+
+void I2SAudioSpeaker::test_tone_task(void *params) {
+  I2SAudioSpeaker *this_speaker = (I2SAudioSpeaker *) params;
+  ESP_LOGI(TAG, "Playing diagnostic tone with startup mode: %s",
+           startup_mode_to_string(this_speaker->test_tone_startup_mode_));
+  this_speaker->set_startup_mode(this_speaker->test_tone_startup_mode_);
+  this_speaker->set_audio_stream_info(audio::AudioStreamInfo(16, 2, 48000));
+  this_speaker->start();
+
+  const uint32_t start_time = millis();
+  while (!this_speaker->is_running() && millis() - start_time < 1000) {
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  if (!this_speaker->is_running()) {
+    ESP_LOGE(TAG, "Diagnostic tone timed out waiting for speaker task to start");
+    this_speaker->test_tone_task_handle_ = nullptr;
+    vTaskDelete(nullptr);
+  }
+
+  static constexpr size_t FRAMES_PER_CHUNK = 256;
+  static constexpr size_t CHUNKS = 96;
+  int16_t samples[FRAMES_PER_CHUNK * 2];
+  uint32_t sample_index = 0;
+
+  for (size_t chunk = 0; chunk < CHUNKS; chunk++) {
+    for (size_t frame = 0; frame < FRAMES_PER_CHUNK; frame++, sample_index++) {
+      const int16_t sample = ((sample_index / 27) % 2) ? 12000 : -12000;
+      samples[frame * 2] = sample;
+      samples[frame * 2 + 1] = sample;
+    }
+
+    const uint8_t *data = reinterpret_cast<const uint8_t *>(samples);
+    size_t remaining = sizeof(samples);
+    while (remaining > 0) {
+      const size_t written = this_speaker->play(data, remaining, pdMS_TO_TICKS(100));
+      if (written == 0) {
+        vTaskDelay(pdMS_TO_TICKS(5));
+        continue;
+      }
+      data += written;
+      remaining -= written;
+    }
+  }
+
+  this_speaker->finish();
+  this_speaker->test_tone_task_handle_ = nullptr;
+  vTaskDelete(nullptr);
+}
+
 bool I2SAudioSpeaker::has_buffered_data() const {
   if (this->audio_ring_buffer_.use_count() > 0) {
     std::shared_ptr<RingBuffer> temp_ring_buffer = this->audio_ring_buffer_.lock();
@@ -266,9 +345,11 @@ void I2SAudioSpeaker::speaker_task(void *params) {
   } else {
     bool stop_gracefully = false;
     bool tx_dma_underflow = true;
+    bool first_startup_attempt = true;
 
     uint32_t frames_written = 0;
     uint32_t last_data_received_time = millis();
+    uint32_t last_diag_log_ms = millis();
 
     xEventGroupSetBits(this_speaker->event_group_, SpeakerEventGroupBits::TASK_RUNNING);
 
@@ -306,6 +387,16 @@ void I2SAudioSpeaker::speaker_task(void *params) {
         if (frames_sent > 0) {
           this_speaker->audio_output_callback_(frames_sent, write_timestamp);
         }
+      }
+
+      const uint32_t now_ms = millis();
+      if (now_ms - last_diag_log_ms >= 100) {
+        last_diag_log_ms = now_ms;
+        ESP_LOGI(TAG,
+                 "I2S diag events=%" PRIu32 " frames_written=%" PRIu32 " underflow=%d avail=%u queue=%u",
+                 this_speaker->i2s_sent_event_count_, frames_written, static_cast<int>(tx_dma_underflow),
+                 static_cast<unsigned>(transfer_buffer->available()),
+                 static_cast<unsigned>(uxQueueMessagesWaiting(this_speaker->i2s_event_queue_)));
       }
 
       if (this_speaker->pause_state_) {
@@ -373,29 +464,88 @@ void I2SAudioSpeaker::speaker_task(void *params) {
         vTaskDelay(pdMS_TO_TICKS(DMA_BUFFER_DURATION_MS / 2));
       } else {
         size_t bytes_written = 0;
+        bool enable_after_preload = false;
         if (tx_dma_underflow) {
-          // Cardputer fork: avoid the ESPHome upstream preload startup path.
-          // The hardware has been verified to play when the ESP-IDF new driver
-          // starts from regular i2s_channel_write() calls.
-          const i2s_event_callbacks_t callbacks = {
-              .on_sent = i2s_on_sent_cb,
-          };
-
+          const size_t available = transfer_buffer->available();
+          const uint32_t sent_events_before = this_speaker->i2s_sent_event_count_;
           xQueueReset(this_speaker->i2s_event_queue_);
-          i2s_channel_register_event_callback(this_speaker->tx_handle_, &callbacks, this_speaker);
-          esp_err_t err =
-              i2s_channel_write(this_speaker->tx_handle_, transfer_buffer->get_buffer_start(),
-                                transfer_buffer->available(), &bytes_written, DMA_BUFFER_DURATION_MS);
-          if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Initial I2S write failed: %s", esp_err_to_name(err));
+
+          if (first_startup_attempt) {
+            ESP_LOGI(TAG, "I2S startup path=%s available=%u frames_written=%" PRIu32,
+                     startup_mode_to_string(this_speaker->startup_mode_), static_cast<unsigned>(available),
+                     frames_written);
           }
+
+          if (this_speaker->startup_mode_ == STARTUP_MODE_PRELOAD ||
+              this_speaker->startup_mode_ == STARTUP_MODE_PRELOAD_FALLBACK) {
+            const i2s_event_callbacks_t no_callbacks = {
+                .on_sent = nullptr,
+            };
+            const esp_err_t disable_err = i2s_channel_disable(this_speaker->tx_handle_);
+            const esp_err_t register_null_err =
+                i2s_channel_register_event_callback(this_speaker->tx_handle_, &no_callbacks, this_speaker);
+            const esp_err_t preload_err =
+                i2s_channel_preload_data(this_speaker->tx_handle_, transfer_buffer->get_buffer_start(), available,
+                                         &bytes_written);
+
+            if (first_startup_attempt) {
+              ESP_LOGI(TAG, "I2S preload startup disable=%s register_null=%s preload=%s bytes=%u",
+                       esp_err_to_name(disable_err), esp_err_to_name(register_null_err), esp_err_to_name(preload_err),
+                       static_cast<unsigned>(bytes_written));
+            }
+
+            if (preload_err == ESP_OK && bytes_written > 0) {
+              enable_after_preload = true;
+            } else if (this_speaker->startup_mode_ == STARTUP_MODE_PRELOAD_FALLBACK) {
+              const i2s_event_callbacks_t callbacks = {
+                  .on_sent = i2s_on_sent_cb,
+              };
+              const esp_err_t register_err =
+                  i2s_channel_register_event_callback(this_speaker->tx_handle_, &callbacks, this_speaker);
+              const esp_err_t enable_err = i2s_channel_enable(this_speaker->tx_handle_);
+              bytes_written = 0;
+              const esp_err_t write_err =
+                  i2s_channel_write(this_speaker->tx_handle_, transfer_buffer->get_buffer_start(), available,
+                                    &bytes_written, pdMS_TO_TICKS(I2S_WRITE_TIMEOUT_MS));
+
+              if (first_startup_attempt) {
+                ESP_LOGI(TAG, "I2S fallback startup register=%s enable=%s write=%s bytes=%u events_delta=%" PRIu32,
+                         esp_err_to_name(register_err), esp_err_to_name(enable_err), esp_err_to_name(write_err),
+                         static_cast<unsigned>(bytes_written),
+                         this_speaker->i2s_sent_event_count_ - sent_events_before);
+              }
+              if (write_err != ESP_OK) {
+                ESP_LOGW(TAG, "Fallback I2S write failed: %s", esp_err_to_name(write_err));
+              }
+            }
+          } else {
+            const i2s_event_callbacks_t callbacks = {
+                .on_sent = i2s_on_sent_cb,
+            };
+            const esp_err_t register_err =
+                i2s_channel_register_event_callback(this_speaker->tx_handle_, &callbacks, this_speaker);
+            const esp_err_t write_err =
+                i2s_channel_write(this_speaker->tx_handle_, transfer_buffer->get_buffer_start(), available,
+                                  &bytes_written, pdMS_TO_TICKS(I2S_WRITE_TIMEOUT_MS));
+            if (first_startup_attempt) {
+              ESP_LOGI(TAG, "I2S write startup register=%s write=%s bytes=%u events_delta=%" PRIu32,
+                       esp_err_to_name(register_err), esp_err_to_name(write_err), static_cast<unsigned>(bytes_written),
+                       this_speaker->i2s_sent_event_count_ - sent_events_before);
+            }
+            if (write_err != ESP_OK) {
+              ESP_LOGW(TAG, "Initial I2S write failed: %s", esp_err_to_name(write_err));
+            }
+          }
+          first_startup_attempt = false;
         } else {
           // Audio is already playing, use regular I2S write to add to the DMA buffers
-          esp_err_t err =
-              i2s_channel_write(this_speaker->tx_handle_, transfer_buffer->get_buffer_start(),
-                                transfer_buffer->available(), &bytes_written, DMA_BUFFER_DURATION_MS);
+          esp_err_t err = i2s_channel_write(this_speaker->tx_handle_, transfer_buffer->get_buffer_start(),
+                                            transfer_buffer->available(), &bytes_written,
+                                            pdMS_TO_TICKS(I2S_WRITE_TIMEOUT_MS));
           if (err != ESP_OK) {
-            ESP_LOGW(TAG, "I2S write failed: %s", esp_err_to_name(err));
+            ESP_LOGW(TAG, "I2S write failed: %s events=%" PRIu32 " frames_written=%" PRIu32 " avail=%u bw=%u",
+                     esp_err_to_name(err), this_speaker->i2s_sent_event_count_, frames_written,
+                     static_cast<unsigned>(transfer_buffer->available()), static_cast<unsigned>(bytes_written));
           }
         }
         if (bytes_written > 0) {
@@ -404,6 +554,17 @@ void I2SAudioSpeaker::speaker_task(void *params) {
           transfer_buffer->decrease_buffer_length(bytes_written);
           if (tx_dma_underflow) {
             tx_dma_underflow = false;
+            if (enable_after_preload) {
+              const i2s_event_callbacks_t callbacks = {
+                  .on_sent = i2s_on_sent_cb,
+              };
+              const esp_err_t register_err =
+                  i2s_channel_register_event_callback(this_speaker->tx_handle_, &callbacks, this_speaker);
+              const esp_err_t enable_err = i2s_channel_enable(this_speaker->tx_handle_);
+              ESP_LOGI(TAG, "I2S preload startup enable register=%s enable=%s events=%" PRIu32,
+                       esp_err_to_name(register_err), esp_err_to_name(enable_err),
+                       this_speaker->i2s_sent_event_count_);
+            }
           }
         }
       }
@@ -560,7 +721,19 @@ esp_err_t I2SAudioSpeaker::start_i2s_driver_(audio::AudioStreamInfo &audio_strea
     this->i2s_event_queue_ = xQueueCreate(I2S_EVENT_QUEUE_COUNT, sizeof(int64_t));
   }
 
-  i2s_channel_enable(this->tx_handle_);
+  this->i2s_sent_event_count_ = 0;
+  xQueueReset(this->i2s_event_queue_);
+
+  // Register on_sent BEFORE enabling the channel — registration requires the channel be in READY state.
+  // Doing it here (rather than later in speaker_task while RUNNING) is the fix for ESP_ERR_INVALID_STATE seen
+  // in the WRITE startup path and the missing on_sent events in the PRELOAD path.
+  const i2s_event_callbacks_t callbacks = {
+      .on_sent = i2s_on_sent_cb,
+  };
+  const esp_err_t register_err = i2s_channel_register_event_callback(this->tx_handle_, &callbacks, this);
+  const esp_err_t enable_err = i2s_channel_enable(this->tx_handle_);
+  ESP_LOGI(TAG, "I2S driver start: register_on_sent=%s enable=%s", esp_err_to_name(register_err),
+           esp_err_to_name(enable_err));
 
   return err;
 }
@@ -573,6 +746,7 @@ bool IRAM_ATTR I2SAudioSpeaker::i2s_on_sent_cb(i2s_chan_handle_t handle, i2s_eve
   BaseType_t need_yield3 = pdFALSE;
 
   I2SAudioSpeaker *this_speaker = (I2SAudioSpeaker *) user_ctx;
+  this_speaker->i2s_sent_event_count_++;
 
   if (xQueueIsQueueFullFromISR(this_speaker->i2s_event_queue_)) {
     // Queue is full, so discard the oldest event and set the warning flag to inform the user
