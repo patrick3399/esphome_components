@@ -35,8 +35,17 @@ esp32:
 
 api:
   reboot_timeout: 4h
+  custom_services: true
   encryption:
     key: !secret api_key
+  actions:
+    - action: rtttl_play
+      variables:
+        song_str: string
+      then:
+        - delay: 1ms
+        - rtttl.play:
+            rtttl: !lambda 'return song_str;'
 
 wifi:
   ap:
@@ -60,16 +69,15 @@ spi:
   mosi_pin: GPIO35
   miso_pin: GPIO39
 
-m5cardputer_i2s_audio:
-  id: cardputer_fork_i2s_bus
-  i2s_port: 1
+i2s_audio:
+  id: cardputer_i2s_bus
   i2s_bclk_pin: GPIO41
   i2s_lrclk_pin: GPIO43
 
 speaker:
-  - platform: m5cardputer_i2s_audio
-    id: cardputer_fork_speaker
-    m5cardputer_i2s_audio_id: cardputer_fork_i2s_bus
+  - platform: i2s_audio
+    id: cardputer_speaker
+    i2s_audio_id: cardputer_i2s_bus
     dac_type: external
     i2s_dout_pin: GPIO42
     sample_rate: 16000
@@ -88,7 +96,7 @@ speaker:
 # Phase 2 (long-term fork stability) actually needs.
 rtttl:
   id: cardputer_rtttl
-  speaker: cardputer_fork_speaker
+  speaker: cardputer_speaker
   gain: 0.6
 
 remote_transmitter:
@@ -297,8 +305,8 @@ display:
         it.printf(8, 60, id(font_small), Color(0xFF, 0xFF, 0x60), "%s", input.c_str());
       }
 
-      it.printf(8, 88, id(font_small), Color(0x7E, 0xE7, 0x87), "Fork I2S tests");
-      it.printf(8, 112, id(font_small), Color(0xD6, 0xE2, 0xEE), "Preload/Write/Fallback");
+      it.printf(8, 88, id(font_small), Color(0x7E, 0xE7, 0x87), "I2S patch test");
+      it.printf(8, 112, id(font_small), Color(0xD6, 0xE2, 0xEE), "RTTTL speaker");
 
 font:
   - file: "gfonts://Roboto Mono"
@@ -309,21 +317,6 @@ font:
     size: 38
 
 button:
-  - platform: template
-    name: "Fork Tone Preload"
-    on_press:
-      - lambda: id(cardputer_fork_speaker).play_test_tone(m5cardputer_i2s_audio::STARTUP_MODE_PRELOAD);
-
-  - platform: template
-    name: "Fork Tone Write"
-    on_press:
-      - lambda: id(cardputer_fork_speaker).play_test_tone(m5cardputer_i2s_audio::STARTUP_MODE_WRITE);
-
-  - platform: template
-    name: "Fork Tone Fallback"
-    on_press:
-      - lambda: id(cardputer_fork_speaker).play_test_tone(m5cardputer_i2s_audio::STARTUP_MODE_PRELOAD_FALLBACK);
-
   - platform: template
     name: "RTTTL Tetris"
     on_press:
