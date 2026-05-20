@@ -19,8 +19,8 @@ static constexpr std::array<XMap, 7> X_MAP{{{0, 1}, {2, 3}, {4, 5}, {6, 7}, {8, 
 static constexpr uint8_t KEY_MAP[4][14] = {
     {'`', '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 0x08},
     {'\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\\'},
-    {0, 0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '\n'},
-    {0, 0, 0, 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', ' '},
+    {KEY_LEFT_SHIFT, KEY_CTRL, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '\n'},
+    {KEY_FN, KEY_OPT, KEY_ALT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', ' '},
 };
 
 void HC138Keypad::setup() {
@@ -84,9 +84,28 @@ void HC138Keypad::select_address_(uint8_t address) {
 
 uint8_t HC138Keypad::key_at_(uint8_t row, uint8_t col) { return KEY_MAP[row][col]; }
 
+uint8_t HC138Keypad::key_to_fn_layer_(uint8_t key) {
+  switch (key) {
+    case 'z':
+      return KEY_LEFT;
+    case 'x':
+      return KEY_DOWN;
+    case 'c':
+      return KEY_RIGHT;
+    case 'd':
+      return KEY_UP;
+    default:
+      return key;
+  }
+}
+
+bool HC138Keypad::is_printable_key_(uint8_t key) { return key >= 0x20 && key <= 0x7E; }
+
 void HC138Keypad::publish_changes_(uint64_t previous, uint64_t current) {
   const uint64_t pressed = current & ~previous;
   const uint64_t released = previous & ~current;
+  const uint64_t fn_mask = 1ULL << (3 * 14);
+  const bool fn_held = (current & fn_mask) != 0;
 
   for (uint8_t index = 0; index < 56; index++) {
     if ((pressed & (1ULL << index)) == 0)
@@ -94,8 +113,14 @@ void HC138Keypad::publish_changes_(uint64_t previous, uint64_t current) {
 
     const uint8_t row = index / 14;
     const uint8_t col = index % 14;
-    const uint8_t key = key_at_(row, col);
-    ESP_LOGD(TAG, "key @ row %u, col %u pressed%s%c", row, col, key == 0 ? "" : ": ", key == 0 ? ' ' : key);
+    uint8_t key = key_at_(row, col);
+    if (fn_held && key != KEY_FN)
+      key = key_to_fn_layer_(key);
+    if (is_printable_key_(key)) {
+      ESP_LOGD(TAG, "key @ row %u, col %u pressed: %c", row, col, key);
+    } else {
+      ESP_LOGD(TAG, "key @ row %u, col %u pressed: 0x%02X", row, col, key);
+    }
     if (key == 0)
       continue;
     for (auto *trigger : this->key_triggers_)
