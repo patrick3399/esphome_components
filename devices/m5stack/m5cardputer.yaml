@@ -47,6 +47,23 @@ api:
         - rtttl.play:
             rtttl: !lambda 'return song_str;'
 
+script:
+  - id: cardputer_va_toggle
+    mode: restart
+    then:
+      - if:
+          condition:
+            or:
+              - voice_assistant.is_running:
+              - media_player.is_announcing:
+          then:
+            - voice_assistant.stop:
+            - media_player.stop:
+                id: cardputer_media_player
+          else:
+            - voice_assistant.start:
+                silence_detection: true
+
 wifi:
   ap:
 
@@ -67,10 +84,28 @@ spi:
   mosi_pin: GPIO35
   miso_pin: GPIO39
 
+# Grove HY2.0-4P exposes GPIO1/GPIO2 as I2C, but nothing is attached yet.
+# i2c:
+#   - id: grove_i2c
+#     sda: GPIO1
+#     scl: GPIO2
+#     scan: true
+
 i2s_audio:
   id: cardputer_i2s_bus
   i2s_bclk_pin: GPIO41
   i2s_lrclk_pin: GPIO43
+
+microphone:
+  - platform: i2s_audio
+    id: cardputer_mic
+    i2s_audio_id: cardputer_i2s_bus
+    adc_type: external
+    i2s_din_pin: GPIO46
+    pdm: true
+    channel: right
+    sample_rate: 16000
+    bits_per_sample: 16bit
 
 speaker:
   - platform: i2s_audio
@@ -81,7 +116,7 @@ speaker:
     sample_rate: 16000
     bits_per_sample: 16bit
     channel: right
-    output_gain: 4.0
+    output_gain: 3.0
     # buffer_duration × sample_rate × channels × bytes_per_sample = ring buffer bytes.
     # 100 ms × 16000 × 1 × 2 = 3200 B (vs 96 KB at 48 kHz stereo / 500 ms). Heap budget on this
     # PSRAM-less SoC is brutally tight, so we trade audio fidelity for headroom.
@@ -91,25 +126,69 @@ speaker:
 rtttl:
   id: cardputer_rtttl
   speaker: cardputer_speaker
-  gain: 0.6
+  gain: 1.0
 
 media_player:
   - platform: speaker
     id: cardputer_media_player
     name: "Speaker Media Player"
-    buffer_size: 4000
-    volume_max: 0.85
+    buffer_size: 6000
+    volume_max: 1.0
     announcement_pipeline:
       speaker: cardputer_speaker
       format: WAV
       num_channels: 1
       sample_rate: 16000
 
+voice_assistant:
+  id: va
+  microphone: cardputer_mic
+  media_player: cardputer_media_player
+  use_wake_word: false
+  noise_suppression_level: 0
+  auto_gain: 0dBFS
+  volume_multiplier: 1.0
+  on_listening:
+    - logger.log:
+        level: DEBUG
+        format: "Voice Assistant listening"
+  on_stt_end:
+    - logger.log:
+        level: DEBUG
+        format: "Voice Assistant heard: %s"
+        args: ["x.c_str()"]
+  on_tts_start:
+    - logger.log:
+        level: DEBUG
+        format: "Voice Assistant response: %s"
+        args: ["x.c_str()"]
+  on_end:
+    - wait_until:
+        condition:
+          media_player.is_announcing:
+        timeout: 0.5s
+    - wait_until:
+        - and:
+            - not:
+                media_player.is_announcing:
+            - not:
+                speaker.is_playing:
+  on_error:
+    - logger.log:
+        level: WARN
+        format: "Voice Assistant error: %s - %s"
+        args: ["code.c_str()", "message.c_str()"]
+
 remote_transmitter:
   id: ir_tx
   pin: GPIO44
   carrier_duty_percent: 50%
   non_blocking: true
+
+infrared:
+  - platform: ir_rf_proxy
+    name: "Infrared Transmitter"
+    remote_transmitter_id: ir_tx
 
 output:
   - platform: ledc
@@ -199,6 +278,7 @@ text_sensor:
     - lambda: |-
         std::string text = id(keyboard_input_text).state;
         if (x == '\n') {
+          id(cardputer_va_toggle).execute();
           return;
         } else if (x == 0x08) {
           if (!text.empty()) {
@@ -253,7 +333,11 @@ sensor:
       if (v >= 3.40f) return 25.0f;
       return 0.0f;
 
-  # Disabled during the legacy speaker-only boot test.
+  # Cardputer mic and speaker share the same I2S parent bus. sound_level with
+  # passive: false starts the microphone at boot and keeps the bus busy, which
+  # prevents Speaker Media Player from starting ("Parent I2S bus not free").
+  # Keep the microphone defined above for VA tests, but do not run continuous
+  # sound_level until we have explicit I2S bus arbitration or a duplex path.
   # - platform: sound_level
   #   id: mic_sound_level
   #   microphone: cardputer_mic
@@ -315,29 +399,10 @@ font:
 
 button:
   - platform: template
-    name: "RTTTL Tetris"
+    name: "Voice Assistant"
+    icon: "mdi:account-voice"
     on_press:
-      - rtttl.play:
-          rtttl: "tetris:d=4,o=5,b=160:e6,8b,8c6,8d6,16e6,16d6,8c6,8b,a,8a,8c6,e6,8d6,8c6,b,8b,8c6,d6,e6,c6,a,2a"
-
-  - platform: template
-    name: "RTTTL Mario"
-    on_press:
-      - rtttl.play:
-          rtttl: "MarioBros:d=4,o=5,b=200:16e6,16e6,32p,8e6,16c6,8e6,8g6,8p,8g,8p,8c6,16p,8g,16p,8e,16p,8a,8b,16a#,8a,16g.,16e6,16g6,8a6,16f6,8g6,8e6,16c6,16d6,8b"
-
-  - platform: template
-    name: "RTTTL Stop"
-    on_press:
-      - rtttl.stop:
-
-  - platform: template
-    name: "IR NEC Test"
-    on_press:
-      - remote_transmitter.transmit_nec:
-          transmitter_id: ir_tx
-          address: 0x0010
-          command: 0x0001
+      - script.execute: cardputer_va_toggle
 
 # Keyboard hardware notes:
 # - 74HC138 address pins: GPIO8, GPIO9, GPIO11
