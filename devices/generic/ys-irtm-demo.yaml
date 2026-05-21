@@ -1,0 +1,94 @@
+substitutions:
+  name: ys-irtm-uart-bridge
+  friendly_name: YS-IRTM UART Bridge
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+  baud_rate: 0  # disable logger UART to avoid conflict with UART2 (GPIO16/17)
+
+api:
+  encryption:
+    key: !secret api_key
+  services:
+    # HA IR/RF Proxy → ESPHome bridge.
+    # Call from Home Assistant to transmit an NEC IR command.
+    - service: ir_rf_proxy_tx_bridge
+      variables:
+        protocol: string
+        address: int
+        command: int
+        repeats: int
+      then:
+        - ys_irtm_uart.send_proxy_packet:
+            id: ys_irtm
+            protocol: !lambda 'return protocol;'
+            address:  !lambda 'return static_cast<uint32_t>(address);'
+            command:  !lambda 'return static_cast<uint32_t>(command);'
+            repeats:  !lambda 'return static_cast<uint8_t>(repeats);'
+
+    - service: send_nec
+      variables:
+        user_code_hi: int
+        user_code_lo: int
+        key_code: int
+        repeats: int
+      then:
+        - ys_irtm_uart.send_nec:
+            id: ys_irtm
+            user_code_hi: !lambda 'return static_cast<uint8_t>(user_code_hi);'
+            user_code_lo: !lambda 'return static_cast<uint8_t>(user_code_lo);'
+            key_code:     !lambda 'return static_cast<uint8_t>(key_code);'
+            repeats:      !lambda 'return static_cast<uint8_t>(repeats);'
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: !secret fallback_password
+
+captive_portal:
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [ys_irtm_uart]
+
+uart:
+  id: uart_bus
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 9600
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+
+ys_irtm_uart:
+  id: ys_irtm
+  uart_id: uart_bus
+  on_ir_receive:
+    then:
+      - logger.log:
+          format: "IR received: UserCode=0x%02X%02X  KeyCode=0x%02X"
+          args: ["user_code_hi", "user_code_lo", "key_code"]
+
+button:
+  - platform: template
+    name: "YS-IRTM Send NEC Example"
+    on_press:
+      - ys_irtm_uart.send_nec:
+          id: ys_irtm
+          user_code_hi: 0x07
+          user_code_lo: 0x07
+          key_code: 0x02
+          repeats: 0

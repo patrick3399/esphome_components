@@ -16,6 +16,7 @@ Components live under [components/](components/).
 | `i2s_audio` | Local override of ESPHome `i2s_audio` speaker support. | M5Stack Cardputer speaker `output_gain`. |
 | `pca9505` | I2C GPIO expander. | Available, not used by the current demo YAMLs. |
 | `qmi8658` | QMI8658 6-axis IMU sensor. | Waveshare ESP32-S3 Matrix and Touch AMOLED demos. |
+| `ys_irtm_uart` | YS-IRTM UART infrared transceiver. NEC TX/RX, HA IR/RF Proxy bridge. | Generic ESP32 demo. |
 
 ## Demo Device YAMLs
 
@@ -33,6 +34,7 @@ Demo YAMLs live under [devices/](devices/).
 | Waveshare ESP32-S3 Touch LCD 1.85C | [devices/waveshare/esp32s3-touch-lcd-1.85c.yaml](devices/waveshare/esp32s3-touch-lcd-1.85c.yaml) | QSPI LCD, touch, RTC, microphone/speaker voice assistant, wake word selection, Bluetooth proxy, battery and audio diagnostics. | None currently. |
 | Waveshare ESP32-S3 ETH | [devices/waveshare/esp32s3-eth.yaml](devices/waveshare/esp32s3-eth.yaml) | W5500 Ethernet, camera, Ethernet info sensors, Bluetooth proxy, boot button, diagnostics. | None. |
 | Waveshare ESP32-S3 GEEK | [devices/waveshare/esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ST7789 display, backlight control, WiFi info, Bluetooth proxy, diagnostics. | None. |
+| YS-IRTM UART Bridge | [devices/generic/ys-irtm-demo.yaml](devices/generic/ys-irtm-demo.yaml) | NEC IR transmit/receive, HA IR/RF Proxy bridge service, raw hex send. | `ys_irtm_uart` |
 | Guition ESP32-S3-4848S040 | TBD | Display, touch, relays. | TBD |
 | Guition JC3636K518 | TBD | QSPI display, touch, audio, encoder. | TBD |
 | Guition JC3636W518 | TBD | QSPI display, touch, audio. | TBD |
