@@ -1,11 +1,19 @@
 substitutions:
   devicename: "m5cardputer"
   friendly_name: "M5Stack Cardputer"
+  # Adjust to match your Home Assistant setup.
+  # cardputer_assist_satellite_entity: HA-side assist_satellite entity for this device.
+  #   Find it under Settings → Voice assistants, or Dev Tools → States (filter:
+  #   "assist_satellite"). ESPHome auto-registers it from the voice_assistant block.
+  # cardputer_conversation_agent: the conversation entity used for typed queries
+  #   (e.g. conversation.home_assistant for the default agent, or your Ollama / LLM agent).
+  cardputer_assist_satellite_entity: "assist_satellite.m5stack_cardputer_assist_satellite"
+  cardputer_conversation_agent: "conversation.ollama_conversation"
 
 esphome:
   name: $devicename
   friendly_name: $friendly_name
-  min_version: "2026.1.0"
+  min_version: "2026.4.0"
   on_boot:
     - priority: 600
       then:
@@ -36,6 +44,10 @@ esp32:
 api:
   reboot_timeout: 4h
   custom_services: true
+  # Required for homeassistant.action (device -> HA service calls). Without this,
+  # HA never sends SubscribeHomeassistantServicesRequest and the device-side
+  # send_homeassistant_action() drops the call silently.
+  homeassistant_services: true
   encryption:
     key: !secret api_key
   actions:
@@ -63,6 +75,61 @@ script:
           else:
             - voice_assistant.start:
                 silence_detection: true
+
+  # Text-only path: bypass STT by sending typed text straight to HA's
+  # conversation pipeline, then TTS-speaking the reply via assist_satellite.
+  # The satellite's on_end VA handler resets state to IDLE when announce finishes.
+  - id: cardputer_send_text_query
+    mode: restart
+    parameters:
+      query: string
+    then:
+      - lambda: |-
+          ESP_LOGI("typed", "submit q=%s heap_free=%u max_block=%u",
+                   query.c_str(),
+                   (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                   (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+          id(va_heard_text).publish_state(query);
+          id(va_response_text).publish_state(std::string(""));
+          id(va_state_text).publish_state("THINK");
+      - component.update: lcd
+      - logger.log:
+          level: INFO
+          tag: "typed"
+          format: "calling conversation.process via HA"
+      - homeassistant.action:
+          action: conversation.process
+          data:
+            text: !lambda 'return query;'
+            agent_id: ${cardputer_conversation_agent}
+          capture_response: true
+          response_template: "{{ response.response.speech.plain.speech }}"
+          on_success:
+            - lambda: |-
+                std::string reply = response["response"].as<std::string>();
+                ESP_LOGI("typed", "on_success reply=%s", reply.c_str());
+                if (reply.empty()) reply = std::string("(no reply)");
+                id(pending_tts_reply) = reply;
+                id(va_response_text).publish_state(reply.substr(0, 64));
+                id(va_state_text).publish_state("SPEAK");
+            - component.update: lcd
+            # assist_satellite.announce routes TTS through the pipeline tied to
+            # this satellite — no need to hardcode the TTS engine. When the
+            # announcement finishes the VA on_end handler resets state to IDLE.
+            - homeassistant.action:
+                action: assist_satellite.announce
+                data:
+                  entity_id: ${cardputer_assist_satellite_entity}
+                  message: !lambda 'return id(pending_tts_reply);'
+                data_template:
+                  preannounce: "{{ false }}"
+          on_error:
+            - lambda: |-
+                ESP_LOGE("typed", "on_error: %s", error.c_str());
+                std::string err = std::string("Error: ") + error;
+                id(va_response_text).publish_state(err.substr(0, 64));
+                id(va_state_text).publish_state("ERROR");
+            - component.update: lcd
 
 wifi:
   ap:
@@ -93,6 +160,9 @@ globals:
     type: bool
     restore_value: false
     initial_value: "false"
+  - id: pending_tts_reply
+    type: std::string
+    restore_value: false
 
 spi:
   id: lcd_spi
@@ -363,8 +433,14 @@ text_sensor:
         }
 
         if (x == '\n') {
-          id(keyboard_submitted_text).publish_state(text);
-          id(va_heard_text).publish_state(text.empty() ? std::string("--") : text);
+          if (text.empty()) {
+            id(cardputer_va_toggle).execute();
+          } else {
+            id(keyboard_submitted_text).publish_state(text);
+            id(keyboard_input_text).publish_state(std::string(""));
+            id(input_cursor) = 0;
+            id(cardputer_send_text_query)->execute(text);
+          }
         } else if (x == '\t') {
           id(ui_page) = (id(ui_page) + 1) % 2;
         } else if (x == KEY_LEFT_SHIFT) {
@@ -531,9 +607,6 @@ display:
         } else {
           input = input.substr(start);
         }
-        for (auto &ch : input) {
-          if (ch == ' ') ch = '_';
-        }
         if (input.empty()) {
           it.printf(13, 55, id(font_small), Color(0x60, 0x60, 0x60), "type here");
         } else {
@@ -557,13 +630,13 @@ display:
         uint32_t up = static_cast<uint32_t>(id(uptime_sensor).state);
         uint32_t hours = up / 3600;
         uint32_t minutes = (up / 60) % 60;
-        it.printf(8, 48, id(font_small), Color(0xD6, 0xE2, 0xEE), "Heap      %.0f B", id(heap_free).state);
-        it.printf(8, 66, id(font_small), Color(0xD6, 0xE2, 0xEE), "MaxBlock  %.0f B", id(heap_max_block).state);
-        it.printf(8, 84, id(font_small), Color(0xD6, 0xE2, 0xEE), "Loop      %.0f ms", id(loop_time).state);
-        it.printf(8, 102, id(font_small), Color(0xD6, 0xE2, 0xEE), "LCD       %.0f ms", id(display_update_time).state);
-        it.printf(128, 48, id(font_small), Color(0xD6, 0xE2, 0xEE), "RSSI %.0f", id(wifi_rssi).state);
-        it.printf(128, 66, id(font_small), Color(0xD6, 0xE2, 0xEE), "Up %02u:%02u", hours, minutes);
-        it.printf(128, 84, id(font_small), Color(0xD6, 0xE2, 0xEE), "CPU %.1fC", id(chip_temperature).state);
+        it.printf(8, 48, id(font_small), Color(0xD6, 0xE2, 0xEE), "Heap %.0fB", id(heap_free).state);
+        it.printf(8, 66, id(font_small), Color(0xD6, 0xE2, 0xEE), "Blk %.0fB", id(heap_max_block).state);
+        it.printf(8, 84, id(font_small), Color(0xD6, 0xE2, 0xEE), "Loop %.0fms", id(loop_time).state);
+        it.printf(8, 102, id(font_small), Color(0xD6, 0xE2, 0xEE), "LCD %.0fms", id(display_update_time).state);
+        it.printf(144, 48, id(font_small), Color(0xD6, 0xE2, 0xEE), "RSSI %.0f", id(wifi_rssi).state);
+        it.printf(144, 66, id(font_small), Color(0xD6, 0xE2, 0xEE), "Up %02u:%02u", hours, minutes);
+        it.printf(144, 84, id(font_small), Color(0xD6, 0xE2, 0xEE), "CPU %.1fC", id(chip_temperature).state);
       }
 
 font:
