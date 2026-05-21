@@ -22,7 +22,13 @@ esphome:
           id(system_initialized) = true;
 
 packages:
-  common: !include ../../packages/common.yaml
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [bmi270, ed047tc1]
+    refresh: 0s
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -57,6 +63,14 @@ psram:
 
 api:
   reboot_timeout: 6h
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+  logs:
+    api.service: WARN
+    wifi: WARN
+    esp-idf: NONE
 
 interval:
   - interval: 8s
@@ -233,8 +247,7 @@ time:
                       id(pending_partial_refresh) = true;
                     }
   # homeassistant_time: time sync only — no on_time display trigger
-  - platform: homeassistant
-    id: homeassistant_time
+  - id: !extend homeassistant_time
     timezone: Asia/Taipei
     update_interval: 1h
     on_time_sync:

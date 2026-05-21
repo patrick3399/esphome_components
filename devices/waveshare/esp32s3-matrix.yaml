@@ -9,7 +9,13 @@ esphome:
           brightness: 10%
 
 packages:
-  common: !include ../../packages/common.yaml
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [qmi8658]
+    refresh: 0s
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -20,6 +26,14 @@ api:
   encryption:
     key: !secret api_key
   reboot_timeout: 6h
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+  logs:
+    api.service: WARN
+    wifi: WARN
+    esp-idf: NONE
 
 # QMI8658 is on GPIO11 (SDA) / GPIO12 (SCL); from hardware testing.
 i2c:

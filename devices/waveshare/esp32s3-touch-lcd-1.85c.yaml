@@ -47,11 +47,12 @@ psram:
   speed: 80MHz
 
 packages:
-  common: !include ../../packages/common.yaml
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
 
 external_components:
   - source: github://patrick3399/esphome_components
-    components: [esp_sr_wake_word]
+    components: [esp_sr_wake_word, i2s_audio]
     refresh: 0s
 
 globals:
@@ -72,9 +73,6 @@ api:
   reboot_timeout: 4h
   encryption:
     key: !secret api_key
-
-ota:
-  - platform: esphome
 
 wifi:
   ssid: !secret wifi_ssid
@@ -102,7 +100,7 @@ time:
     id: rtc_time
     i2c_id: main_i2c
     update_interval: never
-  - platform: homeassistant
+  - id: !extend homeassistant_time
     on_time_sync:
       then:
         - pcf85063.write_time

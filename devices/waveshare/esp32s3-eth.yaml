@@ -26,8 +26,8 @@ psram:
   mode: octal
   speed: 80MHz
 
-ota:
-  - platform: esphome
+packages:
+  ha: !include ../../packages/common-ha.yaml
 
 logger:
   level: DEBUG
@@ -35,14 +35,6 @@ logger:
   logs:
     api.service: WARN
     esp-idf: NONE
-
-external_components:
-  - source: github://patrick3399/esphome_components
-
-api:
-  encryption:
-    key: !secret api_key
-  reboot_timeout: 6h
 
 # ─── Ethernet (W5500, SPI) ────────────────────────────────────────────────────
 ethernet:
@@ -96,10 +88,6 @@ sensor:
   - platform: internal_temperature
     name: "Chip Temp"
     update_interval: 30s
-
-  - platform: uptime
-    name: "Uptime"
-    update_interval: 60s
 
   - platform: template
     name: "Free Heap"

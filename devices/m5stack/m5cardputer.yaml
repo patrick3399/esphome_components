@@ -22,7 +22,13 @@ esphome:
             brightness: 80%
 
 packages:
-  common: !include ../../packages/common.yaml
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [74hc138_keypad, i2s_audio]
+    refresh: 0s
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -485,16 +491,6 @@ sensor:
     id: chip_temperature
     name: "Chip Temperature"
 
-  - platform: wifi_signal
-    id: wifi_rssi
-    name: "WiFi RSSI"
-    update_interval: 10s
-
-  - platform: uptime
-    id: uptime_sensor
-    name: "Uptime"
-    update_interval: 10s
-
   - platform: debug
     free:
       id: heap_free
@@ -634,7 +630,7 @@ display:
         it.printf(8, 66, id(font_small), Color(0xD6, 0xE2, 0xEE), "Blk %.0fB", id(heap_max_block).state);
         it.printf(8, 84, id(font_small), Color(0xD6, 0xE2, 0xEE), "Loop %.0fms", id(loop_time).state);
         it.printf(8, 102, id(font_small), Color(0xD6, 0xE2, 0xEE), "LCD %.0fms", id(display_update_time).state);
-        it.printf(144, 48, id(font_small), Color(0xD6, 0xE2, 0xEE), "RSSI %.0f", id(wifi_rssi).state);
+        it.printf(144, 48, id(font_small), Color(0xD6, 0xE2, 0xEE), "RSSI %.0f", id(wifi_signal_sensor).state);
         it.printf(144, 66, id(font_small), Color(0xD6, 0xE2, 0xEE), "Up %02u:%02u", hours, minutes);
         it.printf(144, 84, id(font_small), Color(0xD6, 0xE2, 0xEE), "CPU %.1fC", id(chip_temperature).state);
       }

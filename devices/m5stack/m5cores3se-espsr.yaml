@@ -35,14 +35,15 @@ esphome:
               - script.execute: draw_display
 
 packages:
-  common: !include ../../packages/common.yaml
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
 
 external_components:
   - source: github://m5stack/esphome-yaml/components
     components: [axp2101, aw88298, aw9523b]
     refresh: 0s
   - source: github://patrick3399/esphome_components
-    components: [esp_sr_wake_word]
+    components: [esp_sr_wake_word, i2s_audio]
     refresh: 0s
 
 esp32:
@@ -151,8 +152,7 @@ time:
       - seconds: 0
         then:
           - script.execute: update_time_display
-  - platform: homeassistant
-    id: ha_time
+  - id: !extend homeassistant_time
     on_time_sync:
       then:
         - bm8563.write_time:
@@ -266,11 +266,6 @@ switch:
       - lambda: id(voice_assistant_phase) = ${voice_assist_idle_phase_id};
       - script.execute: draw_display
 
-button:
-  - platform: restart
-    name: "Restart"
-    entity_category: diagnostic
-
 binary_sensor:
   - platform: gpio
     id: es_int
@@ -330,9 +325,6 @@ binary_sensor:
     name: "Battery Connected"
     device_class: connectivity
     lambda: return id(axp2101_pmu)->isBatteryConnect();
-
-  - platform: status
-    name: "Status"
 
 select:
   - platform: template
@@ -1317,9 +1309,3 @@ sensor:
     state_class: measurement
     update_interval: 30s
     lambda: return id(axp2101_pmu)->getSystemVoltage() / 1000.0f;
-  - platform: wifi_signal
-    name: "WiFi Signal"
-    update_interval: 60s
-  - platform: uptime
-    name: "Uptime"
-    type: seconds

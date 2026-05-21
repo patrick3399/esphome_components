@@ -23,7 +23,8 @@ esphome:
         - pcf85063.read_time
 
 packages:
-  common: !include ../../packages/common.yaml
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
 
 external_components:
   - source: github://patrick3399/esphome_components
@@ -67,9 +68,6 @@ api:
     - script.execute: draw_display
   on_client_disconnected:
     - script.execute: draw_display
-
-ota:
-  - platform: esphome
 
 wifi:
   ssid: !secret wifi_ssid
@@ -122,8 +120,7 @@ time:
       - seconds: 0
         then:
           - script.execute: update_clock_label
-  - platform: homeassistant
-    id: ha_time
+  - id: !extend homeassistant_time
     on_time_sync:
       then:
         - pcf85063.write_time
@@ -232,14 +229,7 @@ switch:
         output: true
     restore_mode: ALWAYS_ON
 
-button:
-  - platform: restart
-    name: "Restart"
-    entity_category: diagnostic
-
 binary_sensor:
-  - platform: status
-    name: "Status"
   - platform: gpio
     pin:
       number: GPIO0
@@ -329,18 +319,13 @@ sensor:
           id: chip_temp_label
           text: !lambda 'return str_sprintf("Chip: %.1f °C", x);'
 
-  - platform: wifi_signal
+  - id: !extend wifi_signal_sensor
     name: "WiFi Signal"
-    id: wifi_signal_sensor
     update_interval: 60s
     on_value:
       - lvgl.label.update:
           id: wifi_label
           text: !lambda 'return str_sprintf("%.0f dBm", x);'
-
-  - platform: uptime
-    name: "Uptime"
-    type: seconds
 
   - platform: debug
     free:
@@ -590,17 +575,17 @@ script:
             - if:
                 condition:
                   time.has_time:
-                    id: ha_time
+                    id: homeassistant_time
                 then:
                   - lvgl.label.update:
                       id: time_label
                       text: !lambda |-
-                        auto t = id(ha_time).now();
+                        auto t = id(homeassistant_time).now();
                         return t.strftime("%H:%M").c_str();
                   - lvgl.label.update:
                       id: date_label
                       text: !lambda |-
-                        auto t = id(ha_time).now();
+                        auto t = id(homeassistant_time).now();
                         return t.strftime("%Y/%m/%d").c_str();
 
   - id: update_imu_labels

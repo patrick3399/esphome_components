@@ -1,0 +1,38 @@
+api:
+  encryption:
+    key: !secret api_key
+  reboot_timeout: 6h
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+sensor:
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+
+text_sensor:
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+
+binary_sensor:
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic

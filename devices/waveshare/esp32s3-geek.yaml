@@ -19,28 +19,27 @@ esp32:
     type: esp-idf
 
 packages:
-  common: !include ../../packages/common.yaml
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
 
 api:
   encryption:
     key: !secret api_key
   reboot_timeout: 6h
 
+logger:
+  level: DEBUG
+  baud_rate: 0
+  logs:
+    api.service: WARN
+    wifi: WARN
+    esp-idf: NONE
+
 # ─── Sensors ─────────────────────────────────────────────────────────────────
 sensor:
   - platform: internal_temperature
     id: chip_temp
     name: "Chip Temperature"
-    update_interval: 10s
-
-  - platform: wifi_signal
-    id: wifi_rssi
-    name: "WiFi RSSI"
-    update_interval: 30s
-
-  - platform: uptime
-    id: uptime_sensor
-    name: "Uptime"
     update_interval: 10s
 
   - platform: template
@@ -166,7 +165,7 @@ display:
       it.horizontal_line(0, 73, 240, Color(0x1F, 0x3A, 0x52));
 
       // ── Row 2: WiFi RSSI + Uptime ───────────────────────────────────────
-      float rssi = id(wifi_rssi).state;
+      float rssi = id(wifi_signal_sensor).state;
       Color r_color = isnan(rssi)        ? Color(0x40, 0x40, 0x60) :
                       (rssi > -60.0f)    ? Color(0x3F, 0xB9, 0x50) :  // green  > -60
                       (rssi > -75.0f)    ? Color(0xF7, 0x8C, 0x00) :  // amber  > -75

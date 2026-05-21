@@ -10,7 +10,13 @@ esphome:
                 gpio_set_level(GPIO_NUM_3, 1);
 
 packages:
-  common: !include ../../packages/common.yaml
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [aw9523]
+    refresh: 0s
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -28,6 +34,14 @@ api:
       then:
         - rtttl.play:
             rtttl: !lambda 'return song_str;'
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+  logs:
+    api.service: WARN
+    wifi: WARN
+    esp-idf: NONE
 
 uart:
   - id: uart_485
@@ -63,7 +77,6 @@ aw9523:
 pi4ioe5v6408:
   id: pi4ioe5v6408_hub
   address: 0x43
-  update_interval: 0ms
   i2c_id: main_i2c
 
 binary_sensor:
@@ -250,8 +263,7 @@ sensor:
       name: "INA226 Shunt Voltage"
 
 time:
-  - platform: homeassistant
-    id: homeassistant_time
+  - id: !extend homeassistant_time
     update_interval: 1h
     on_time_sync:
       then:
