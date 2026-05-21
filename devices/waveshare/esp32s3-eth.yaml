@@ -1,0 +1,134 @@
+# ─── Waveshare ESP32-S3-ETH ────────────────────────────────────────────────────
+# ESP32-S3R8 · 16 MB Flash · 8 MB Octal PSRAM
+# Wired: W5500 SPI (CLK=GPIO13 MOSI=GPIO11 MISO=GPIO12 CS=GPIO14 INT=GPIO10 RST=GPIO9)
+# Camera: OV2640/OV5640 DVP · PWDN=GPIO8 (active-high, drive low to power on)
+# Camera I2C: GPIO47(SCL)/GPIO48(SDA) · External I2C header: GPIO20(SCL)/GPIO19(SDA)
+# POE variant (ESP32-S3-POE-ETH): IEEE 802.3af — do NOT connect USB + POE simultaneously
+# GPIO33–37: Octal PSRAM, not available for external use
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  devicename: "ws-s3-eth"
+  upper_devicename: "WS S3 ETH"
+
+esphome:
+  name: $devicename
+  friendly_name: $upper_devicename
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+ota:
+  - platform: esphome
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+  logs:
+    api.service: WARN
+    esp-idf: NONE
+
+external_components:
+  - source: github://patrick3399/esphome_components
+
+api:
+  encryption:
+    key: !secret api_key
+  reboot_timeout: 6h
+
+# ─── Ethernet (W5500, SPI) ────────────────────────────────────────────────────
+ethernet:
+  type: W5500
+  clk_pin: GPIO13
+  mosi_pin: GPIO11
+  miso_pin: GPIO12
+  cs_pin: GPIO14
+  interrupt_pin: GPIO10
+  reset_pin: GPIO9
+  clock_speed: 25MHz
+
+# ─── I2C buses ────────────────────────────────────────────────────────────────
+# cam_i2c (GPIO47/GPIO48) is the camera sensor config bus; referenced by esp32_camera.
+# ext_i2c (GPIO19/GPIO20) is the external 2×20 header bus for attached peripherals.
+i2c:
+  - id: cam_i2c
+    sda: GPIO48
+    scl: GPIO47
+    scan: false
+    frequency: 100kHz
+  - id: ext_i2c
+    sda: GPIO19
+    scl: GPIO20
+    scan: true
+    frequency: 400kHz
+
+# ─── Camera (OV2640 / OV5640, DVP) ───────────────────────────────────────────
+# power_down_pin (GPIO8) is active-high: the component drives it LOW before init.
+# frame_buffer_location PSRAM keeps DRAM free; requires psram: above.
+esp32_camera:
+  name: "Camera"
+  i2c_id: cam_i2c
+  external_clock:
+    pin: GPIO3
+    frequency: 20MHz
+  data_pins: [GPIO41, GPIO45, GPIO46, GPIO42, GPIO40, GPIO38, GPIO15, GPIO18]
+  vsync_pin: GPIO1
+  href_pin: GPIO2
+  pixel_clock_pin: GPIO39
+  power_down_pin: GPIO8
+  resolution: 800x600
+  jpeg_quality: 10
+  max_framerate: 10fps
+  idle_framerate: 0.1fps
+  frame_buffer_count: 2
+  frame_buffer_location: PSRAM
+
+# ─── Sensors ─────────────────────────────────────────────────────────────────
+sensor:
+  - platform: internal_temperature
+    name: "Chip Temp"
+    update_interval: 30s
+
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+
+  - platform: template
+    name: "Free Heap"
+    unit_of_measurement: "KB"
+    icon: "mdi:memory"
+    lambda: return esp_get_free_heap_size() / 1024.0f;
+    update_interval: 30s
+
+# ─── Network info ─────────────────────────────────────────────────────────────
+text_sensor:
+  - platform: ethernet_info
+    ip_address:
+      name: "IP Address"
+    mac_address:
+      name: "MAC Address"
+
+# ─── Bluetooth Proxy ──────────────────────────────────────────────────────────
+bluetooth_proxy:
+  active: true
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+
+# ─── BOOT button ──────────────────────────────────────────────────────────────
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Boot Button"
