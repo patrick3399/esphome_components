@@ -1,11 +1,13 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import display
+from esphome.components.esp32 import include_builtin_idf_component
 from esphome import pins
 from esphome.const import (
     CONF_ID,
     CONF_LAMBDA,
 )
+from esphome.core import CORE
 
 ed047tc1_ns = cg.esphome_ns.namespace("ed047tc1")
 ED047TC1Display = ed047tc1_ns.class_("ED047TC1Display", cg.Component, display.DisplayBuffer)
@@ -51,6 +53,11 @@ CONFIG_SCHEMA = display.FULL_DISPLAY_SCHEMA.extend(
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await display.register_display(var, config)
+
+    if CORE.is_esp32:
+        # EPDIY board support compiles temperature ADC helpers even when this
+        # PaperS3 board definition returns a fixed temperature.
+        include_builtin_idf_component("esp_adc")
 
     pwr_pin = await cg.gpio_pin_expression(config[CONF_PWR_PIN])
     cg.add(var.set_pwr_pin(pwr_pin))
