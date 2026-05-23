@@ -53,10 +53,10 @@ void AW9523Component::dump_config() {
     return;
   }
   ESP_LOGCONFIG(TAG, "  IMAX divider: %u (max ~%u mA)", this->imax_divider_,
-                (unsigned) (37 * (4 - this->imax_divider_) / 4));
+                (unsigned)(37 * (4 - this->imax_divider_) / 4));
   ESP_LOGCONFIG(TAG, "  Latch inputs: %s", this->latch_inputs_ ? "YES" : "NO");
   if (this->latch_inputs_)
-    ESP_LOGCONFIG(TAG, "  Update Interval: %u ms", (unsigned) this->get_update_interval());
+    ESP_LOGCONFIG(TAG, "  Update Interval: %u ms", (unsigned)this->get_update_interval());
 }
 
 void AW9523Component::update() {
@@ -116,7 +116,7 @@ void AW9523Component::pin_mode(uint8_t pin, gpio::Flags flags) {
   uint8_t &dir = port == 0 ? this->dir_mask_0_ : this->dir_mask_1_;
   uint8_t config_reg = port == 0 ? AW9523_REG_CONFIG0 : AW9523_REG_CONFIG1;
   if (flags == gpio::FLAG_INPUT) {
-    dir |= (1 << bit);   // 1 = input
+    dir |= (1 << bit);  // 1 = input
   } else {
     dir &= ~(1 << bit);  // 0 = output
   }
@@ -160,9 +160,13 @@ bool AW9523Component::write_reg(uint8_t reg, uint8_t value) {
   return this->write_byte(reg, value);
 }
 
-void AW9523GPIOPin::setup() { this->pin_mode(this->flags_); }
+void AW9523GPIOPin::setup() {
+  this->pin_mode(this->flags_);
+}
 
-void AW9523GPIOPin::pin_mode(gpio::Flags flags) { this->parent_->pin_mode(this->pin_, flags); }
+void AW9523GPIOPin::pin_mode(gpio::Flags flags) {
+  this->parent_->pin_mode(this->pin_, flags);
+}
 
 bool AW9523GPIOPin::digital_read() {
   return this->parent_->digital_read(this->pin_) != this->inverted_;

@@ -29,10 +29,18 @@ class HC138Keypad : public key_provider::KeyProvider, public Component {
   void loop() override;
   void dump_config() override;
 
-  void set_address_pins(std::vector<GPIOPin *> pins) { this->address_pins_ = std::move(pins); }
-  void set_input_pins(std::vector<GPIOPin *> pins) { this->input_pins_ = std::move(pins); }
-  void set_debounce_time(uint32_t debounce_time) { this->debounce_time_ = debounce_time; }
-  void register_key_trigger(HC138KeyTrigger *trig) { this->key_triggers_.push_back(trig); }
+  void set_address_pins(std::vector<GPIOPin *> pins) {
+    this->address_pins_ = std::move(pins);
+  }
+  void set_input_pins(std::vector<GPIOPin *> pins) {
+    this->input_pins_ = std::move(pins);
+  }
+  void set_debounce_time(uint32_t debounce_time) {
+    this->debounce_time_ = debounce_time;
+  }
+  void register_key_trigger(HC138KeyTrigger *trig) {
+    this->key_triggers_.push_back(trig);
+  }
 
  protected:
   uint64_t scan_keys_();

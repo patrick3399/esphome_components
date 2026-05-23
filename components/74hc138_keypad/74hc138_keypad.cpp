@@ -82,7 +82,9 @@ void HC138Keypad::select_address_(uint8_t address) {
     this->address_pins_[bit]->digital_write((address & (1 << bit)) != 0);
 }
 
-uint8_t HC138Keypad::key_at_(uint8_t row, uint8_t col) { return KEY_MAP[row][col]; }
+uint8_t HC138Keypad::key_at_(uint8_t row, uint8_t col) {
+  return KEY_MAP[row][col];
+}
 
 uint8_t HC138Keypad::key_to_fn_layer_(uint8_t key) {
   switch (key) {
@@ -99,7 +101,9 @@ uint8_t HC138Keypad::key_to_fn_layer_(uint8_t key) {
   }
 }
 
-bool HC138Keypad::is_printable_key_(uint8_t key) { return key >= 0x20 && key <= 0x7E; }
+bool HC138Keypad::is_printable_key_(uint8_t key) {
+  return key >= 0x20 && key <= 0x7E;
+}
 
 void HC138Keypad::publish_changes_(uint64_t previous, uint64_t current) {
   const uint64_t pressed = current & ~previous;
