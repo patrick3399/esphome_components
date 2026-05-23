@@ -26,7 +26,7 @@ static inline gpio_num_t esphome_pin_to_gpio_num(GPIOPin* pin_obj) {
 }
 
 static void custom_board_init_callback(uint32_t epd_row_width_param, const EpdInitConfig* init_config) {
-  (void) init_config;
+  (void)init_config;
   if (!ED047TC1Display::instance) {
     ESP_LOGE(TAG, "board_init_cb: Instance is null!");
     return;

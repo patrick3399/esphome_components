@@ -82,22 +82,50 @@ class QMI8658Component : public PollingComponent, public i2c::I2CDevice {
   void setup() override;
   void dump_config() override;
   void update() override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
+  float get_setup_priority() const override {
+    return setup_priority::DATA;
+  }
 
-  void set_accel_range(AccelRange r) { this->accel_range_ = r; }
-  void set_gyro_range(GyroRange r) { this->gyro_range_ = r; }
-  void set_accel_odr(AccelODR odr) { this->accel_odr_ = odr; }
-  void set_gyro_odr(GyroODR odr) { this->gyro_odr_ = odr; }
-  void set_accel_lpf_mode(LpfMode m) { this->accel_lpf_mode_ = m; }
-  void set_gyro_lpf_mode(LpfMode m) { this->gyro_lpf_mode_ = m; }
+  void set_accel_range(AccelRange r) {
+    this->accel_range_ = r;
+  }
+  void set_gyro_range(GyroRange r) {
+    this->gyro_range_ = r;
+  }
+  void set_accel_odr(AccelODR odr) {
+    this->accel_odr_ = odr;
+  }
+  void set_gyro_odr(GyroODR odr) {
+    this->gyro_odr_ = odr;
+  }
+  void set_accel_lpf_mode(LpfMode m) {
+    this->accel_lpf_mode_ = m;
+  }
+  void set_gyro_lpf_mode(LpfMode m) {
+    this->gyro_lpf_mode_ = m;
+  }
 
-  void set_accel_x_sensor(sensor::Sensor *s) { this->accel_x_ = s; }
-  void set_accel_y_sensor(sensor::Sensor *s) { this->accel_y_ = s; }
-  void set_accel_z_sensor(sensor::Sensor *s) { this->accel_z_ = s; }
-  void set_gyro_x_sensor(sensor::Sensor *s) { this->gyro_x_ = s; }
-  void set_gyro_y_sensor(sensor::Sensor *s) { this->gyro_y_ = s; }
-  void set_gyro_z_sensor(sensor::Sensor *s) { this->gyro_z_ = s; }
-  void set_temperature_sensor(sensor::Sensor *s) { this->temperature_ = s; }
+  void set_accel_x_sensor(sensor::Sensor *s) {
+    this->accel_x_ = s;
+  }
+  void set_accel_y_sensor(sensor::Sensor *s) {
+    this->accel_y_ = s;
+  }
+  void set_accel_z_sensor(sensor::Sensor *s) {
+    this->accel_z_ = s;
+  }
+  void set_gyro_x_sensor(sensor::Sensor *s) {
+    this->gyro_x_ = s;
+  }
+  void set_gyro_y_sensor(sensor::Sensor *s) {
+    this->gyro_y_ = s;
+  }
+  void set_gyro_z_sensor(sensor::Sensor *s) {
+    this->gyro_z_ = s;
+  }
+  void set_temperature_sensor(sensor::Sensor *s) {
+    this->temperature_ = s;
+  }
 
  protected:
   void configure_();

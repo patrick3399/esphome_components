@@ -41,7 +41,9 @@ enum EventGroupBits : uint32_t {
   ALL_BITS = 0xfffff,
 };
 
-float EspSrWakeWord::get_setup_priority() const { return setup_priority::AFTER_CONNECTION; }
+float EspSrWakeWord::get_setup_priority() const {
+  return setup_priority::AFTER_CONNECTION;
+}
 
 static const LogString *esp_sr_wake_word_state_to_string(State state) {
   switch (state) {
@@ -171,7 +173,7 @@ void EspSrWakeWord::setup() {
         xEventGroupSetBits(this->event_group_, EventGroupBits::WARNING_FULL_RING_BUFFER);
         temp_ring_buffer->reset();
       }
-      temp_ring_buffer->write((void *) data.data(), data.size());
+      temp_ring_buffer->write((void *)data.data(), data.size());
     }
   });
 
@@ -359,7 +361,7 @@ void EspSrWakeWord::loop() {
   switch (this->state_) {
     case State::STARTING:
       if (this->inference_task_handle_ == nullptr && !this->status_has_error()) {
-        xTaskCreate(EspSrWakeWord::inference_task, "esp_sr_ww", INFERENCE_TASK_STACK_SIZE, (void *) this,
+        xTaskCreate(EspSrWakeWord::inference_task, "esp_sr_ww", INFERENCE_TASK_STACK_SIZE, (void *)this,
                     INFERENCE_TASK_PRIORITY, &this->inference_task_handle_);
 
         if (this->inference_task_handle_ == nullptr)

@@ -45,22 +45,33 @@ class EspSrWakeWordModel {
  public:
   EspSrWakeWordModel(const std::string &id, const std::string &model_dir, const std::string &wake_word,
                      bool default_enabled, bool internal_only)
-      : id_(id),
-        model_dir_(model_dir),
-        wake_word_(wake_word),
-        enabled_(default_enabled),
+      : id_(id), model_dir_(model_dir), wake_word_(wake_word), enabled_(default_enabled),
         internal_only_(internal_only) {}
 
-  const std::string &get_id() const { return this->id_; }
-  const std::string &get_model_dir() const { return this->model_dir_; }
-  const std::string &get_wake_word() const { return this->wake_word_; }
-  bool get_internal_only() const { return this->internal_only_; }
+  const std::string &get_id() const {
+    return this->id_;
+  }
+  const std::string &get_model_dir() const {
+    return this->model_dir_;
+  }
+  const std::string &get_wake_word() const {
+    return this->wake_word_;
+  }
+  bool get_internal_only() const {
+    return this->internal_only_;
+  }
 
-  void set_parent(EspSrWakeWord *parent) { this->parent_ = parent; }
-  void set_enabled(bool enabled) { this->enabled_ = enabled; }
+  void set_parent(EspSrWakeWord *parent) {
+    this->parent_ = parent;
+  }
+  void set_enabled(bool enabled) {
+    this->enabled_ = enabled;
+  }
   void enable();
   void disable();
-  bool is_enabled() const { return this->enabled_; }
+  bool is_enabled() const {
+    return this->enabled_;
+  }
 
   bool load_model(srmodel_list_t *models);
   void unload_model();
@@ -97,14 +108,20 @@ class EspSrWakeWord : public Component
 
   void start();
   void stop();
-  bool is_running() const { return this->state_ != State::STOPPED; }
+  bool is_running() const {
+    return this->state_ != State::STOPPED;
+  }
 
   void set_microphone_source(microphone::MicrophoneSource *microphone_source) {
     this->microphone_source_ = microphone_source;
   }
-  void set_stop_after_detection(bool stop_after_detection) { this->stop_after_detection_ = stop_after_detection; }
+  void set_stop_after_detection(bool stop_after_detection) {
+    this->stop_after_detection_ = stop_after_detection;
+  }
 
-  Trigger<std::string> *get_wake_word_detected_trigger() { return &this->wake_word_detected_trigger_; }
+  Trigger<std::string> *get_wake_word_detected_trigger() {
+    return &this->wake_word_detected_trigger_;
+  }
 
   void add_wake_word_model(EspSrWakeWordModel *model);
   std::vector<EspSrWakeWordModel *> get_wake_words();

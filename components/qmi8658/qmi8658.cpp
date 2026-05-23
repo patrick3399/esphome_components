@@ -198,11 +198,11 @@ void QMI8658Component::dump_config() {
     ESP_LOGE(TAG, ESP_LOG_MSG_COMM_FAIL);
     return;
   }
-  ESP_LOGCONFIG(TAG, "  Accelerometer range: %s  ODR: 0x%02X  LPF: %s",
-                ACCEL_RANGE_STRINGS[this->accel_range_], static_cast<uint8_t>(this->accel_odr_),
+  ESP_LOGCONFIG(TAG, "  Accelerometer range: %s  ODR: 0x%02X  LPF: %s", ACCEL_RANGE_STRINGS[this->accel_range_],
+                static_cast<uint8_t>(this->accel_odr_),
                 this->accel_lpf_mode_ == LPF_DISABLED ? "disabled" : LPF_MODE_STRINGS[this->accel_lpf_mode_]);
-  ESP_LOGCONFIG(TAG, "  Gyroscope range:     %s  ODR: 0x%02X  LPF: %s",
-                GYRO_RANGE_STRINGS[this->gyro_range_], static_cast<uint8_t>(this->gyro_odr_),
+  ESP_LOGCONFIG(TAG, "  Gyroscope range:     %s  ODR: 0x%02X  LPF: %s", GYRO_RANGE_STRINGS[this->gyro_range_],
+                static_cast<uint8_t>(this->gyro_odr_),
                 this->gyro_lpf_mode_ == LPF_DISABLED ? "disabled" : LPF_MODE_STRINGS[this->gyro_lpf_mode_]);
   LOG_UPDATE_INTERVAL(this);
   LOG_SENSOR("  ", "Acceleration X", this->accel_x_);

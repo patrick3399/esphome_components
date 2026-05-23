@@ -21,24 +21,38 @@ namespace i2s_audio {
 
 class I2SAudioSpeaker : public I2SAudioOut, public speaker::Speaker, public Component {
  public:
-  float get_setup_priority() const override { return esphome::setup_priority::PROCESSOR; }
+  float get_setup_priority() const override {
+    return esphome::setup_priority::PROCESSOR;
+  }
 
   void setup() override;
   void dump_config() override;
   void loop() override;
 
-  void set_buffer_duration(uint32_t buffer_duration_ms) { this->buffer_duration_ms_ = buffer_duration_ms; }
-  void set_timeout(uint32_t ms) { this->timeout_ = ms; }
-  void set_dout_pin(uint8_t pin) { this->dout_pin_ = (gpio_num_t) pin; }
-  void set_i2s_comm_fmt(std::string mode) { this->i2s_comm_fmt_ = std::move(mode); }
+  void set_buffer_duration(uint32_t buffer_duration_ms) {
+    this->buffer_duration_ms_ = buffer_duration_ms;
+  }
+  void set_timeout(uint32_t ms) {
+    this->timeout_ = ms;
+  }
+  void set_dout_pin(uint8_t pin) {
+    this->dout_pin_ = (gpio_num_t)pin;
+  }
+  void set_i2s_comm_fmt(std::string mode) {
+    this->i2s_comm_fmt_ = std::move(mode);
+  }
   void set_output_gain(float gain);
 
   void start() override;
   void stop() override;
   void finish() override;
 
-  void set_pause_state(bool pause_state) override { this->pause_state_ = pause_state; }
-  bool get_pause_state() const override { return this->pause_state_; }
+  void set_pause_state(bool pause_state) override {
+    this->pause_state_ = pause_state;
+  }
+  bool get_pause_state() const override {
+    return this->pause_state_;
+  }
 
   /// @brief Plays the provided audio data.
   /// Starts the speaker task, if necessary. Writes the audio data to the ring buffer.
@@ -47,7 +61,9 @@ class I2SAudioSpeaker : public I2SAudioOut, public speaker::Speaker, public Comp
   /// @param ticks_to_wait The FreeRTOS ticks to wait before writing as much data as possible to the ring buffer.
   /// @return The number of bytes that were actually written to the ring buffer.
   size_t play(const uint8_t *data, size_t length, TickType_t ticks_to_wait) override;
-  size_t play(const uint8_t *data, size_t length) override { return play(data, length, 0); }
+  size_t play(const uint8_t *data, size_t length) override {
+    return play(data, length, 0);
+  }
 
   bool has_buffered_data() const override;
 

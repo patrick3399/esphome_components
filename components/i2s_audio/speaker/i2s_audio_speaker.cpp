@@ -29,8 +29,8 @@ static const size_t I2S_EVENT_QUEUE_COUNT = DMA_BUFFERS_COUNT + 1;
 static const char *const TAG = "i2s_audio.speaker";
 
 enum SpeakerEventGroupBits : uint32_t {
-  COMMAND_START = (1 << 0),            // indicates loop should start speaker task
-  COMMAND_STOP = (1 << 1),             // stops the speaker task
+  COMMAND_START = (1 << 0),  // indicates loop should start speaker task
+  COMMAND_STOP = (1 << 1),  // stops the speaker task
   COMMAND_STOP_GRACEFULLY = (1 << 2),  // Stops the speaker task once all data has been written
 
   TASK_STARTING = (1 << 10),
@@ -143,7 +143,7 @@ void I2SAudioSpeaker::loop() {
       }
 
       if (this->speaker_task_handle_ == nullptr) {
-        xTaskCreate(I2SAudioSpeaker::speaker_task, "speaker_task", TASK_STACK_SIZE, (void *) this, TASK_PRIORITY,
+        xTaskCreate(I2SAudioSpeaker::speaker_task, "speaker_task", TASK_STACK_SIZE, (void *)this, TASK_PRIORITY,
                     &this->speaker_task_handle_);
 
         if (this->speaker_task_handle_ == nullptr) {
@@ -153,7 +153,7 @@ void I2SAudioSpeaker::loop() {
         }
       }
       break;
-    case speaker::STATE_RUNNING:   // Intentional fallthrough
+    case speaker::STATE_RUNNING:  // Intentional fallthrough
     case speaker::STATE_STOPPING:  // Intentional fallthrough
     case speaker::STATE_STOPPED:
       break;
@@ -224,7 +224,7 @@ size_t I2SAudioSpeaker::play(const uint8_t *data, size_t length, TickType_t tick
     std::shared_ptr<RingBuffer> temp_ring_buffer = this->audio_ring_buffer_.lock();
     if (temp_ring_buffer.use_count() == 2) {
       // Only the speaker task and this temp_ring_buffer own the ring buffer, so its safe to write to
-      bytes_written = temp_ring_buffer->write_without_replacement((void *) data, length, ticks_to_wait);
+      bytes_written = temp_ring_buffer->write_without_replacement((void *)data, length, ticks_to_wait);
     }
   }
 
@@ -240,7 +240,7 @@ bool I2SAudioSpeaker::has_buffered_data() const {
 }
 
 void I2SAudioSpeaker::speaker_task(void *params) {
-  I2SAudioSpeaker *this_speaker = (I2SAudioSpeaker *) params;
+  I2SAudioSpeaker *this_speaker = (I2SAudioSpeaker *)params;
 
   xEventGroupSetBits(this_speaker->event_group_, SpeakerEventGroupBits::TASK_STARTING);
 
@@ -433,9 +433,13 @@ void I2SAudioSpeaker::start() {
   xEventGroupSetBits(this->event_group_, SpeakerEventGroupBits::COMMAND_START);
 }
 
-void I2SAudioSpeaker::stop() { this->stop_(false); }
+void I2SAudioSpeaker::stop() {
+  this->stop_(false);
+}
 
-void I2SAudioSpeaker::finish() { this->stop_(true); }
+void I2SAudioSpeaker::finish() {
+  this->stop_(true);
+}
 
 void I2SAudioSpeaker::stop_(bool wait_on_empty) {
   if (this->is_failed())
@@ -460,7 +464,7 @@ esp_err_t I2SAudioSpeaker::start_i2s_driver_(audio::AudioStreamInfo &audio_strea
   }
 
   if (this->slot_bit_width_ != I2S_SLOT_BIT_WIDTH_AUTO &&
-      (i2s_slot_bit_width_t) audio_stream_info.get_bits_per_sample() > this->slot_bit_width_) {
+      (i2s_slot_bit_width_t)audio_stream_info.get_bits_per_sample() > this->slot_bit_width_) {
     // Currently can't handle the case when the incoming audio has more bits per sample than the configured value
     ESP_LOGE(TAG, "Audio streams with more bits per sample than the I2S speaker's configuration is not supported");
     return ESP_ERR_NOT_SUPPORTED;
@@ -515,13 +519,13 @@ esp_err_t I2SAudioSpeaker::start_i2s_driver_(audio::AudioStreamInfo &audio_strea
   i2s_std_slot_config_t std_slot_cfg;
   if (this->i2s_comm_fmt_ == "std") {
     std_slot_cfg =
-        I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t) audio_stream_info.get_bits_per_sample(), slot_mode);
+        I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t)audio_stream_info.get_bits_per_sample(), slot_mode);
   } else if (this->i2s_comm_fmt_ == "pcm") {
     std_slot_cfg =
-        I2S_STD_PCM_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t) audio_stream_info.get_bits_per_sample(), slot_mode);
+        I2S_STD_PCM_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t)audio_stream_info.get_bits_per_sample(), slot_mode);
   } else {
     std_slot_cfg =
-        I2S_STD_MSB_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t) audio_stream_info.get_bits_per_sample(), slot_mode);
+        I2S_STD_MSB_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t)audio_stream_info.get_bits_per_sample(), slot_mode);
   }
 #ifdef USE_ESP32_VARIANT_ESP32
   // There seems to be a bug on the ESP32 (non-variant) platform where setting the slot bit width higher then the bits
@@ -576,7 +580,7 @@ bool IRAM_ATTR I2SAudioSpeaker::i2s_on_sent_cb(i2s_chan_handle_t handle, i2s_eve
   BaseType_t need_yield2 = pdFALSE;
   BaseType_t need_yield3 = pdFALSE;
 
-  I2SAudioSpeaker *this_speaker = (I2SAudioSpeaker *) user_ctx;
+  I2SAudioSpeaker *this_speaker = (I2SAudioSpeaker *)user_ctx;
 
   if (xQueueIsQueueFullFromISR(this_speaker->i2s_event_queue_)) {
     // Queue is full, so discard the oldest event and set the warning flag to inform the user
