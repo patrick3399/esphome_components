@@ -8,7 +8,7 @@ Components live under [components/](components/).
 
 | Component | Purpose | Demo usage |
 | --- | --- | --- |
-| `wled_bridge` | WLED-compatible effects engine and Web UI for ESPHome addressable lights. ESPHome YAML owns LED hardware setup, including single-strip or multi-bus model/pin/count definitions. Supports 102 1D effects, 54 palettes, up to 8 segments (per-segment effect/palette/grouping/spacing/opacity, persisted across reboot), RGBW auto-white, per-bus ABL, presets including multi-segment and playlist presets, runtime nightlight fade, WLED JSON API including `/json/live` LED peek, `/json/fxdata` effect metadata, `seg.i` raw pixel overlays, JSON `win` passthrough and `on:"t"` toggle, read-only `/json/pins`, `/presets.json` import/export, and gzip UI (with segment panel) served from PROGMEM. | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml), [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) |
+| `wled_bridge` | WLED-compatible effects engine and Web UI for ESPHome addressable LED strips. | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml), [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) |
 | `74hc138_keypad` | Keyboard matrix scanner for 74HC138 decoder based designs. | M5Stack Cardputer keyboard input. |
 | `aw9523` | I2C GPIO expander with GPIO and LED-driver support. | M5Stack StamPLC relay/input expander. |
 | `bmi270` | Bosch BMI270 6-axis IMU sensor. | M5Stack Paper S3 motion sensors. |
