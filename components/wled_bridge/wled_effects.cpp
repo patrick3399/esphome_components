@@ -4,6 +4,8 @@
 // Reference: WLED/wled00/FX.cpp, FX_fcn.cpp (tag v16.0.0)
 #include "wled_effects.h"
 #include "wled_fx_math.h"
+#include <algorithm>
+#include <cmath>
 #include <string.h>
 
 namespace esphome {
@@ -3065,6 +3067,1112 @@ void fx_chase_flash_random(EffectContext &ctx) {
     ctx.set_pixel(pos + i, ctx.pal_color_at(pos + i));
 }
 
+// ============================================================
+// Batch 6 — effects 102-111
+// ============================================================
+
+// 102 — Sparkle Dark (Flash Sparkle)
+// Source: WLED mode_flash_sparkle (FX.cpp)
+// AUX0 = interval length ms, STEP = last fire timestamp
+void fx_sparkle_dark(EffectContext &ctx) {
+  for (int32_t i = 0; i < SEGLEN; i++)
+    ctx.set_pixel(i, ctx.pal_color_at(i));
+
+  // throttle: fire at most once per (255-SPEED) ms
+  uint32_t interval = static_cast<uint32_t>(255u - SPEED);
+  if (NOW - STEP > static_cast<uint32_t>(AUX0)) {
+    if (hw_random8(static_cast<uint8_t>((255u - INTENSITY) >> 4u)) == 0u) {
+      uint16_t idx = hw_random16(static_cast<uint16_t>(SEGLEN));
+      ctx.set_pixel(static_cast<int32_t>(idx), COLOR1);
+    }
+    STEP = NOW;
+    AUX0 = static_cast<uint16_t>(interval);
+  }
+}
+
+// 103 — Sparkle+ (Hyper Sparkle) — same as Sparkle Dark but flashes a burst of pixels
+// Source: WLED mode_hyper_sparkle (FX.cpp)
+void fx_sparkle_plus(EffectContext &ctx) {
+  for (int32_t i = 0; i < SEGLEN; i++)
+    ctx.set_pixel(i, ctx.pal_color_at(i));
+
+  uint32_t interval = static_cast<uint32_t>(255u - SPEED);
+  if (NOW - STEP > static_cast<uint32_t>(AUX0)) {
+    if (hw_random8(static_cast<uint8_t>((255u - INTENSITY) >> 4u)) == 0u) {
+      int32_t burst = std::max<int32_t>(1, SEGLEN / 3);
+      for (int32_t j = 0; j < burst; j++) {
+        uint16_t idx = hw_random16(static_cast<uint16_t>(SEGLEN));
+        ctx.set_pixel(static_cast<int32_t>(idx), COLOR1);
+      }
+    }
+    STEP = NOW;
+    AUX0 = static_cast<uint16_t>(interval);
+  }
+}
+
+// 104 — Chase 2 (Running Color)
+// Source: WLED mode_running_color → running(c0, c1, false) (FX.cpp)
+// AUX0 = scroll offset within [0, width*2)
+void fx_chase2(EffectContext &ctx) {
+  int32_t width = 1 + static_cast<int32_t>(INTENSITY >> 4u);
+  uint32_t cycleTime = 50u + static_cast<uint32_t>(255u - SPEED);
+  uint32_t it = NOW / cycleTime;
+  bool use_palette = (ctx.params->palette_id != 0);
+
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint32_t color1 = use_palette ? ctx.pal_color_at(i) : COLOR0;
+    // Shift so that the lit band sits around AUX0 in the repeating period
+    int32_t rel = (i % (width * 2) + width * 2 - static_cast<int32_t>(AUX0) % (width * 2)) % (width * 2);
+    ctx.set_pixel(i, (rel < width) ? color1 : COLOR1);
+  }
+
+  if (it != STEP) {
+    AUX0 = static_cast<uint16_t>((static_cast<int32_t>(AUX0) + 1) % (width * 2));
+    STEP = it;
+  }
+}
+
+// 105 — Rainbow Runner (Chase Rainbow White)
+// Source: WLED mode_chase_rainbow_white (FX.cpp)
+// AUX0 = leading-edge position 'a'
+void fx_rainbow_runner(EffectContext &ctx) {
+  if (SEGLEN <= 1) {
+    ctx.fill(ctx.pal_color(0));
+    return;
+  }
+  uint32_t counter = NOW * (static_cast<uint32_t>(SPEED >> 2u) + 1u);
+  uint32_t a = (static_cast<uint64_t>(counter) * static_cast<uint32_t>(SEGLEN)) >> 16u;
+  a %= static_cast<uint32_t>(SEGLEN);
+  AUX0 = static_cast<uint16_t>(a);
+
+  uint32_t size = 1u + (static_cast<uint32_t>(INTENSITY) * static_cast<uint32_t>(SEGLEN)) / 1024u;
+  if (size < 1u)
+    size = 1u;
+
+  uint32_t b = (a + size) % static_cast<uint32_t>(SEGLEN);
+  uint32_t c = (b + size) % static_cast<uint32_t>(SEGLEN);
+
+  uint32_t color2 =
+      ctx.wheel(static_cast<uint8_t>(((a * 256u / static_cast<uint32_t>(SEGLEN)) + (CALL & 0xFFu)) & 0xFFu));
+  uint32_t color3 =
+      ctx.wheel(static_cast<uint8_t>((((a + 1u) * 256u / static_cast<uint32_t>(SEGLEN)) + (CALL & 0xFFu)) & 0xFFu));
+
+  // Fill background
+  ctx.fill(COLOR0);
+
+  // Band a..b = color2
+  if (a <= b) {
+    for (uint32_t i = a; i < b; i++)
+      ctx.set_pixel(static_cast<int32_t>(i), color2);
+  } else {
+    for (uint32_t i = a; i < static_cast<uint32_t>(SEGLEN); i++)
+      ctx.set_pixel(static_cast<int32_t>(i), color2);
+    for (uint32_t i = 0u; i < b; i++)
+      ctx.set_pixel(static_cast<int32_t>(i), color2);
+  }
+
+  // Band b..c = color3
+  if (b <= c) {
+    for (uint32_t i = b; i < c; i++)
+      ctx.set_pixel(static_cast<int32_t>(i), color3);
+  } else {
+    for (uint32_t i = b; i < static_cast<uint32_t>(SEGLEN); i++)
+      ctx.set_pixel(static_cast<int32_t>(i), color3);
+    for (uint32_t i = 0u; i < c; i++)
+      ctx.set_pixel(static_cast<int32_t>(i), color3);
+  }
+}
+
+// 106 — Noise 1 (Perlin noise, palette-mapped)
+// Source: WLED mode_noise16_1 (FX.cpp)
+void fx_noise1(EffectContext &ctx) {
+  static constexpr uint32_t SCALE = 320u;
+  STEP += 1u + static_cast<uint32_t>(SPEED) / 16u;
+
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint8_t shift_x = beatsin8(11u, 0u, 255u, NOW);
+    uint32_t shift_y = STEP / 42u;
+    uint32_t real_x = static_cast<uint32_t>(static_cast<uint32_t>(i) + shift_x) * SCALE;
+    uint32_t real_y = static_cast<uint32_t>(static_cast<uint32_t>(i) + shift_y) * SCALE;
+    uint32_t real_z = STEP;
+    uint8_t noise_val = static_cast<uint8_t>(inoise16(real_x, real_y, real_z) >> 8u);
+    uint8_t index = sin8(static_cast<uint8_t>(noise_val * 3u));
+    ctx.set_pixel(i, ctx.pal_color(index));
+  }
+}
+
+// 107 — Noise 2 (Perlin noise horizontal scroll)
+// Source: WLED mode_noise16_2 (FX.cpp)
+void fx_noise2(EffectContext &ctx) {
+  static constexpr uint32_t SCALE = 1000u;
+  STEP += 1u + static_cast<uint32_t>(SPEED) / 2u;
+
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint32_t shift_x = STEP >> 6u;
+    uint32_t real_x = (static_cast<uint32_t>(i) + shift_x) * SCALE;
+    uint16_t raw16 = static_cast<uint16_t>(inoise16(real_x, 0u, 4223u) >> 8u);
+    uint8_t noise_val = static_cast<uint8_t>(raw16 & 0xFFu);
+    uint8_t index = sin8(static_cast<uint8_t>(noise_val * 3u));
+    ctx.set_pixel(i, ctx.pal_color(index, noise_val));
+  }
+}
+
+// 108 — Noise 3 (3D Perlin noise, brightness-modulated)
+// Source: WLED mode_noise16_3 (FX.cpp)
+void fx_noise3(EffectContext &ctx) {
+  static constexpr uint32_t SCALE = 800u;
+  STEP += 1u + static_cast<uint32_t>(SPEED);
+
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint32_t real_x = (static_cast<uint32_t>(i) + 4223u) * SCALE;
+    uint32_t real_y = (static_cast<uint32_t>(i) + 1234u) * SCALE;
+    uint32_t real_z = STEP * 8u;
+    uint8_t noise_val = static_cast<uint8_t>(inoise16(real_x, real_y, real_z) >> 8u);
+    uint8_t index = sin8(static_cast<uint8_t>(noise_val * 3u));
+    ctx.set_pixel(i, ctx.pal_color(index, noise_val));
+  }
+}
+
+// 109 — Noise 4 (time-driven Perlin noise)
+// Source: WLED mode_noise16_4 (FX.cpp)
+void fx_noise4(EffectContext &ctx) {
+  uint32_t stp = (NOW * static_cast<uint32_t>(SPEED)) >> 7u;
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint32_t raw = inoise16(static_cast<uint32_t>(i) << 12u, stp);
+    uint8_t index = static_cast<uint8_t>(raw >> 8u);
+    ctx.set_pixel(i, ctx.pal_color(index));
+  }
+}
+
+// 110 — Phased Noise (Perlin-based phased waves, by Andrew Tuline)
+// Source: WLED mode_phased_noise → phased_base(1) (FX.cpp)
+void fx_phased_noise(EffectContext &ctx) {
+  STEP += 100u;
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint16_t n = static_cast<uint16_t>(
+        inoise16(static_cast<uint32_t>(i) * 4000u, STEP + static_cast<uint32_t>(i) * 2000u) >> 8u);
+    uint8_t val = static_cast<uint8_t>(n & 0xFFu);
+    ctx.set_pixel(i, color_blend(COLOR1, ctx.pal_color(val), val));
+  }
+}
+
+// 111 — Wavesins (sine wave brightness with beatsin palette, by Andrew Tuline)
+// Source: WLED mode_wavesins (FX.cpp)
+void fx_wavesins(EffectContext &ctx) {
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint8_t bri = sin8(static_cast<uint8_t>((NOW / 4u) + static_cast<uint32_t>(i) * static_cast<uint32_t>(INTENSITY)));
+    uint8_t c1_plus_c2 = static_cast<uint8_t>(C1 + C2);  // intentional uint8 wrap
+    uint8_t phase = static_cast<uint8_t>(static_cast<uint32_t>(i) * (static_cast<uint32_t>(C3) << 3u));
+    uint8_t index = beatsin8(static_cast<uint8_t>(SPEED), C1, c1_plus_c2, NOW, phase);
+    ctx.set_pixel(i, ctx.pal_color(index, bri));
+  }
+}
+
+// ============================================================
+// Batch 7 — effects 112-121  (complex / physics effects)
+// ============================================================
+
+// 112 — Shimmer (moving spotlight with optional granular modulation)
+// Source: WLED mode_shimmer (FX.cpp)
+// Data: sizeof(uint32_t) for last_time; AUX0=pause_timer, AUX1=input_state_cache, STEP=position<<8
+void fx_shimmer(EffectContext &ctx) {
+  if (!ctx.env->allocate_data(sizeof(uint32_t))) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  auto *last_time = reinterpret_cast<uint32_t *>(ctx.env->data);
+
+  uint32_t radius = (static_cast<uint32_t>(C1) * static_cast<uint32_t>(SEGLEN) >> 7u) + 1u;
+  uint32_t traversal_dist = (static_cast<uint32_t>(SEGLEN) + 2u * radius) << 8u;
+  uint32_t traversal_time = 200u + static_cast<uint32_t>(255u - SPEED) * 80u;
+  uint32_t speed_fac = (traversal_dist << 5u) / traversal_time;
+
+  int32_t position = static_cast<int32_t>(STEP);
+  uint16_t input_state = static_cast<uint16_t>((static_cast<uint16_t>(INTENSITY) << 8u) | C1);
+
+  if (CALL == 0u || input_state != AUX1) {
+    position = -static_cast<int32_t>(radius << 8u);
+    AUX0 = 0u;
+    *last_time = NOW;
+    AUX1 = input_state;
+  }
+
+  if (SPEED > 0u) {
+    uint32_t delta_time = (NOW - *last_time) & 0x7Fu;
+    *last_time = NOW;
+    if (AUX0 > 0u) {
+      AUX0 = static_cast<uint16_t>(AUX0 > delta_time ? AUX0 - static_cast<uint16_t>(delta_time) : 0u);
+    } else {
+      int32_t step_val = static_cast<int32_t>(1u + ((speed_fac * delta_time) >> 5u));
+      position += step_val;
+      int32_t limit = static_cast<int32_t>((static_cast<uint32_t>(SEGLEN) + radius) << 8u);
+      if (position > limit) {
+        uint16_t pause = static_cast<uint16_t>(static_cast<uint32_t>(INTENSITY) * 236u);
+        if (ctx.params->check3)
+          pause = hw_random16(static_cast<uint16_t>(pause + 1000u));
+        AUX0 = pause;
+        position = -static_cast<int32_t>(radius << 8u);
+      }
+      STEP = static_cast<uint32_t>(position);
+    }
+    if (ctx.params->check2)
+      position = static_cast<int32_t>(static_cast<uint32_t>(SEGLEN) << 8u) - position;
+  } else {
+    position = static_cast<int32_t>(static_cast<uint32_t>(SEGLEN) << 7u);
+  }
+
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint32_t dist = static_cast<uint32_t>(abs(position - (i << 8)));
+    uint32_t r8 = radius << 8u;
+    if (dist < r8) {
+      uint32_t spot_col = ctx.pal_color(
+          static_cast<uint8_t>((static_cast<uint32_t>(i) * 255u) / static_cast<uint32_t>(SEGLEN > 1 ? SEGLEN : 1)));
+      if (C2 > 0u) {
+        uint8_t mod_val;
+        if (ctx.params->check1) {
+          mod_val = static_cast<uint8_t>(
+              (sin16(static_cast<uint16_t>(static_cast<uint32_t>(i) * static_cast<uint32_t>(C2) * 64u +
+                                           NOW * static_cast<uint32_t>(C3) * 32u)) >>
+               8u) +
+              128);
+        } else {
+          mod_val = static_cast<uint8_t>(inoise16(static_cast<uint32_t>(i) * static_cast<uint32_t>(C2) * 128u,
+                                                  NOW * static_cast<uint32_t>(C3) * 32u) >>
+                                         8u);
+        }
+        spot_col = color_fade(spot_col, mod_val);
+      }
+      uint8_t blend = static_cast<uint8_t>((dist * 255u) / r8);
+      ctx.set_pixel(i, color_blend(spot_col, COLOR1, blend));
+    } else {
+      ctx.set_pixel(i, COLOR1);
+    }
+  }
+}
+
+// 113 — Aurora (overlapping sine-wave aurora streamers)
+// Source: WLED AuroraWave class + mode_aurora (FX.cpp)
+// Data: MAX_WAVES * sizeof(AuroraWave)
+void fx_aurora(EffectContext &ctx) {
+  static constexpr int32_t MAX_WAVES = 20;
+
+  struct AuroraWave {
+    int32_t center;  // fixed-point position * 65536
+    uint32_t age_factor;  // 0..65536 fade envelope
+    uint16_t ttl;  // lifetime in frames
+    uint16_t age;  // current age in frames
+    uint16_t width;  // half-width in pixels
+    uint32_t base_alpha;  // 0..65536
+    int32_t speed_fac;  // signed pixels/frame * 65536
+    bool going_left;
+    bool alive;
+    uint32_t color;
+  };
+
+  if (!ctx.env->allocate_data(static_cast<size_t>(MAX_WAVES) * sizeof(AuroraWave))) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  auto *waves = reinterpret_cast<AuroraWave *>(ctx.env->data);
+
+  // Backlight from user colours
+  uint8_t bg_bri = 0u;
+  uint8_t col_count = 0u;
+  if (COLOR0 != 0u)
+    col_count++;
+  if (COLOR1 != 0u)
+    col_count++;
+  if (COLOR2 != 0u)
+    col_count++;
+  bg_bri = gamma8_inv(col_count);
+
+  int32_t num_waves =
+      std::max<int32_t>(1, std::min<int32_t>(MAX_WAVES, 2 + static_cast<int32_t>(INTENSITY) * MAX_WAVES / 255));
+
+  // Update / respawn waves
+  for (int32_t w = 0; w < num_waves; w++) {
+    AuroraWave &wave = waves[w];
+    if (!wave.alive || wave.age >= wave.ttl) {
+      // Spawn
+      wave.ttl = static_cast<uint16_t>(hw_random16(120u) + 80u);
+      wave.age = 0u;
+      wave.width = static_cast<uint16_t>(
+          std::max<int32_t>(1, SEGLEN / 4 + static_cast<int32_t>(hw_random8(static_cast<uint8_t>(SEGLEN / 4 + 1u)))));
+      wave.center = (hw_random16(static_cast<uint16_t>(SEGLEN)) * 65536);
+      wave.going_left = (hw_random8(2u) == 0u);
+      uint32_t speed_pct = static_cast<uint32_t>(SPEED) * 65536u / 255u;
+      wave.speed_fac = static_cast<int32_t>(1u + speed_pct / 16u);
+      if (wave.going_left)
+        wave.speed_fac = -wave.speed_fac;
+      wave.base_alpha = 39322u + static_cast<uint32_t>(hw_random8(static_cast<uint8_t>(26214u >> 8u))) * 256u;
+      wave.color = ctx.pal_color(hw_random8());
+      wave.alive = true;
+    } else {
+      // Advance
+      wave.center += wave.speed_fac;
+      wave.age++;
+    }
+
+    // Age factor: fade in first 25% of TTL, out last 25%
+    uint16_t fade_frames = wave.ttl / 4u;
+    if (fade_frames < 1u)
+      fade_frames = 1u;
+    if (wave.age < fade_frames) {
+      wave.age_factor = (static_cast<uint32_t>(wave.age) * 65536u) / fade_frames;
+    } else if (wave.age > wave.ttl - fade_frames) {
+      uint16_t remaining = wave.ttl - wave.age;
+      wave.age_factor = (static_cast<uint32_t>(remaining) * 65536u) / fade_frames;
+    } else {
+      wave.age_factor = 65536u;
+    }
+  }
+
+  // Render: clear then additively mix waves
+  ctx.fill_black();
+
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint32_t accum_r = 0u, accum_g = 0u, accum_b = 0u;
+
+    for (int32_t w = 0; w < num_waves; w++) {
+      const AuroraWave &wave = waves[w];
+      if (!wave.alive)
+        continue;
+      int32_t center_px = wave.center / 65536;
+      int32_t dist_px = abs(i - center_px);
+      if (dist_px >= static_cast<int32_t>(wave.width))
+        continue;
+      uint32_t falloff = static_cast<uint32_t>(wave.width - dist_px) * 65536u / static_cast<uint32_t>(wave.width);
+      uint32_t alpha = (wave.age_factor >> 8u) * (wave.base_alpha >> 8u) * (falloff >> 8u) >> 8u;
+      alpha = std::min<uint32_t>(alpha, 255u);
+      accum_r += static_cast<uint32_t>(R(wave.color)) * alpha >> 8u;
+      accum_g += static_cast<uint32_t>(G(wave.color)) * alpha >> 8u;
+      accum_b += static_cast<uint32_t>(B(wave.color)) * alpha >> 8u;
+    }
+
+    // Backlight
+    if (bg_bri > 0u) {
+      uint32_t bg_col = COLOR0 ? COLOR0 : (COLOR1 ? COLOR1 : COLOR2);
+      accum_r += static_cast<uint32_t>(R(bg_col)) * bg_bri >> 8u;
+      accum_g += static_cast<uint32_t>(G(bg_col)) * bg_bri >> 8u;
+      accum_b += static_cast<uint32_t>(B(bg_col)) * bg_bri >> 8u;
+    }
+
+    ctx.set_pixel(i, RGBW32(static_cast<uint8_t>(std::min<uint32_t>(accum_r, 255u)),
+                            static_cast<uint8_t>(std::min<uint32_t>(accum_g, 255u)),
+                            static_cast<uint8_t>(std::min<uint32_t>(accum_b, 255u)), 0u));
+  }
+}
+
+// 114 — Tetrix (falling blocks stack up, then fade out)
+// Source: WLED mode_tetrix (FX.cpp)
+void fx_tetrix(EffectContext &ctx) {
+  struct TetrisBrick {
+    float pos;
+    float speed;
+    uint8_t col;
+    uint16_t brick_w;
+    uint16_t stack;
+    uint32_t step_ts;
+  };
+
+  if (!ctx.env->allocate_data(sizeof(TetrisBrick))) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  auto *brick = reinterpret_cast<TetrisBrick *>(ctx.env->data);
+
+  if (CALL == 0u) {
+    brick->pos = static_cast<float>(SEGLEN);
+    brick->speed = static_cast<float>(std::max<int32_t>(1, 5000 / std::max<int32_t>(1, SEGLEN))) / 1000.0f;
+    brick->brick_w = static_cast<uint16_t>((static_cast<uint32_t>(INTENSITY >> 5u) + 1u) *
+                                           (1u + static_cast<uint32_t>(SEGLEN) / 64u));
+    brick->col = hw_random8();
+    brick->stack = 0u;
+    brick->step_ts = NOW;
+  }
+
+  // Background
+  ctx.fill(COLOR1);
+
+  // Check for fade-out state (AUX0 == 1 → stack is full, fading)
+  if (AUX0 == 1u) {
+    // Fade out all pixels then reset
+    if (NOW - STEP > 2000u) {
+      AUX0 = 0u;
+      brick->stack = 0u;
+      brick->pos = static_cast<float>(SEGLEN);
+      brick->col = hw_random8();
+      STEP = NOW;
+    }
+    ctx.fade_to_black(220u);
+    return;
+  }
+
+  // Draw stack
+  for (int32_t i = 0; i < static_cast<int32_t>(brick->stack) && i < SEGLEN; i++)
+    ctx.set_pixel(i, ctx.pal_color(brick->col));
+
+  // Advance brick position (frame-rate independent via timestamp)
+  uint32_t elapsed = NOW - brick->step_ts;
+  if (elapsed > 20u) {
+    float frames = static_cast<float>(elapsed) / 20.0f;
+    brick->pos -= brick->speed * frames * static_cast<float>(SEGLEN);
+    brick->step_ts = NOW;
+  }
+
+  int32_t brick_bot = static_cast<int32_t>(brick->pos);
+  if (brick_bot < 0)
+    brick_bot = 0;
+
+  // Land condition
+  if (brick_bot <= static_cast<int32_t>(brick->stack)) {
+    brick->stack += brick->brick_w;
+    if (static_cast<int32_t>(brick->stack) >= SEGLEN) {
+      brick->stack = static_cast<uint16_t>(SEGLEN);
+      AUX0 = 1u;  // trigger fade-out
+      STEP = NOW;
+    }
+    // New brick
+    brick->pos = static_cast<float>(SEGLEN);
+    brick->col = ctx.params->check1 ? brick->col : hw_random8();
+    brick->speed = static_cast<float>(std::max<int32_t>(1, 5000 / std::max<int32_t>(1, SEGLEN))) / 1000.0f;
+    brick->step_ts = NOW;
+    return;
+  }
+
+  // Draw falling brick
+  uint32_t brick_col = ctx.pal_color(brick->col);
+  for (int32_t i = brick_bot; i < std::min<int32_t>(brick_bot + static_cast<int32_t>(brick->brick_w), SEGLEN); i++)
+    ctx.set_pixel(i, brick_col);
+}
+
+// 115 — Rolling Balls (gravity-bounce physics, multi-ball)
+// Source: WLED mode_rollingBalls (FX.cpp)
+struct RollingBall {
+  uint32_t last_bounce;
+  float mass;
+  float vel;
+  float height;
+};
+
+void fx_rolling_balls(EffectContext &ctx) {
+  static constexpr int32_t MAX_BALLS = 16;
+  int32_t num_balls = std::min<int32_t>(MAX_BALLS, static_cast<int32_t>(INTENSITY / 16u) + 1);
+
+  if (!ctx.env->allocate_data(static_cast<size_t>(MAX_BALLS) * sizeof(RollingBall))) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  auto *balls = reinterpret_cast<RollingBall *>(ctx.env->data);
+
+  if (CALL == 0u) {
+    for (int32_t i = 0; i < MAX_BALLS; i++) {
+      balls[i].last_bounce = NOW;
+      balls[i].mass = 0.5f + static_cast<float>(i) * 0.1f;
+      balls[i].vel = 0.0f;
+      balls[i].height = 1.0f;
+    }
+  }
+
+  float gravity = -0.001f * (0.5f + static_cast<float>(SPEED) / 255.0f);
+
+  if (ctx.params->check3) {
+    ctx.fade_to_black(220u);
+  } else if (!ctx.params->check2) {
+    ctx.fill(COLOR1);
+  }
+
+  for (int32_t i = 0; i < num_balls; i++) {
+    uint32_t dt_ms = NOW - balls[i].last_bounce;
+    float t = static_cast<float>(dt_ms) / 1000.0f;
+    float h = balls[i].vel * t + 0.5f * gravity * t * t;
+
+    if (h < 0.0f) {
+      h = 0.0f;
+      balls[i].vel = -balls[i].vel * 0.85f;
+      if (balls[i].vel > -0.002f)
+        balls[i].vel = 0.15f + static_cast<float>(hw_random8(50u)) / 500.0f;
+      balls[i].last_bounce = NOW;
+    }
+    if (h > 1.0f)
+      h = 1.0f;
+    balls[i].height = h;
+
+    int32_t pos = static_cast<int32_t>(h * static_cast<float>(SEGLEN - 1));
+    if (pos >= 0 && pos < SEGLEN) {
+      uint32_t col;
+      if (ctx.params->palette_id != 0) {
+        col = ctx.pal_color(static_cast<uint8_t>(i * 42u));
+      } else {
+        col = ctx.params->colors[static_cast<size_t>(i) % 3u];
+      }
+      ctx.set_pixel(pos, col);
+    }
+
+    // Collide with other balls
+    if (ctx.params->check1) {
+      for (int32_t j = i + 1; j < num_balls; j++) {
+        int32_t pos_j = static_cast<int32_t>(balls[j].height * static_cast<float>(SEGLEN - 1));
+        if (abs(pos - pos_j) <= 1) {
+          float v1 = balls[i].vel;
+          float v2 = balls[j].vel;
+          float m1 = balls[i].mass;
+          float m2 = balls[j].mass;
+          float total_m = m1 + m2;
+          balls[i].vel = ((m1 - m2) * v1 + 2.0f * m2 * v2) / total_m;
+          balls[j].vel = ((m2 - m1) * v2 + 2.0f * m1 * v1) / total_m;
+        }
+      }
+    }
+  }
+}
+
+// 116 — Fireworks Starburst
+// Source: WLED mode_starburst (FX.cpp)
+static constexpr int32_t STARBURST_MAX_FRAG = 12;
+
+struct StarParticle {
+  uint32_t color;
+  uint32_t birth;
+  uint32_t last;
+  float vel;
+  uint16_t pos;
+  float fragment[STARBURST_MAX_FRAG];
+};
+
+void fx_starburst(EffectContext &ctx) {
+  if (SEGLEN <= 1) {
+    ctx.fill(COLOR0);
+    return;
+  }
+
+  static constexpr size_t MAX_STARS = 8u;
+  size_t data_size = MAX_STARS * sizeof(StarParticle);
+  if (!ctx.env->allocate_data(data_size)) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  auto *stars = reinterpret_cast<StarParticle *>(ctx.env->data);
+
+  // Number of active stars based on segment size
+  int32_t num_stars = std::min<int32_t>(static_cast<int32_t>(MAX_STARS), 1 + SEGLEN / 8);
+
+  if (!ctx.params->check1)
+    ctx.fill_black();
+
+  for (int32_t s = 0; s < num_stars; s++) {
+    StarParticle &star = stars[s];
+    uint32_t age = NOW - star.birth;
+
+    // Birth chance proportional to SPEED
+    bool spawn = (star.birth == 0u) || (age > 2000u);
+    if (!spawn && hw_random8(static_cast<uint8_t>(255u - SPEED)) == 0u)
+      spawn = true;
+
+    if (spawn) {
+      star.birth = NOW;
+      star.last = NOW;
+      star.pos = static_cast<uint16_t>(hw_random16(static_cast<uint16_t>(SEGLEN)));
+      star.color = ctx.pal_color(hw_random8());
+      int32_t num_frags = 2 + static_cast<int32_t>(INTENSITY * STARBURST_MAX_FRAG / 255);
+      if (num_frags > STARBURST_MAX_FRAG)
+        num_frags = STARBURST_MAX_FRAG;
+      for (int32_t f = 0; f < num_frags; f++) {
+        float v = 1.0f + static_cast<float>(hw_random8(static_cast<uint8_t>(SEGLEN / 4 + 1u))) / 4.0f;
+        star.fragment[f] = (f % 2 == 0) ? v : -v;
+      }
+      age = 0u;
+    }
+
+    // Advance fragment positions
+    uint32_t dt = NOW - star.last;
+    star.last = NOW;
+    float dt_s = static_cast<float>(dt) / 1000.0f;
+
+    int32_t num_frags2 = 2 + static_cast<int32_t>(INTENSITY * STARBURST_MAX_FRAG / 255);
+    if (num_frags2 > STARBURST_MAX_FRAG)
+      num_frags2 = STARBURST_MAX_FRAG;
+
+    for (int32_t f = 0; f < num_frags2; f++)
+      star.fragment[f] += star.fragment[f] * dt_s * 2.0f;
+
+    // Render: flash white → sparkle colour → fade
+    float lifetime = std::min<float>(static_cast<float>(age) / 1500.0f, 1.0f);
+    uint8_t bri = static_cast<uint8_t>((1.0f - lifetime) * 255.0f);
+    uint32_t draw_col;
+    if (age < 50u) {
+      draw_col = 0xFFFFFFu;  // white flash
+    } else {
+      draw_col = color_fade(star.color, bri);
+    }
+
+    for (int32_t f = 0; f < num_frags2; f++) {
+      int32_t px = static_cast<int32_t>(star.pos) + static_cast<int32_t>(star.fragment[f]);
+      if (px >= 0 && px < SEGLEN)
+        ctx.set_pixel(px, draw_col);
+    }
+  }
+}
+
+// Shared Spark struct used by Fireworks 1D, Popcorn, Drip
+struct Spark1D {
+  float pos;
+  float vel;
+  uint16_t col;
+  uint8_t col_index;
+};
+
+// 117 — Fireworks 1D (gravity-sim rocket + explosion)
+// Source: WLED mode_fireworks1D (FX.cpp)
+// AUX0 = state: 0=init flare, 1=rising, 2=ready, 3=exploding, >=4=countdown reset
+void fx_fireworks_1d(EffectContext &ctx) {
+  if (SEGLEN <= 4) {
+    ctx.fill_black();
+    return;
+  }
+
+  int32_t max_sparks = std::min<int32_t>(640 / static_cast<int32_t>(sizeof(Spark1D)), SEGLEN / 2 + 5);
+  size_t data_size = static_cast<size_t>(max_sparks) * sizeof(Spark1D) + sizeof(float);
+  if (!ctx.env->allocate_data(data_size)) {
+    ctx.fill_black();
+    return;
+  }
+  auto *sparks = reinterpret_cast<Spark1D *>(ctx.env->data);
+  float *dying_gravity = reinterpret_cast<float *>(ctx.env->data + static_cast<size_t>(max_sparks) * sizeof(Spark1D));
+
+  float gravity = -0.0004f - static_cast<float>(SPEED) / 800000.0f * static_cast<float>(SEGLEN);
+
+  ctx.fade_to_black(252u);
+
+  if (AUX0 == 0u) {
+    // Init flare
+    sparks[0].pos = (INTENSITY > 128u) ? static_cast<float>(SEGLEN - 1) : 0.0f;
+    sparks[0].vel = (INTENSITY > 128u) ? -gravity * static_cast<float>(SEGLEN) * 0.5f
+                                       : gravity * static_cast<float>(SEGLEN) * (-0.5f);
+    sparks[0].vel = fabsf(gravity * static_cast<float>(SEGLEN)) * (0.4f + static_cast<float>(hw_random8(60u)) / 200.0f);
+    sparks[0].col = 345u;
+    sparks[0].col_index = 0u;
+    *dying_gravity = gravity;
+    AUX0 = 1u;
+  }
+
+  if (AUX0 == 1u) {
+    // Flare rising
+    sparks[0].pos += sparks[0].vel;
+    sparks[0].vel += gravity;
+    if (sparks[0].vel <= 0.0f)
+      AUX0 = 2u;
+    int32_t px = static_cast<int32_t>(sparks[0].pos);
+    if (px >= 0 && px < SEGLEN)
+      ctx.set_pixel(px, 0xFFFFFFu);
+    return;
+  }
+
+  if (AUX0 == 2u) {
+    // Explode: create sparks
+    float peak = sparks[0].pos;
+    for (int32_t i = 0; i < max_sparks; i++) {
+      sparks[i].pos = peak;
+      sparks[i].vel =
+          (static_cast<float>(hw_random8()) - 128.0f) / 128.0f * fabsf(gravity) * static_cast<float>(SEGLEN) * 0.4f;
+      sparks[i].col = hw_random16(345u);
+      sparks[i].col_index = hw_random8();
+    }
+    *dying_gravity = gravity * 0.8f;
+    AUX0 = 3u;
+  }
+
+  if (AUX0 == 3u) {
+    // Sparks in flight
+    *dying_gravity *= 0.97f;
+    bool all_dead = true;
+    for (int32_t i = 0; i < max_sparks; i++) {
+      sparks[i].pos += sparks[i].vel;
+      sparks[i].vel += *dying_gravity;
+      sparks[i].col = static_cast<uint16_t>(sparks[i].col > 4u ? sparks[i].col - 4u : 0u);
+      if (sparks[i].col > 0u)
+        all_dead = false;
+      int32_t px = static_cast<int32_t>(sparks[i].pos);
+      if (px >= 0 && px < SEGLEN) {
+        uint32_t col;
+        if (sparks[i].col > 300u)
+          col = 0xFFFFFFu;
+        else if (sparks[i].col > 45u)
+          col = ctx.pal_color(sparks[i].col_index);
+        else
+          col = color_fade(ctx.pal_color(sparks[i].col_index), static_cast<uint8_t>(sparks[i].col * 5u));
+        ctx.set_pixel(px, col);
+      }
+    }
+    if (all_dead) {
+      AUX0 = 4u;
+      STEP = NOW;
+    }
+    return;
+  }
+
+  if (AUX0 >= 4u) {
+    // Wait then reset
+    if (NOW - STEP > 500u)
+      AUX0 = 0u;
+  }
+}
+
+// 118 — Popcorn (kernels pop up with random velocities)
+// Source: WLED mode_popcorn (FX.cpp)
+void fx_popcorn(EffectContext &ctx) {
+  static constexpr int32_t MAX_POPCORN = 21;
+  size_t data_size = static_cast<size_t>(MAX_POPCORN) * sizeof(Spark1D);
+  if (!ctx.env->allocate_data(data_size)) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  auto *kernels = reinterpret_cast<Spark1D *>(ctx.env->data);
+
+  float gravity = -0.0001f - static_cast<float>(SPEED) / 200000.0f * static_cast<float>(SEGLEN);
+  int32_t num_popcorn = std::max<int32_t>(1, static_cast<int32_t>(INTENSITY) * MAX_POPCORN / 255);
+
+  // Background
+  if (!ctx.params->check2) {
+    uint32_t bg = COLOR1 ? COLOR1 : 0u;
+    ctx.fill(bg);
+  }
+
+  for (int32_t i = 0; i < num_popcorn; i++) {
+    // Inactive: maybe pop
+    if (kernels[i].pos <= 0.0f && kernels[i].vel == 0.0f) {
+      if (hw_random8(2u) == 0u) {
+        float peak =
+            0.4f + static_cast<float>(hw_random8(static_cast<uint8_t>(SEGLEN))) / static_cast<float>(SEGLEN) * 0.6f;
+        kernels[i].vel = sqrtf(-2.0f * gravity * peak * static_cast<float>(SEGLEN));
+        kernels[i].pos = 0.0f;
+        kernels[i].col_index = hw_random8();
+      }
+      continue;
+    }
+
+    // Physics
+    kernels[i].pos += kernels[i].vel;
+    kernels[i].vel += gravity;
+    if (kernels[i].pos <= 0.0f) {
+      kernels[i].pos = 0.0f;
+      kernels[i].vel = 0.0f;
+    }
+
+    int32_t px = static_cast<int32_t>(kernels[i].pos);
+    if (px >= 0 && px < SEGLEN) {
+      uint32_t col;
+      if (ctx.params->palette_id != 0) {
+        col = ctx.pal_color(kernels[i].col_index);
+      } else {
+        col = ctx.params->colors[static_cast<size_t>(i) % 3u];
+      }
+      ctx.set_pixel(px, col);
+    }
+  }
+}
+
+// 119 — Drip (drips fall from top, bounce at bottom)
+// Source: WLED mode_drip (FX.cpp)
+void fx_drip(EffectContext &ctx) {
+  static constexpr int32_t MAX_DROPS = 4;
+  size_t data_size = static_cast<size_t>(MAX_DROPS) * sizeof(Spark1D);
+  if (!ctx.env->allocate_data(data_size)) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  auto *drops = reinterpret_cast<Spark1D *>(ctx.env->data);
+
+  float gravity =
+      -0.0005f - static_cast<float>(SPEED) / 50000.0f * static_cast<float>(std::max<int32_t>(1, SEGLEN - 1));
+  int32_t num_drops = std::min<int32_t>(MAX_DROPS, 1 + static_cast<int32_t>(INTENSITY >> 6u));
+
+  if (!ctx.params->check2)
+    ctx.fill(COLOR1);
+
+  // Source glow at top
+  static constexpr uint8_t SOURCE_DROP = 12u;
+  ctx.set_pixel(SEGLEN - 1, color_fade(COLOR0, SOURCE_DROP));
+
+  for (int32_t i = 0; i < num_drops; i++) {
+    uint8_t state = drops[i].col_index;
+
+    if (state == 0u) {
+      // Init: start at top, forming
+      drops[i].pos = static_cast<float>(SEGLEN - 1);
+      drops[i].vel = 0.0f;
+      drops[i].col_index = 1u;
+    }
+
+    if (drops[i].col_index == 1u) {
+      // Forming: swell brightness, random drop trigger
+      uint8_t bri = static_cast<uint8_t>(drops[i].col >> 8u);
+      bri = static_cast<uint8_t>(std::min<uint16_t>(255u, static_cast<uint16_t>(bri) + 8u));
+      drops[i].col = static_cast<uint16_t>(bri << 8u);
+      int32_t px = static_cast<int32_t>(drops[i].pos);
+      if (px >= 0 && px < SEGLEN)
+        ctx.set_pixel(px, color_fade(COLOR0, bri));
+      if (bri >= 255u && hw_random8(10u) == 0u) {
+        drops[i].vel = 0.0f;
+        drops[i].col_index = 2u;  // start falling
+      }
+      continue;
+    }
+
+    if (drops[i].col_index == 2u || drops[i].col_index == 5u) {
+      // Falling / bouncing
+      drops[i].pos += drops[i].vel;
+      drops[i].vel += gravity;
+
+      // Trail
+      for (int32_t t = 1; t <= 3; t++) {
+        int32_t trail_px = static_cast<int32_t>(drops[i].pos) + t;
+        if (trail_px >= 0 && trail_px < SEGLEN)
+          ctx.set_pixel(trail_px, color_fade(COLOR0, static_cast<uint8_t>(80u >> t)));
+      }
+
+      int32_t px = static_cast<int32_t>(drops[i].pos);
+      if (px >= 0 && px < SEGLEN)
+        ctx.set_pixel(px, COLOR0);
+
+      // Bottom bounce
+      if (drops[i].pos <= 0.0f) {
+        drops[i].pos = 0.0f;
+        if (drops[i].col_index == 2u) {
+          drops[i].vel = -drops[i].vel / 4.0f;
+          drops[i].col_index = 5u;
+        } else {
+          drops[i].vel = -drops[i].vel / 4.0f;
+          if (fabsf(drops[i].vel) < 0.01f)
+            drops[i].col_index = 0u;  // reset
+        }
+      }
+    }
+  }
+}
+
+// 120 — Dancing Shadows (moving spotlight blobs)
+// Source: WLED mode_dancing_shadows (FX.cpp)
+void fx_dancing_shadows(EffectContext &ctx) {
+  struct SpotLight {
+    float speed;
+    uint8_t color_idx;
+    int16_t position;
+    uint32_t last_update;
+    uint8_t width;
+    uint8_t type;
+  };
+
+  int32_t num_spots = std::max<int32_t>(2, std::min<int32_t>(16, static_cast<int32_t>(INTENSITY) * 16 / 255 + 2));
+  size_t data_size = static_cast<size_t>(num_spots) * sizeof(SpotLight);
+  if (!ctx.env->allocate_data(data_size)) {
+    ctx.fill_black();
+    return;
+  }
+  auto *spots = reinterpret_cast<SpotLight *>(ctx.env->data);
+
+  if (CALL == 0u) {
+    for (int32_t i = 0; i < num_spots; i++) {
+      spots[i].position = static_cast<int16_t>(hw_random16(static_cast<uint16_t>(SEGLEN)));
+      spots[i].speed = (1.0f + static_cast<float>(hw_random8(20u))) / 20.0f;
+      spots[i].color_idx = hw_random8();
+      spots[i].width = 1u + hw_random8(static_cast<uint8_t>(std::max<int32_t>(1, SEGLEN / 8)));
+      spots[i].type = hw_random8(6u);
+      spots[i].last_update = NOW;
+    }
+  }
+
+  ctx.fill_black();
+
+  auto blend_pix = [&](int32_t i, uint32_t col, uint8_t alpha) {
+    int32_t base = ctx.map_pixel(i);
+    if (base < 0 || base >= static_cast<int32_t>(ctx.frame_len))
+      return;
+    ctx.frame_buf[base] = color_blend(ctx.frame_buf[base], col, alpha);
+  };
+
+  for (int32_t s = 0; s < num_spots; s++) {
+    SpotLight &spot = spots[s];
+    uint32_t dt = NOW - spot.last_update;
+    spot.last_update = NOW;
+
+    float move = spot.speed * static_cast<float>(SPEED + 1u) / 32.0f * static_cast<float>(dt) / 16.0f;
+    spot.position = static_cast<int16_t>(static_cast<int32_t>(spot.position) + static_cast<int32_t>(move));
+
+    // Wrap around
+    if (spot.position >= SEGLEN) {
+      spot.position = 0;
+      spot.color_idx = hw_random8();
+      spot.type = hw_random8(6u);
+      spot.width = 1u + hw_random8(static_cast<uint8_t>(std::max<int32_t>(1, SEGLEN / 8)));
+    } else if (spot.position < 0) {
+      spot.position = static_cast<int16_t>(SEGLEN - 1);
+    }
+
+    uint32_t col = ctx.pal_color(spot.color_idx);
+    int32_t center = static_cast<int32_t>(spot.position);
+    int32_t half_w = static_cast<int32_t>(spot.width);
+
+    for (int32_t d = -half_w; d <= half_w; d++) {
+      int32_t px = center + d;
+      if (px < 0 || px >= SEGLEN)
+        continue;
+      uint8_t alpha;
+      switch (spot.type) {
+        case 0:  // solid
+          alpha = 200u;
+          break;
+        case 1:  // gradient
+          alpha = cubicwave8(
+              static_cast<uint8_t>(static_cast<uint32_t>(d + half_w) * 255u / static_cast<uint32_t>(2 * half_w + 1)));
+          break;
+        case 2:  // double gradient
+          alpha = cubicwave8(
+              static_cast<uint8_t>(static_cast<uint32_t>(abs(d)) * 255u / static_cast<uint32_t>(half_w + 1)));
+          break;
+        case 3:  // 2x dot
+          alpha = (abs(d) <= 1) ? 200u : 40u;
+          break;
+        case 4:  // 3x dot
+          alpha = (abs(d) == 0) ? 200u : (abs(d) <= 2 ? 80u : 20u);
+          break;
+        default:  // 4x dot
+          alpha = (abs(d) == 0) ? 200u : (abs(d) <= 3 ? 60u : 15u);
+          break;
+      }
+      blend_pix(px, col, alpha);
+    }
+  }
+}
+
+// 121 — TV Simulator (flickering screen-like color wash)
+// Source: WLED mode_tv_simulator (FX.cpp)
+void fx_tv_simulator(EffectContext &ctx) {
+  struct TvState {
+    uint32_t total_time;
+    uint32_t fade_time;
+    uint32_t start_time;
+    uint32_t scene_start;
+    uint32_t scene_dur;
+    uint16_t scene_hue;
+    uint16_t slider_vals;
+    uint8_t scene_sat;
+    uint8_t scene_bri;
+    uint8_t r, g, b;
+    uint16_t pr, pg, pb;
+  };
+
+  if (!ctx.env->allocate_data(sizeof(TvState))) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  auto *tv = reinterpret_cast<TvState *>(ctx.env->data);
+
+  uint8_t color_speed = static_cast<uint8_t>(1u + static_cast<uint32_t>(SPEED) * 20u / 255u);
+
+  if (CALL == 0u) {
+    tv->scene_hue = hw_random16();
+    tv->scene_sat = hw_random8(150u) + 100u;
+    tv->scene_bri = hw_random8(100u) + 100u;
+    // scene_dur range: 60*250*cs .. 60*750*cs ms — may exceed uint16, use esp_random
+    uint32_t dur_lo = 60u * 250u * color_speed;
+    uint32_t dur_range = 60u * 500u * color_speed;
+    tv->scene_dur = dur_lo + (esp_random() % (dur_range + 1u));
+    tv->scene_start = NOW;
+    tv->start_time = NOW;
+    tv->fade_time = static_cast<uint32_t>(hw_random16(2000u) + 1000u);
+    tv->total_time = static_cast<uint32_t>(hw_random16(4000u) + 1000u);
+    tv->slider_vals = 0u;
+    tv->r = 0u;
+    tv->g = 0u;
+    tv->b = 0u;
+    tv->pr = 0u;
+    tv->pg = 0u;
+    tv->pb = 0u;
+  }
+
+  // New scene?
+  if (NOW - tv->scene_start > tv->scene_dur) {
+    tv->pr = static_cast<uint16_t>(tv->r);
+    tv->pg = static_cast<uint16_t>(tv->g);
+    tv->pb = static_cast<uint16_t>(tv->b);
+    tv->scene_hue = static_cast<uint16_t>(tv->scene_hue + hw_random16(4000u) + 1000u);
+    tv->scene_sat = static_cast<uint8_t>(hw_random8(150u) + 100u);
+    tv->scene_bri = static_cast<uint8_t>(hw_random8(100u) + 100u);
+    uint32_t dur_lo2 = 60u * 250u * color_speed;
+    uint32_t dur_range2 = 60u * 500u * color_speed;
+    tv->scene_dur = dur_lo2 + (esp_random() % (dur_range2 + 1u));
+    tv->scene_start = NOW;
+    tv->start_time = NOW;
+    tv->fade_time = static_cast<uint32_t>(hw_random16(1500u) + 500u);
+    tv->total_time = tv->fade_time + static_cast<uint32_t>(hw_random16(2500u) + 500u);
+  }
+
+  // Convert HSV scene colour to RGB (simple hue-based)
+  uint16_t h = tv->scene_hue >> 8u;
+  uint8_t region = static_cast<uint8_t>(h / 43u);
+  uint8_t rem = static_cast<uint8_t>((h - region * 43u) * 6u);
+  uint8_t p = static_cast<uint8_t>(static_cast<uint16_t>(tv->scene_bri) * (255u - tv->scene_sat) >> 8u);
+  uint8_t q = static_cast<uint8_t>(
+      static_cast<uint16_t>(tv->scene_bri) * (255u - (static_cast<uint16_t>(tv->scene_sat) * rem >> 8u)) >> 8u);
+  uint8_t t_val = static_cast<uint8_t>(static_cast<uint16_t>(tv->scene_bri) *
+                                           (255u - (static_cast<uint16_t>(tv->scene_sat) * (255u - rem) >> 8u)) >>
+                                       8u);
+  uint8_t target_r, target_g, target_b;
+  switch (region % 6u) {
+    case 0:
+      target_r = tv->scene_bri;
+      target_g = t_val;
+      target_b = p;
+      break;
+    case 1:
+      target_r = q;
+      target_g = tv->scene_bri;
+      target_b = p;
+      break;
+    case 2:
+      target_r = p;
+      target_g = tv->scene_bri;
+      target_b = t_val;
+      break;
+    case 3:
+      target_r = p;
+      target_g = q;
+      target_b = tv->scene_bri;
+      break;
+    case 4:
+      target_r = t_val;
+      target_g = p;
+      target_b = tv->scene_bri;
+      break;
+    default:
+      target_r = tv->scene_bri;
+      target_g = p;
+      target_b = q;
+      break;
+  }
+
+  // Blend toward target during fade_time
+  uint32_t elapsed = NOW - tv->start_time;
+  if (elapsed < tv->fade_time && tv->fade_time > 0u) {
+    uint8_t blend = static_cast<uint8_t>((elapsed * 255u) / tv->fade_time);
+    tv->r = static_cast<uint8_t>(lerp8by8(static_cast<uint8_t>(tv->pr & 0xFFu), target_r, blend));
+    tv->g = static_cast<uint8_t>(lerp8by8(static_cast<uint8_t>(tv->pg & 0xFFu), target_g, blend));
+    tv->b = static_cast<uint8_t>(lerp8by8(static_cast<uint8_t>(tv->pb & 0xFFu), target_b, blend));
+  } else {
+    tv->r = target_r;
+    tv->g = target_g;
+    tv->b = target_b;
+  }
+
+  // Slight brightness flicker for realism
+  uint8_t flicker = beatsin8(static_cast<uint8_t>(120u + INTENSITY / 4u), 200u, 255u, NOW);
+  uint32_t draw_col = RGBW32(static_cast<uint8_t>(static_cast<uint16_t>(tv->r) * flicker >> 8u),
+                             static_cast<uint8_t>(static_cast<uint16_t>(tv->g) * flicker >> 8u),
+                             static_cast<uint8_t>(static_cast<uint16_t>(tv->b) * flicker >> 8u), 0u);
+  ctx.fill(draw_col);
+}
+
 // Append new rows to the effect table
 const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 00 */ {"Solid", "Solid", fx_solid},
@@ -3169,6 +4277,32 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 99 */ {"Dissolve Rnd", "Dissolve Rnd@Repeat speed,Dissolve speed;,!;!", fx_dissolve_random},
     /* 100 */ {"Sweep Random", "Sweep Random@!;;!", fx_sweep_random},
     /* 101 */ {"Chase Flash Rnd", "Chase Flash Rnd@!;!,!;!", fx_chase_flash_random},
+    /* 102 */ {"Sparkle Dark", "Sparkle Dark@!,!,,,,,Overlay;Bg,Fx;!;;m12=0", fx_sparkle_dark},
+    /* 103 */ {"Sparkle+", "Sparkle+@!,!,,,,,Overlay;Bg,Fx;!;;m12=0", fx_sparkle_plus},
+    /* 104 */ {"Chase 2", "Chase 2@!,Width;!,!;!", fx_chase2},
+    /* 105 */ {"Rainbow Runner", "Rainbow Runner@!,Size;Bg;!", fx_rainbow_runner},
+    /* 106 */ {"Noise 1", "Noise 1@!;!;!;;pal=20", fx_noise1},
+    /* 107 */ {"Noise 2", "Noise 2@!;!;!;;pal=43", fx_noise2},
+    /* 108 */ {"Noise 3", "Noise 3@!;!;!;;pal=35", fx_noise3},
+    /* 109 */ {"Noise 4", "Noise 4@!;!;!;;pal=26", fx_noise4},
+    /* 110 */ {"Phased Noise", "Phased Noise@!,!;!,!;!", fx_phased_noise},
+    /* 111 */
+    {"Wavesins", "Wavesins@!,Brightness variation,Starting color,Range of colors,Color variation;!;!", fx_wavesins},
+    /* 112 */
+    {"Shimmer",
+     "Shimmer@Speed,Interval,Size,Granular,Flow,Zebra,Reverse,Sporadic;Fx,Bg,Cx;!;1;pal=15,sx=220,ix=10,c2=0,c3=0",
+     fx_shimmer},
+    /* 113 */ {"Aurora", "Aurora@!,!;1,2,3;!;;sx=24,pal=50", fx_aurora},
+    /* 114 */ {"Tetrix", "Tetrix@!,Width,,,,One color;!,!;!;;sx=0,ix=0,pal=11,m12=1", fx_tetrix},
+    /* 115 */
+    {"Rolling Balls", "Rolling Balls@!,# of balls,,,,Collide,Overlay,Trails;!,!,!;!;1;m12=1", fx_rolling_balls},
+    /* 116 */
+    {"Fireworks Starburst", "Fireworks Starburst@Chance,Fragments,,,,,Overlay;,!;!;;pal=11,m12=0", fx_starburst},
+    /* 117 */ {"Fireworks 1D", "Fireworks 1D@Gravity,Firing side;!,!;!;12;pal=11,ix=128", fx_fireworks_1d},
+    /* 118 */ {"Popcorn", "Popcorn@!,!,,,,,Overlay;!,!,!;!;;m12=1", fx_popcorn},
+    /* 119 */ {"Drip", "Drip@Gravity,# of drips,,,,,Overlay;!,!;!;;m12=1", fx_drip},
+    /* 120 */ {"Dancing Shadows", "Dancing Shadows@!,# of shadows;!;!", fx_dancing_shadows},
+    /* 121 */ {"TV Simulator", "TV Simulator@!,!;;!;01", fx_tv_simulator},
 };
 
 }  // namespace wled_bridge

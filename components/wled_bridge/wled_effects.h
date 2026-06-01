@@ -13,7 +13,7 @@ struct EffectDescriptor {
   EffectFn fn;
 };
 
-static constexpr size_t WLED_EFFECT_COUNT = 102;
+static constexpr size_t WLED_EFFECT_COUNT = 122;
 extern const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT];
 
 // ---- forward declarations ----
@@ -126,6 +126,29 @@ void fx_twinklecat(EffectContext &);
 void fx_dissolve_random(EffectContext &);
 void fx_sweep_random(EffectContext &);
 void fx_chase_flash_random(EffectContext &);
+
+// --- batch 6 ---
+void fx_sparkle_dark(EffectContext &);
+void fx_sparkle_plus(EffectContext &);
+void fx_chase2(EffectContext &);
+void fx_rainbow_runner(EffectContext &);
+void fx_noise1(EffectContext &);
+void fx_noise2(EffectContext &);
+void fx_noise3(EffectContext &);
+void fx_noise4(EffectContext &);
+void fx_phased_noise(EffectContext &);
+void fx_wavesins(EffectContext &);
+// --- batch 7 ---
+void fx_shimmer(EffectContext &);
+void fx_aurora(EffectContext &);
+void fx_tetrix(EffectContext &);
+void fx_rolling_balls(EffectContext &);
+void fx_starburst(EffectContext &);
+void fx_fireworks_1d(EffectContext &);
+void fx_popcorn(EffectContext &);
+void fx_drip(EffectContext &);
+void fx_dancing_shadows(EffectContext &);
+void fx_tv_simulator(EffectContext &);
 
 }  // namespace wled_bridge
 }  // namespace esphome
