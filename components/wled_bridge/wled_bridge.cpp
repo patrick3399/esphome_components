@@ -28,7 +28,7 @@ void WLEDProxyEffect::start() {
 // ============================================================
 static const char *const TAG = "wled_bridge";
 static constexpr uint32_t WLED_PRESET_MAGIC = 0x574C5033;  // WLP3
-static constexpr uint32_t WLED_STATE_MAGIC = 0x574C5332;  // WLS2
+static constexpr uint32_t WLED_STATE_MAGIC = 0x574C5333;  // WLS3 (adds segment layout)
 static constexpr uint32_t WLED_STATE_SAVE_DELAY_MS = 2000;
 
 static uint8_t scale8_linear(uint8_t value, uint8_t scale) {
@@ -241,8 +241,80 @@ void WLEDBridgeComponent::load_state_() {
     return;
 
   this->apply_preset_(recovered.state);
+  this->main_grouping_ = recovered.main_grouping < 1 ? 1 : recovered.main_grouping;
+  this->main_spacing_ = recovered.main_spacing;
+  this->main_opacity_ = recovered.main_opacity;
+  this->apply_stored_extras_(recovered);
   this->state_loaded_ = true;
-  ESP_LOGD(TAG, "Restored WLED bridge state");
+  ESP_LOGD(TAG, "Restored WLED bridge state (%u extra segment(s))", recovered.extra_count);
+}
+
+// Rebuild the extra-segment array from a persisted state blob.
+void WLEDBridgeComponent::apply_stored_extras_(const WLEDStoredState &state) {
+  uint8_t count = std::min<uint8_t>(state.extra_count, WLED_MAX_SEGMENTS - 1);
+  for (uint8_t i = 0; i < count; i++) {
+    const WLEDExtraSegRecord &rec = state.extras[i];
+    ExtraSegment &seg = this->extra_segments_[i];
+    seg.env.free_data();
+    seg.env.step = seg.env.call = 0;
+    seg.env.aux0 = seg.env.aux1 = 0;
+    seg.start = rec.start;
+    seg.stop = rec.stop;
+    seg.grouping = rec.grouping < 1 ? 1 : rec.grouping;
+    seg.spacing = rec.spacing;
+    seg.reverse = rec.reverse != 0;
+    seg.mirror = rec.mirror != 0;
+    seg.on = rec.on != 0;
+    seg.opacity = rec.opacity;
+    seg.mode = rec.mode < WLED_EFFECT_COUNT ? rec.mode : 0;
+    seg.params.speed = rec.speed;
+    seg.params.intensity = rec.intensity;
+    seg.params.custom1 = rec.custom1;
+    seg.params.custom2 = rec.custom2;
+    seg.params.custom3 = rec.custom3;
+    seg.params.check1 = rec.check1 != 0;
+    seg.params.check2 = rec.check2 != 0;
+    seg.params.check3 = rec.check3 != 0;
+    seg.params.palette_id = rec.palette;
+    seg.params.colors[0] = rec.colors[0];
+    seg.params.colors[1] = rec.colors[1];
+    seg.params.colors[2] = rec.colors[2];
+  }
+  this->extra_count_ = count;
+  this->opacity_map_dirty_ = true;
+}
+
+// Snapshot the current extra-segment array into a persisted state blob.
+void WLEDBridgeComponent::capture_extras_(WLEDStoredState *state) const {
+  state->main_grouping = static_cast<uint8_t>(this->main_grouping_);
+  state->main_spacing = static_cast<uint8_t>(this->main_spacing_);
+  state->main_opacity = this->main_opacity_;
+  state->extra_count = this->extra_count_;
+  for (uint8_t i = 0; i < this->extra_count_; i++) {
+    const ExtraSegment &seg = this->extra_segments_[i];
+    WLEDExtraSegRecord &rec = state->extras[i];
+    rec.start = seg.start;
+    rec.stop = seg.stop;
+    rec.grouping = seg.grouping;
+    rec.spacing = seg.spacing;
+    rec.reverse = seg.reverse ? 1 : 0;
+    rec.mirror = seg.mirror ? 1 : 0;
+    rec.on = seg.on ? 1 : 0;
+    rec.opacity = seg.opacity;
+    rec.mode = seg.mode;
+    rec.speed = seg.params.speed;
+    rec.intensity = seg.params.intensity;
+    rec.custom1 = seg.params.custom1;
+    rec.custom2 = seg.params.custom2;
+    rec.custom3 = seg.params.custom3;
+    rec.check1 = seg.params.check1 ? 1 : 0;
+    rec.check2 = seg.params.check2 ? 1 : 0;
+    rec.check3 = seg.params.check3 ? 1 : 0;
+    rec.palette = seg.params.palette_id;
+    rec.colors[0] = seg.params.colors[0];
+    rec.colors[1] = seg.params.colors[1];
+    rec.colors[2] = seg.params.colors[2];
+  }
 }
 
 void WLEDBridgeComponent::persist_state_() {
@@ -251,6 +323,7 @@ void WLEDBridgeComponent::persist_state_() {
   WLEDStoredState state;
   state.magic = WLED_STATE_MAGIC;
   state.state = this->current_as_preset_();
+  this->capture_extras_(&state);
   this->state_pref_.save(&state);
   global_preferences->sync();
   ESP_LOGV(TAG, "Persisted WLED bridge state");
@@ -1090,7 +1163,10 @@ void WLEDBridgeComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Effects: %zu", WLED_EFFECT_COUNT);
   ESP_LOGCONFIG(TAG, "  Palettes: %zu", WLED_PALETTE_COUNT);
   ESP_LOGCONFIG(TAG, "  Presets: %u slots", WLED_PRESET_COUNT);
-  ESP_LOGCONFIG(TAG, "  Segment: %u-%u", this->segment_start_, this->segment_stop_);
+  ESP_LOGCONFIG(TAG, "  Segments: %u of %u (main %u-%u)", this->get_segment_count(), WLED_MAX_SEGMENTS,
+                this->segment_start_, this->segment_stop_);
+  static const char *const AUTO_WHITE_NAMES[] = {"none", "brighter", "accurate", "?", "max"};
+  ESP_LOGCONFIG(TAG, "  Auto-white: %s", this->auto_white_mode_ <= 4 ? AUTO_WHITE_NAMES[this->auto_white_mode_] : "?");
   ESP_LOGCONFIG(TAG, "  Use task: %s", YESNO(this->use_task_));
 }
 

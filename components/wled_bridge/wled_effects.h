@@ -13,7 +13,7 @@ struct EffectDescriptor {
   EffectFn fn;
 };
 
-static constexpr size_t WLED_EFFECT_COUNT = 84;
+static constexpr size_t WLED_EFFECT_COUNT = 102;
 extern const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT];
 
 // ---- forward declarations ----
@@ -106,6 +106,26 @@ void fx_chase_color(EffectContext &);
 void fx_chase_color_random(EffectContext &);
 void fx_solid_pattern_tri(EffectContext &);
 void fx_solid_pattern(EffectContext &);
+
+// --- batch 5 ---
+void fx_blink_rainbow(EffectContext &);
+void fx_dynamic_smooth(EffectContext &);
+void fx_running_dual(EffectContext &);
+void fx_traffic_light(EffectContext &);
+void fx_loading(EffectContext &);
+void fx_stream2(EffectContext &);
+void fx_spots_fade(EffectContext &);
+void fx_sinelon_dual(EffectContext &);
+void fx_sinelon_rainbow(EffectContext &);
+void fx_ripple_rainbow(EffectContext &);
+void fx_candle_multi(EffectContext &);
+void fx_noise_pal(EffectContext &);
+void fx_twinklefox(EffectContext &);
+void fx_flow_stripe(EffectContext &);
+void fx_twinklecat(EffectContext &);
+void fx_dissolve_random(EffectContext &);
+void fx_sweep_random(EffectContext &);
+void fx_chase_flash_random(EffectContext &);
 
 }  // namespace wled_bridge
 }  // namespace esphome

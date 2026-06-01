@@ -75,9 +75,37 @@ struct WLEDPresetStore {
   WLEDPresetRecord slots[WLED_PRESET_COUNT]{};
 };
 
+// Compact persisted form of one extra (non-main) segment.
+struct WLEDExtraSegRecord {
+  uint16_t start{0};
+  uint16_t stop{0};
+  uint16_t grouping{1};
+  uint16_t spacing{0};
+  uint8_t reverse{0};
+  uint8_t mirror{0};
+  uint8_t on{1};
+  uint8_t opacity{255};
+  uint8_t mode{0};
+  uint8_t speed{128};
+  uint8_t intensity{128};
+  uint8_t custom1{128};
+  uint8_t custom2{128};
+  uint8_t custom3{16};
+  uint8_t check1{0};
+  uint8_t check2{0};
+  uint8_t check3{0};
+  uint8_t palette{0};
+  uint32_t colors[3]{0xFFAA00, 0x000000, 0x000000};
+};
+
 struct WLEDStoredState {
   uint32_t magic{0};
-  WLEDPresetRecord state{};
+  WLEDPresetRecord state{};  // main segment + globals
+  uint8_t main_grouping{1};
+  uint8_t main_spacing{0};
+  uint8_t main_opacity{255};
+  uint8_t extra_count{0};
+  WLEDExtraSegRecord extras[WLED_MAX_SEGMENTS - 1]{};
 };
 
 class WLEDBridgeComponent : public Component, public light::LightRemoteValuesListener {
@@ -314,6 +342,8 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void persist_presets_();
   void load_state_();
   void persist_state_();
+  void capture_extras_(WLEDStoredState *state) const;
+  void apply_stored_extras_(const WLEDStoredState &state);
   void schedule_state_save_();
   void apply_preset_(const WLEDPresetRecord &preset);
   WLEDPresetRecord current_as_preset_() const;
