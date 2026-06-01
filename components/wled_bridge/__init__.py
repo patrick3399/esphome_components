@@ -15,6 +15,15 @@ CONF_BUSES = "buses"
 CONF_MAX_MA = "max_ma"
 CONF_LED_MA = "led_ma"
 CONF_USE_TASK = "use_task"
+CONF_AUTO_WHITE = "auto_white"
+
+# Auto-white modes for RGBW strips (derive W channel from RGB).
+AUTO_WHITE_MODES = {
+    "none": 0,
+    "brighter": 1,
+    "accurate": 2,
+    "max": 4,
+}
 
 # Per-bus config block
 BUS_SCHEMA = cv.Schema(
@@ -35,6 +44,9 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_MAX_MA, default=5000): cv.positive_int,
         cv.Optional(CONF_LED_MA, default=55): cv.positive_int,
         cv.Optional(CONF_USE_TASK, default=False): cv.boolean,
+        cv.Optional(CONF_AUTO_WHITE, default="none"): cv.enum(
+            AUTO_WHITE_MODES, lower=True
+        ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -55,6 +67,7 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     cg.add(var.set_use_task(config[CONF_USE_TASK]))
+    cg.add(var.set_auto_white_mode(config[CONF_AUTO_WHITE]))
 
     if CONF_BUSES in config:
         # Multi-bus path: call add_bus() for each entry in order.

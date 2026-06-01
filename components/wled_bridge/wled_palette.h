@@ -46,9 +46,44 @@ enum PaletteID : uint8_t {
   PAL_ORANGERY = 16,
   PAL_SAKURA = 17,
   PAL_AURORA = 18,
+  PAL_C9 = 19,
+  PAL_ATLANTICA = 20,
+  PAL_C9_2 = 21,
+  PAL_C9_NEW = 22,
+  PAL_TEMPERATURE = 23,
+  PAL_CANDY = 24,
+  PAL_TOXY_REAF = 25,
+  PAL_FAIRY_REAF = 26,
+  PAL_SEMI_BLUE = 27,
+  PAL_PINK_CANDY = 28,
+  PAL_RED_REAF = 29,
+  PAL_YELBLU_HOT = 30,
+  PAL_SUNSET_REAL = 31,
+  PAL_RIVENDELL = 32,
+  PAL_RED_BLUE = 33,
+  PAL_TERTIARY = 34,
+  PAL_FIRE = 35,
+  PAL_ICEFIRE = 36,
+  PAL_CYANE = 37,
+  PAL_LIGHT_PINK = 38,
+  PAL_AURORA2 = 39,
+  PAL_RETRO_CLOWN = 40,
+  PAL_AUTUMN = 41,
+  PAL_MAGENTA = 42,
+  PAL_MAGRED = 43,
+  PAL_YELMAG = 44,
+  PAL_YELBLU = 45,
+  PAL_ORANGE_TEAL = 46,
+  PAL_AQUA_FLASH = 47,
+  PAL_LITE_LIGHT = 48,
+  PAL_RED_FLASH = 49,
+  PAL_BLINK_RED = 50,
+  PAL_RED_SHIFT = 51,
+  PAL_RED_TIDE = 52,
+  PAL_CANDY2 = 53,
 };
 
-static constexpr size_t WLED_PALETTE_COUNT = 19;
+static constexpr size_t WLED_PALETTE_COUNT = 54;
 extern const PaletteInfo WLED_PALETTES[WLED_PALETTE_COUNT];
 
 // Palette data tables (defined in wled_palette.cpp)
@@ -65,6 +100,41 @@ extern const WLEDPalette16 PAL_DATA_APRIL_NIGHT;
 extern const WLEDPalette16 PAL_DATA_ORANGERY;
 extern const WLEDPalette16 PAL_DATA_SAKURA;
 extern const WLEDPalette16 PAL_DATA_AURORA;
+extern const WLEDPalette16 PAL_DATA_C9;
+extern const WLEDPalette16 PAL_DATA_ATLANTICA;
+extern const WLEDPalette16 PAL_DATA_C9_2;
+extern const WLEDPalette16 PAL_DATA_C9_NEW;
+extern const WLEDPalette16 PAL_DATA_TEMPERATURE;
+extern const WLEDPalette16 PAL_DATA_CANDY;
+extern const WLEDPalette16 PAL_DATA_TOXY_REAF;
+extern const WLEDPalette16 PAL_DATA_FAIRY_REAF;
+extern const WLEDPalette16 PAL_DATA_SEMI_BLUE;
+extern const WLEDPalette16 PAL_DATA_PINK_CANDY;
+extern const WLEDPalette16 PAL_DATA_RED_REAF;
+extern const WLEDPalette16 PAL_DATA_YELBLU_HOT;
+extern const WLEDPalette16 PAL_DATA_SUNSET_REAL;
+extern const WLEDPalette16 PAL_DATA_RIVENDELL;
+extern const WLEDPalette16 PAL_DATA_RED_BLUE;
+extern const WLEDPalette16 PAL_DATA_TERTIARY;
+extern const WLEDPalette16 PAL_DATA_FIRE;
+extern const WLEDPalette16 PAL_DATA_ICEFIRE;
+extern const WLEDPalette16 PAL_DATA_CYANE;
+extern const WLEDPalette16 PAL_DATA_LIGHT_PINK;
+extern const WLEDPalette16 PAL_DATA_AURORA2;
+extern const WLEDPalette16 PAL_DATA_RETRO_CLOWN;
+extern const WLEDPalette16 PAL_DATA_AUTUMN;
+extern const WLEDPalette16 PAL_DATA_MAGENTA;
+extern const WLEDPalette16 PAL_DATA_MAGRED;
+extern const WLEDPalette16 PAL_DATA_YELMAG;
+extern const WLEDPalette16 PAL_DATA_YELBLU;
+extern const WLEDPalette16 PAL_DATA_ORANGE_TEAL;
+extern const WLEDPalette16 PAL_DATA_AQUA_FLASH;
+extern const WLEDPalette16 PAL_DATA_LITE_LIGHT;
+extern const WLEDPalette16 PAL_DATA_RED_FLASH;
+extern const WLEDPalette16 PAL_DATA_BLINK_RED;
+extern const WLEDPalette16 PAL_DATA_RED_SHIFT;
+extern const WLEDPalette16 PAL_DATA_RED_TIDE;
+extern const WLEDPalette16 PAL_DATA_CANDY2;
 
 }  // namespace wled_bridge
 }  // namespace esphome

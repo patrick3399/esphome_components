@@ -43,6 +43,34 @@ static uint8_t unit_to_u8(float value) {
   return static_cast<uint8_t>(value * 255.0f + 0.5f);
 }
 
+// Derive a white channel from RGB for RGBW strips (WLED-style auto white modes).
+static uint32_t apply_auto_white(uint32_t c, uint8_t mode) {
+  if (mode == 0)
+    return c;
+  uint8_t r = R(c), g = G(c), b = B(c), w = W(c);
+  uint8_t lo = std::min<uint8_t>(r, std::min<uint8_t>(g, b));
+  switch (mode) {
+    case 1:  // brighter: keep RGB, add white from the common floor
+      w = qadd8(w, lo);
+      break;
+    case 2:  // accurate: pull the white component out of RGB
+      r = static_cast<uint8_t>(r - lo);
+      g = static_cast<uint8_t>(g - lo);
+      b = static_cast<uint8_t>(b - lo);
+      w = qadd8(w, lo);
+      break;
+    case 4: {  // max: white tracks the brightest channel
+      uint8_t hi = std::max<uint8_t>(r, std::max<uint8_t>(g, b));
+      w = qadd8(w, hi);
+      break;
+    }
+    default:
+      w = qadd8(w, lo);
+      break;
+  }
+  return RGBW32(r, g, b, w);
+}
+
 // ============================================================
 // add_bus — called from generated code once per bus
 // ============================================================
@@ -135,6 +163,17 @@ void WLEDBridgeComponent::setup() {
     return;
   }
   memset(this->transition_frame_, 0, buf_bytes);
+
+  // Per-LED opacity map (segment brightness / on-off). Internal RAM is fine —
+  // one byte per LED, accessed every flush.
+  this->pixel_opacity_ = static_cast<uint8_t *>(malloc(this->total_leds_));
+  if (this->pixel_opacity_ == nullptr) {
+    ESP_LOGE(TAG, "Unable to allocate opacity map (%u LEDs)", this->total_leds_);
+    this->mark_failed();
+    return;
+  }
+  memset(this->pixel_opacity_, 255, this->total_leds_);
+  this->opacity_map_dirty_ = true;
 
   // Zero all strips
   for (auto &bus : this->buses_) {
@@ -435,26 +474,89 @@ void WLEDBridgeComponent::render_frame_() {
   // full_frame_[] already holds the unscaled result from the last frame.
   // Effects that fade (comet, larson…) read previous values and write faded
   // versions — no separate "restore" step needed.
-  EffectContext ctx{this->full_frame_,
-                    this->total_leds_,
-                    &this->params_,
-                    &this->env_,
-                    now,
-                    static_cast<int32_t>(this->segment_start_),
-                    static_cast<int32_t>(this->segment_stop_),
-                    static_cast<int32_t>(this->get_segment_length()),
-                    this->segment_reverse_,
-                    this->segment_mirror_};
 
-  if (this->active_fx_ < WLED_EFFECT_COUNT)
-    WLED_EFFECTS[this->active_fx_].fn(ctx);
+  // Main segment (id 0) — state lives in scalar members.
+  SegmentView main_view{static_cast<int32_t>(this->segment_start_),
+                        static_cast<int32_t>(this->segment_stop_),
+                        this->segment_reverse_,
+                        this->segment_mirror_,
+                        this->main_grouping_,
+                        this->main_spacing_,
+                        &this->params_,
+                        &this->env_,
+                        this->active_fx_};
+  this->render_segment_(main_view, now);
 
-  this->env_.call++;
+  // Extra segments (id 1..)
+  for (uint8_t i = 0; i < this->extra_count_; i++) {
+    ExtraSegment &seg = this->extra_segments_[i];
+    if (!seg.on || seg.stop <= seg.start)
+      continue;  // off / empty segments are masked black by the opacity map
+    SegmentView view{static_cast<int32_t>(seg.start),
+                     static_cast<int32_t>(seg.stop),
+                     seg.reverse,
+                     seg.mirror,
+                     seg.grouping,
+                     seg.spacing,
+                     &seg.params,
+                     &seg.env,
+                     seg.mode};
+    this->render_segment_(view, now);
+  }
+
+  if (this->opacity_map_dirty_)
+    this->rebuild_opacity_map_();
 
   this->apply_transition_blend_(now);
   uint8_t final_scale = this->compute_output_scale_();
   this->reset_output_correction_();
   this->flush_frame_to_buses_(final_scale);
+}
+
+// Render a single segment into full_frame_ over its physical range.
+void WLEDBridgeComponent::render_segment_(const SegmentView &view, uint32_t now) {
+  int32_t phys_len = view.stop - view.start;
+  if (phys_len <= 0 || view.start < 0 || view.stop > static_cast<int32_t>(this->total_leds_))
+    return;
+  int32_t group = view.grouping < 1 ? 1 : view.grouping;
+  int32_t step = group + view.spacing;
+  int32_t vlen = (phys_len + step - 1) / step;
+
+  EffectContext ctx{this->full_frame_, this->total_leds_, view.params,   view.env,    now, view.start, view.stop, vlen,
+                    view.reverse,      view.mirror,       view.grouping, view.spacing};
+
+  if (view.mode < WLED_EFFECT_COUNT)
+    WLED_EFFECTS[view.mode].fn(ctx);
+
+  view.env->call++;
+}
+
+// Rebuild per-LED opacity from segment coverage. Pixels not covered by any
+// segment stay black (opacity 0), matching WLED's behavior.
+void WLEDBridgeComponent::rebuild_opacity_map_() {
+  if (this->pixel_opacity_ == nullptr || this->total_leds_ == 0)
+    return;
+  memset(this->pixel_opacity_, 0, this->total_leds_);
+
+  // Main segment (its on/off is the global power state).
+  uint8_t main_op = this->main_opacity_;
+  for (uint32_t i = this->segment_start_; i < this->segment_stop_ && i < this->total_leds_; i++)
+    this->pixel_opacity_[i] = main_op;
+
+  // Extra segments paint over the main where they overlap (later wins).
+  for (uint8_t s = 0; s < this->extra_count_; s++) {
+    const ExtraSegment &seg = this->extra_segments_[s];
+    uint8_t op = seg.on ? seg.opacity : 0;
+    for (uint32_t i = seg.start; i < seg.stop && i < this->total_leds_; i++)
+      this->pixel_opacity_[i] = op;
+  }
+  this->opacity_map_dirty_ = false;
+}
+
+ExtraSegment *WLEDBridgeComponent::resolve_extra_(uint8_t id) {
+  if (id == 0 || id > this->extra_count_)
+    return nullptr;
+  return &this->extra_segments_[id - 1];
 }
 
 // ============================================================
@@ -478,14 +580,16 @@ uint8_t WLEDBridgeComponent::compute_output_scale_() {
   if (this->total_leds_ == 0)
     return this->global_bri_;
 
-  // Estimate total current after applying global brightness
+  // Estimate total current after applying segment opacity + global brightness
   uint64_t channel_sum = 0;
   for (uint32_t i = 0; i < this->total_leds_; i++) {
     uint32_t c = this->full_frame_[i];
-    channel_sum += scale8_linear(R(c), this->global_bri_);
-    channel_sum += scale8_linear(G(c), this->global_bri_);
-    channel_sum += scale8_linear(B(c), this->global_bri_);
-    channel_sum += scale8_linear(W(c), this->global_bri_);
+    uint8_t op = this->pixel_opacity_ != nullptr ? this->pixel_opacity_[i] : 255;
+    uint8_t bri = scale8_linear(op, this->global_bri_);
+    channel_sum += scale8_linear(R(c), bri);
+    channel_sum += scale8_linear(G(c), bri);
+    channel_sum += scale8_linear(B(c), bri);
+    channel_sum += scale8_linear(W(c), bri);
   }
 
   // Aggregate per-bus budget (0 = unlimited)
@@ -524,10 +628,15 @@ void WLEDBridgeComponent::flush_frame_to_buses_(uint8_t final_scale) {
     if (bus.strip == nullptr)
       continue;
     for (uint32_t i = 0; i < bus.len; i++) {
-      uint32_t c = this->full_frame_[bus.start + i];
+      uint32_t idx = bus.start + i;
+      uint32_t c = this->full_frame_[idx];
+      if (this->auto_white_mode_ != 0)
+        c = apply_auto_white(c, this->auto_white_mode_);
+      uint8_t op = this->pixel_opacity_ != nullptr ? this->pixel_opacity_[idx] : 255;
+      uint8_t scale = scale8_linear(op, final_scale);
       write_pixel((*bus.strip)[static_cast<int32_t>(i)],
-                  RGBW32(scale8_linear(R(c), final_scale), scale8_linear(G(c), final_scale),
-                         scale8_linear(B(c), final_scale), scale8_linear(W(c), final_scale)));
+                  RGBW32(scale8_linear(R(c), scale), scale8_linear(G(c), scale), scale8_linear(B(c), scale),
+                         scale8_linear(W(c), scale)));
     }
     bus.strip->schedule_show();
   }
@@ -635,6 +744,7 @@ void WLEDBridgeComponent::set_segment_bounds(uint32_t start, uint32_t stop) {
   this->begin_transition_();
   this->segment_start_ = start;
   this->segment_stop_ = stop;
+  this->opacity_map_dirty_ = true;
   this->reset_segment_state_();
   this->mark_dirty_();
 }
@@ -654,6 +764,303 @@ void WLEDBridgeComponent::set_segment_mirror(bool mirror) {
   this->begin_transition_();
   this->segment_mirror_ = mirror;
   this->reset_segment_state_();
+  this->mark_dirty_();
+}
+
+// ============================================================
+// Multi-segment read view
+// ============================================================
+bool WLEDBridgeComponent::get_segment_view(uint8_t id, SegmentReadView &out) const {
+  if (id == 0) {
+    out.start = static_cast<uint16_t>(this->segment_start_);
+    out.stop = static_cast<uint16_t>(this->segment_stop_);
+    out.grouping = this->main_grouping_;
+    out.spacing = this->main_spacing_;
+    out.on = this->is_on_;
+    out.reverse = this->segment_reverse_;
+    out.mirror = this->segment_mirror_;
+    out.selected = true;
+    out.opacity = this->main_opacity_;
+    out.mode = this->active_fx_;
+    out.speed = this->params_.speed;
+    out.intensity = this->params_.intensity;
+    out.palette = this->params_.palette_id;
+    out.custom1 = this->params_.custom1;
+    out.custom2 = this->params_.custom2;
+    out.custom3 = this->params_.custom3;
+    out.check1 = this->params_.check1;
+    out.check2 = this->params_.check2;
+    out.check3 = this->params_.check3;
+    out.colors[0] = this->params_.colors[0];
+    out.colors[1] = this->params_.colors[1];
+    out.colors[2] = this->params_.colors[2];
+    return true;
+  }
+  if (id > this->extra_count_)
+    return false;
+  const ExtraSegment &seg = this->extra_segments_[id - 1];
+  out.start = seg.start;
+  out.stop = seg.stop;
+  out.grouping = seg.grouping;
+  out.spacing = seg.spacing;
+  out.on = seg.on;
+  out.reverse = seg.reverse;
+  out.mirror = seg.mirror;
+  out.selected = false;
+  out.opacity = seg.opacity;
+  out.mode = seg.mode;
+  out.speed = seg.params.speed;
+  out.intensity = seg.params.intensity;
+  out.palette = seg.params.palette_id;
+  out.custom1 = seg.params.custom1;
+  out.custom2 = seg.params.custom2;
+  out.custom3 = seg.params.custom3;
+  out.check1 = seg.params.check1;
+  out.check2 = seg.params.check2;
+  out.check3 = seg.params.check3;
+  out.colors[0] = seg.params.colors[0];
+  out.colors[1] = seg.params.colors[1];
+  out.colors[2] = seg.params.colors[2];
+  return true;
+}
+
+// ============================================================
+// Multi-segment mutators (id 0 = main, delegates to existing setters)
+// ============================================================
+void WLEDBridgeComponent::segment_set_bounds(uint8_t id, uint32_t start, uint32_t stop) {
+  if (id == 0) {
+    this->set_segment_bounds(start, stop);
+    return;
+  }
+  if (this->total_leds_ == 0)
+    return;
+  // Removing an existing extra segment (empty bounds).
+  if (stop <= start) {
+    ExtraSegment *seg = this->resolve_extra_(id);
+    if (seg == nullptr)
+      return;
+    // Compact: shift later segments down by swapping field-wise (non-copyable).
+    for (uint8_t i = id; i < this->extra_count_; i++) {
+      ExtraSegment &dst = this->extra_segments_[i - 1];
+      ExtraSegment &src = this->extra_segments_[i];
+      dst.start = src.start;
+      dst.stop = src.stop;
+      dst.grouping = src.grouping;
+      dst.spacing = src.spacing;
+      dst.reverse = src.reverse;
+      dst.mirror = src.mirror;
+      dst.on = src.on;
+      dst.opacity = src.opacity;
+      dst.mode = src.mode;
+      dst.params = src.params;
+      dst.env.free_data();
+      dst.env.step = dst.env.call = 0;
+      dst.env.aux0 = dst.env.aux1 = 0;
+    }
+    this->extra_count_--;
+    this->extra_segments_[this->extra_count_].env.free_data();
+    this->extra_segments_[this->extra_count_].stop = 0;
+    this->opacity_map_dirty_ = true;
+    this->mark_dirty_();
+    return;
+  }
+  start = std::min<uint32_t>(start, this->total_leds_ - 1);
+  stop = std::min<uint32_t>(stop, this->total_leds_);
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr) {
+    // Append a new extra segment when id is the next free slot.
+    if (id != this->extra_count_ + 1 || this->extra_count_ + 1u >= WLED_MAX_SEGMENTS)
+      return;
+    seg = &this->extra_segments_[this->extra_count_];
+    seg->env.free_data();
+    seg->grouping = 1;
+    seg->spacing = 0;
+    seg->reverse = false;
+    seg->mirror = false;
+    seg->on = true;
+    seg->opacity = 255;
+    seg->mode = 0;
+    seg->params = EffectParams{};
+    this->extra_count_++;
+  }
+  seg->start = static_cast<uint16_t>(start);
+  seg->stop = static_cast<uint16_t>(stop);
+  seg->env.free_data();
+  seg->env.step = seg->env.call = 0;
+  seg->env.aux0 = seg->env.aux1 = 0;
+  this->opacity_map_dirty_ = true;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_grouping(uint8_t id, uint16_t grouping, uint16_t spacing) {
+  if (grouping < 1)
+    grouping = 1;
+  if (id == 0) {
+    this->main_grouping_ = grouping;
+    this->main_spacing_ = spacing;
+  } else {
+    ExtraSegment *seg = this->resolve_extra_(id);
+    if (seg == nullptr)
+      return;
+    seg->grouping = grouping;
+    seg->spacing = spacing;
+  }
+  this->opacity_map_dirty_ = true;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_on(uint8_t id, bool on) {
+  if (id == 0) {
+    this->set_on(on);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr || seg->on == on)
+    return;
+  seg->on = on;
+  this->opacity_map_dirty_ = true;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_opacity(uint8_t id, uint8_t opacity) {
+  if (id == 0) {
+    this->main_opacity_ = opacity;
+  } else {
+    ExtraSegment *seg = this->resolve_extra_(id);
+    if (seg == nullptr)
+      return;
+    seg->opacity = opacity;
+  }
+  this->opacity_map_dirty_ = true;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_effect(uint8_t id, uint8_t fx) {
+  if (fx >= WLED_EFFECT_COUNT)
+    return;
+  if (id == 0) {
+    this->set_effect(fx);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr || seg->mode == fx)
+    return;
+  seg->mode = fx;
+  seg->env.free_data();
+  seg->env.step = seg->env.call = 0;
+  seg->env.aux0 = seg->env.aux1 = 0;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_speed(uint8_t id, uint8_t v) {
+  if (id == 0) {
+    this->set_speed(v);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr)
+    return;
+  seg->params.speed = v;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_intensity(uint8_t id, uint8_t v) {
+  if (id == 0) {
+    this->set_intensity(v);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr)
+    return;
+  seg->params.intensity = v;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_palette(uint8_t id, uint8_t v) {
+  if (id == 0) {
+    this->set_palette(v);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr)
+    return;
+  seg->params.palette_id = v;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_custom(uint8_t id, uint8_t which, uint8_t v) {
+  EffectParams *p = nullptr;
+  if (id == 0) {
+    p = &this->params_;
+  } else {
+    ExtraSegment *seg = this->resolve_extra_(id);
+    if (seg == nullptr)
+      return;
+    p = &seg->params;
+  }
+  if (which == 1)
+    p->custom1 = v;
+  else if (which == 2)
+    p->custom2 = v;
+  else if (which == 3)
+    p->custom3 = v;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_check(uint8_t id, uint8_t which, bool v) {
+  EffectParams *p = nullptr;
+  if (id == 0) {
+    p = &this->params_;
+  } else {
+    ExtraSegment *seg = this->resolve_extra_(id);
+    if (seg == nullptr)
+      return;
+    p = &seg->params;
+  }
+  if (which == 1)
+    p->check1 = v;
+  else if (which == 2)
+    p->check2 = v;
+  else if (which == 3)
+    p->check3 = v;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_color(uint8_t id, uint8_t slot, uint32_t rgb) {
+  if (slot >= 3)
+    return;
+  if (id == 0) {
+    this->set_color(slot, rgb);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr)
+    return;
+  seg->params.colors[slot] = rgb;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_reverse(uint8_t id, bool reverse) {
+  if (id == 0) {
+    this->set_segment_reverse(reverse);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr || seg->reverse == reverse)
+    return;
+  seg->reverse = reverse;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_mirror(uint8_t id, bool mirror) {
+  if (id == 0) {
+    this->set_segment_mirror(mirror);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr || seg->mirror == mirror)
+    return;
+  seg->mirror = mirror;
   this->mark_dirty_();
 }
 

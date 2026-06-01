@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <vector>
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
@@ -99,6 +100,16 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     this->use_task_ = use_task;
   }
 
+  // Auto-white: derive the W channel from RGB for RGBW strips.
+  // 0 = none, 1 = brighter (keep RGB, add W), 2 = accurate (subtract W from RGB),
+  // 4 = max (W = brightest channel). Only enable on RGBW hardware.
+  void set_auto_white_mode(uint8_t mode) {
+    this->auto_white_mode_ = mode;
+  }
+  uint8_t get_auto_white_mode() const {
+    return this->auto_white_mode_;
+  }
+
   // ---- State accessors (used by JSON layer) ----
   bool is_on() const {
     return this->is_on_;
@@ -155,6 +166,42 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   }
   bool is_preset_valid(uint8_t preset_id) const;
   void publish_light_state();
+
+  // ---- Multi-segment read API (id 0 = main segment) ----
+  uint8_t get_segment_count() const {
+    return static_cast<uint8_t>(1 + this->extra_count_);
+  }
+  static constexpr uint8_t get_max_segments() {
+    return WLED_MAX_SEGMENTS;
+  }
+  uint8_t get_main_segment() const {
+    return 0;
+  }
+  struct SegmentReadView {
+    uint16_t start, stop, grouping, spacing;
+    bool on, reverse, mirror, selected;
+    uint8_t opacity, mode, speed, intensity, palette;
+    uint8_t custom1, custom2, custom3;
+    bool check1, check2, check3;
+    uint32_t colors[3];
+  };
+  bool get_segment_view(uint8_t id, SegmentReadView &out) const;
+
+  // ---- Multi-segment mutation API (id 0 = main segment) ----
+  // Setting bounds with stop <= start on an extra segment removes it.
+  void segment_set_bounds(uint8_t id, uint32_t start, uint32_t stop);
+  void segment_set_grouping(uint8_t id, uint16_t grouping, uint16_t spacing);
+  void segment_set_on(uint8_t id, bool on);
+  void segment_set_opacity(uint8_t id, uint8_t opacity);
+  void segment_set_effect(uint8_t id, uint8_t fx);
+  void segment_set_speed(uint8_t id, uint8_t v);
+  void segment_set_intensity(uint8_t id, uint8_t v);
+  void segment_set_palette(uint8_t id, uint8_t v);
+  void segment_set_custom(uint8_t id, uint8_t which, uint8_t v);  // which 1..3
+  void segment_set_check(uint8_t id, uint8_t which, bool v);  // which 1..3
+  void segment_set_color(uint8_t id, uint8_t slot, uint32_t rgb);
+  void segment_set_reverse(uint8_t id, bool reverse);
+  void segment_set_mirror(uint8_t id, bool mirror);
 
   // ---- State mutators (used by JSON POST handler) ----
   void set_on(bool on);
@@ -238,8 +285,25 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     uint32_t led_ma;  // estimated mA per LED at full white
   };
 
+  // Lightweight render view shared by the main segment (scalar members) and
+  // each ExtraSegment, so one routine renders both.
+  struct SegmentView {
+    int32_t start;
+    int32_t stop;
+    bool reverse;
+    bool mirror;
+    uint16_t grouping;
+    uint16_t spacing;
+    EffectParams *params;
+    SegmentState *env;
+    uint8_t mode;
+  };
+
   void sync_from_light_state_(bool publish);
   void render_frame_();
+  void render_segment_(const SegmentView &view, uint32_t now);
+  void rebuild_opacity_map_();
+  ExtraSegment *resolve_extra_(uint8_t id);  // id>=1 → &extra_segments_[id-1] if valid, else nullptr
   void reset_output_correction_();
   uint8_t compute_output_scale_();
   void flush_frame_to_buses_(uint8_t final_scale);
@@ -280,11 +344,21 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint8_t global_bri_{128};
   bool is_on_{true};
   uint32_t total_leds_{0};  // virtual LED space size (sum of all bus lengths)
+  // ---- main segment (id 0) ----
   uint32_t segment_start_{0};
   uint32_t segment_stop_{0};
   bool segment_reverse_{false};
   bool segment_mirror_{false};
+  uint16_t main_grouping_{1};
+  uint16_t main_spacing_{0};
+  uint8_t main_opacity_{255};
+  // ---- extra segments (id 1..) ----
+  std::array<ExtraSegment, WLED_MAX_SEGMENTS - 1> extra_segments_{};
+  uint8_t extra_count_{0};
+  uint8_t *pixel_opacity_{nullptr};  // per-LED opacity (segment bri / on-off mask)
+  bool opacity_map_dirty_{true};
   uint32_t current_ma_{0};
+  uint8_t auto_white_mode_{0};
   bool use_task_{false};
   uint16_t transition_ms_{0};
   uint32_t *full_frame_{nullptr};  // unscaled rendered pixel values

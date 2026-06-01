@@ -8,7 +8,7 @@ Components live under [components/](components/).
 
 | Component | Purpose | Demo usage |
 | --- | --- | --- |
-| `wled_bridge` | WLED-compatible effects engine and Web UI for ESPHome addressable lights. 44 1D effects, 19 palettes, ABL, presets, WLED JSON API, gzip UI served from PROGMEM. | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) |
+| `wled_bridge` | WLED-compatible effects engine and Web UI for ESPHome addressable lights. 84 1D effects, 54 palettes, up to 8 segments (per-segment effect/palette/grouping/spacing/opacity), RGBW auto-white, ABL, presets, WLED JSON API, gzip UI (with segment panel) served from PROGMEM. | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) |
 | `74hc138_keypad` | Keyboard matrix scanner for 74HC138 decoder based designs. | M5Stack Cardputer keyboard input. |
 | `aw9523` | I2C GPIO expander with GPIO and LED-driver support. | M5Stack StamPLC relay/input expander. |
 | `bmi270` | Bosch BMI270 6-axis IMU sensor. | M5Stack Paper S3 motion sensors. |
@@ -35,7 +35,7 @@ Demo YAMLs live under [devices/](devices/).
 | Waveshare ESP32-S3 Touch LCD 1.85C | [devices/waveshare/esp32s3-touch-lcd-1.85c.yaml](devices/waveshare/esp32s3-touch-lcd-1.85c.yaml) | QSPI LCD, touch, RTC, microphone/speaker voice assistant, wake word selection, Bluetooth proxy, battery and audio diagnostics. | None currently. |
 | Waveshare ESP32-S3 ETH | [devices/waveshare/esp32s3-eth.yaml](devices/waveshare/esp32s3-eth.yaml) | W5500 Ethernet, camera, Ethernet info sensors, Bluetooth proxy, boot button, diagnostics. | None. |
 | Waveshare ESP32-S3 GEEK | [devices/waveshare/esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ST7789 display, backlight control, WiFi info, Bluetooth proxy, diagnostics. | None. |
-| WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED UI + 44 effects. | `wled_bridge` |
+| WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED UI + 84 effects + multi-segment. | `wled_bridge` |
 | YS-IRTM UART Bridge | [devices/generic/ys-irtm-demo.yaml](devices/generic/ys-irtm-demo.yaml) | NEC IR transmit/receive, HA IR/RF Proxy bridge service, raw hex send. | `ys_irtm_uart` |
 | Guition ESP32-S3-4848S040 | TBD | Display, touch, relays. | TBD |
 | Guition JC3636K518 | TBD | QSPI display, touch, audio, encoder. | TBD |

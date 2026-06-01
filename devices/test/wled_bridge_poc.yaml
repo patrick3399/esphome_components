@@ -53,3 +53,4 @@ wled_bridge:
   max_ma: 5000      # ABL: maximum milliamps for the strip
   led_ma: 55        # WS2812B: ~55 mA per LED at full white
   use_task: false   # true = dedicated FreeRTOS render task on core 1
+  auto_white: none  # RGBW strips only: none | brighter | accurate | max

@@ -13,7 +13,7 @@ struct EffectDescriptor {
   EffectFn fn;
 };
 
-static constexpr size_t WLED_EFFECT_COUNT = 44;
+static constexpr size_t WLED_EFFECT_COUNT = 84;
 extern const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT];
 
 // ---- forward declarations ----
@@ -62,6 +62,50 @@ void fx_fill_noise(EffectContext &);
 void fx_oscillate(EffectContext &);
 void fx_gradient(EffectContext &);
 void fx_pacifica(EffectContext &);
+
+// --- batch 3 ---
+void fx_sinelon(EffectContext &);
+void fx_dissolve(EffectContext &);
+void fx_android(EffectContext &);
+void fx_chase_rainbow(EffectContext &);
+void fx_colorful(EffectContext &);
+void fx_fire_flicker(EffectContext &);
+void fx_two_dots(EffectContext &);
+void fx_tricolor_chase(EffectContext &);
+void fx_icu(EffectContext &);
+void fx_lightning(EffectContext &);
+void fx_glitter(EffectContext &);
+void fx_solid_glitter(EffectContext &);
+void fx_spots(EffectContext &);
+void fx_percent(EffectContext &);
+void fx_flow(EffectContext &);
+void fx_phased(EffectContext &);
+void fx_sinewave(EffectContext &);
+void fx_twinkleup(EffectContext &);
+void fx_colorwaves(EffectContext &);
+void fx_chunchun(EffectContext &);
+
+// --- batch 4 ---
+void fx_stream(EffectContext &);
+void fx_scanner_dual(EffectContext &);
+void fx_fairy(EffectContext &);
+void fx_fairytwinkle(EffectContext &);
+void fx_tri_wipe(EffectContext &);
+void fx_tri_fade(EffectContext &);
+void fx_multi_comet(EffectContext &);
+void fx_colortwinkles(EffectContext &);
+void fx_lake(EffectContext &);
+void fx_railway(EffectContext &);
+void fx_halloween_eyes(EffectContext &);
+void fx_plasma(EffectContext &);
+void fx_sunrise(EffectContext &);
+void fx_washing_machine(EffectContext &);
+void fx_blends(EffectContext &);
+void fx_strobe_mega(EffectContext &);
+void fx_chase_color(EffectContext &);
+void fx_chase_color_random(EffectContext &);
+void fx_solid_pattern_tri(EffectContext &);
+void fx_solid_pattern(EffectContext &);
 
 }  // namespace wled_bridge
 }  // namespace esphome

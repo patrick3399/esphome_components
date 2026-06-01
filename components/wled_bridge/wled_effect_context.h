@@ -17,12 +17,15 @@ struct EffectContext {
   SegmentState *env;
   uint32_t now;  // millis() snapshot for this frame
   int32_t start;  // inclusive segment start (virtual absolute index)
-  int32_t stop;  // exclusive segment stop
-  int32_t len;  // logical segment length
+  int32_t stop;  // exclusive segment stop (physical)
+  int32_t len;  // virtual segment length (after grouping/spacing collapse)
   bool reverse;
   bool mirror;
+  uint16_t grouping{1};  // physical pixels painted per virtual pixel
+  uint16_t spacing{0};  // physical pixels skipped after each group
 
-  // local segment index → virtual absolute index
+  // virtual segment index → first physical absolute index of its group.
+  // With grouping=1, spacing=0 this is identical to the legacy 1:1 mapping.
   int32_t map_pixel(int32_t i) const {
     if (i < 0 || i >= len)
       return -1;
@@ -32,14 +35,22 @@ struct EffectContext {
       if (mapped >= half)
         mapped = len - 1 - mapped;
     }
-    return start + mapped;
+    int32_t group = grouping < 1 ? 1 : grouping;
+    int32_t step = group + spacing;
+    return start + mapped * step;
   }
 
   // ---- pixel write ----
   void set_pixel(int32_t i, uint32_t color) {
-    int32_t abs = map_pixel(i);
-    if (abs >= 0 && abs < static_cast<int32_t>(frame_len))
-      frame_buf[abs] = color;
+    int32_t base = map_pixel(i);
+    if (base < 0)
+      return;
+    int32_t group = grouping < 1 ? 1 : grouping;
+    for (int32_t g = 0; g < group; g++) {
+      int32_t abs = base + g;
+      if (abs >= start && abs < stop && abs < static_cast<int32_t>(frame_len))
+        frame_buf[abs] = color;
+    }
   }
 
   void set_pixel_gamma(int32_t i, uint32_t color) {
@@ -56,13 +67,10 @@ struct EffectContext {
     fill(0);
   }
 
-  // Read-modify-write: fade each segment pixel toward black.
+  // Read-modify-write: fade each physical segment pixel toward black.
   // Reads from frame_buf (unscaled previous frame) — correct for trailing-fade effects.
   void fade_to_black(uint8_t amount) {
-    for (int32_t i = 0; i < len; i++) {
-      int32_t abs = map_pixel(i);
-      if (abs < 0 || abs >= static_cast<int32_t>(frame_len))
-        continue;
+    for (int32_t abs = start; abs < stop && abs < static_cast<int32_t>(frame_len); abs++) {
       uint32_t &c = frame_buf[abs];
       c = RGBW32(scale8(R(c), amount), scale8(G(c), amount), scale8(B(c), amount), scale8(W(c), amount));
     }

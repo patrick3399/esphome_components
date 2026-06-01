@@ -125,10 +125,61 @@ static std::string string_sprintf(const char *format, ...) {
 // ============================================================
 // JSON builder helpers
 // ============================================================
+static std::string build_segment_object_json(const WLEDBridgeComponent::SegmentReadView &v, uint8_t id) {
+  uint16_t len = v.stop > v.start ? static_cast<uint16_t>(v.stop - v.start) : 0;
+  return string_sprintf("{"
+                        "\"id\":%u,"
+                        "\"start\":%u,"
+                        "\"stop\":%u,"
+                        "\"len\":%u,"
+                        "\"grp\":%u,"
+                        "\"spc\":%u,"
+                        "\"of\":0,"
+                        "\"on\":%s,"
+                        "\"frz\":false,"
+                        "\"bri\":%u,"
+                        "\"cct\":127,"
+                        "\"set\":0,"
+                        "\"col\":[[%u,%u,%u,%u],[%u,%u,%u,%u],[%u,%u,%u,%u]],"
+                        "\"fx\":%u,"
+                        "\"sx\":%u,"
+                        "\"ix\":%u,"
+                        "\"pal\":%u,"
+                        "\"c1\":%u,"
+                        "\"c2\":%u,"
+                        "\"c3\":%u,"
+                        "\"o1\":%s,"
+                        "\"o2\":%s,"
+                        "\"o3\":%s,"
+                        "\"sel\":%s,"
+                        "\"rev\":%s,"
+                        "\"mi\":%s,"
+                        "\"m12\":0"
+                        "}",
+                        id, v.start, v.stop, len, v.grouping, v.spacing, v.on ? "true" : "false", v.opacity,
+                        R(v.colors[0]), G(v.colors[0]), B(v.colors[0]), W(v.colors[0]), R(v.colors[1]), G(v.colors[1]),
+                        B(v.colors[1]), W(v.colors[1]), R(v.colors[2]), G(v.colors[2]), B(v.colors[2]), W(v.colors[2]),
+                        v.mode, v.speed, v.intensity, v.palette, v.custom1, v.custom2, v.custom3,
+                        v.check1 ? "true" : "false", v.check2 ? "true" : "false", v.check3 ? "true" : "false",
+                        v.selected ? "true" : "false", v.reverse ? "true" : "false", v.mirror ? "true" : "false");
+}
+
 std::string build_state_json(const WLEDBridgeComponent *c) {
-  const EffectParams &p = c->get_params();
   uint16_t transition_tenths = c->get_transition_ms() / 100u;
   std::string presets = build_preset_validity_json(c);
+
+  std::string seg_array = "[";
+  uint8_t count = c->get_segment_count();
+  for (uint8_t id = 0; id < count; id++) {
+    WLEDBridgeComponent::SegmentReadView view;
+    if (!c->get_segment_view(id, view))
+      continue;
+    if (id > 0)
+      seg_array += ",";
+    seg_array += build_segment_object_json(view, id);
+  }
+  seg_array += "]";
+
   return string_sprintf("{"
                         "\"on\":%s,"
                         "\"bri\":%u,"
@@ -141,45 +192,10 @@ std::string build_state_json(const WLEDBridgeComponent *c) {
                         "\"udpn\":{\"send\":false,\"recv\":false,\"sgrp\":1,\"rgrp\":1},"
                         "\"time\":0,"
                         "\"lor\":0,"
-                        "\"mainseg\":0,"
-                        "\"seg\":[{"
-                        "\"id\":0,"
-                        "\"start\":%u,"
-                        "\"stop\":%u,"
-                        "\"len\":%u,"
-                        "\"grp\":1,"
-                        "\"spc\":0,"
-                        "\"of\":0,"
-                        "\"on\":%s,"
-                        "\"frz\":false,"
-                        "\"bri\":%u,"
-                        "\"cct\":127,"
-                        "\"set\":0,"
-                        "\"n\":\"Main\","
-                        "\"col\":[[%u,%u,%u,%u],[%u,%u,%u,%u],[%u,%u,%u,%u]],"
-                        "\"fx\":%u,"
-                        "\"sx\":%u,"
-                        "\"ix\":%u,"
-                        "\"pal\":%u,"
-                        "\"c1\":%u,"
-                        "\"c2\":%u,"
-                        "\"c3\":%u,"
-                        "\"o1\":%s,"
-                        "\"o2\":%s,"
-                        "\"o3\":%s,"
-                        "\"sel\":true,"
-                        "\"rev\":%s,"
-                        "\"mi\":%s,"
-                        "\"m12\":0"
-                        "}]}",
+                        "\"mainseg\":%u,"
+                        "\"seg\":%s}",
                         c->is_on() ? "true" : "false", c->get_brightness(), transition_tenths, transition_tenths,
-                        c->get_active_preset(), presets.c_str(), c->get_segment_start(), c->get_segment_stop(),
-                        c->get_segment_length(), c->is_on() ? "true" : "false", c->get_brightness(), R(p.colors[0]),
-                        G(p.colors[0]), B(p.colors[0]), W(p.colors[0]), R(p.colors[1]), G(p.colors[1]), B(p.colors[1]),
-                        W(p.colors[1]), R(p.colors[2]), G(p.colors[2]), B(p.colors[2]), W(p.colors[2]),
-                        c->get_effect_index(), p.speed, p.intensity, p.palette_id, p.custom1, p.custom2, p.custom3,
-                        p.check1 ? "true" : "false", p.check2 ? "true" : "false", p.check3 ? "true" : "false",
-                        c->is_segment_reversed() ? "true" : "false", c->is_segment_mirrored() ? "true" : "false");
+                        c->get_active_preset(), presets.c_str(), c->get_main_segment(), seg_array.c_str());
 }
 
 std::string build_info_json(const WLEDBridgeComponent *c) {
@@ -191,7 +207,7 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
                         "\"pwr\":%u,"
                         "\"fps\":%u,"
                         "\"maxpwr\":%u,"
-                        "\"maxseg\":1,"
+                        "\"maxseg\":%u,"
                         "\"cco\":0"
                         "},"
                         "\"str\":false,"
@@ -224,8 +240,9 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
                         "\"release\":\"0.1.0\","
                         "\"mac\":\"\""
                         "}",
-                        c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(), WLED_EFFECT_COUNT,
-                        WLED_PALETTE_COUNT, static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                        c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(),
+                        WLEDBridgeComponent::get_max_segments(), WLED_EFFECT_COUNT, WLED_PALETTE_COUNT,
+                        static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                         static_cast<uint32_t>(millis() / 1000u));
 }
 
@@ -277,7 +294,7 @@ std::string build_config_json(const WLEDBridgeComponent *c) {
       "\"total\":%u,"
       "\"maxpwr\":%u,"
       "\"ledma\":%u,"
-      "\"rgbwm\":0,"
+      "\"rgbwm\":%u,"
       "\"cct\":false,"
       "\"cr\":false,"
       "\"cb\":0,"
@@ -305,9 +322,9 @@ std::string build_config_json(const WLEDBridgeComponent *c) {
       "\"timers\":{\"cntdwn\":{\"goal\":[20,1,1,0,0,0],\"macro\":0},\"ins\":[]}"
       "}",
       c->get_led_count(), c->get_max_ma(), c->get_led_count() == 0 ? 0 : c->get_max_ma() / c->get_led_count(),
-      c->get_led_count(), c->get_transition_ms() / 100u, c->get_active_preset(), c->is_on() ? "true" : "false",
-      c->get_brightness(), c->get_effect_index(), c->get_params().speed, c->get_params().intensity,
-      c->get_params().palette_id);
+      c->get_auto_white_mode(), c->get_led_count(), c->get_transition_ms() / 100u, c->get_active_preset(),
+      c->is_on() ? "true" : "false", c->get_brightness(), c->get_effect_index(), c->get_params().speed,
+      c->get_params().intensity, c->get_params().palette_id);
 }
 
 std::string build_network_json(const WLEDBridgeComponent *c) {
@@ -380,6 +397,76 @@ std::string build_presets_json(const WLEDBridgeComponent *c) {
   }
   out += "}";
   return out;
+}
+
+// Apply one WLED seg object to segment `id`. When allow_power is false (flat
+// root form), on/bri are skipped because they were already consumed as the
+// global power/brightness.
+static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVariant seg, bool allow_power) {
+  if (seg.isNull())
+    return;
+
+  // Bounds first so a newly-created extra segment exists before other props.
+  if (!seg["start"].isNull() || !seg["stop"].isNull()) {
+    WLEDBridgeComponent::SegmentReadView cur;
+    bool have = comp->get_segment_view(id, cur);
+    uint32_t start = seg["start"].isNull() ? (have ? cur.start : 0u) : seg["start"].as<uint32_t>();
+    uint32_t stop = seg["stop"].isNull() ? (have ? cur.stop : 0u) : seg["stop"].as<uint32_t>();
+    comp->segment_set_bounds(id, start, stop);
+  }
+  if (!seg["grp"].isNull() || !seg["spc"].isNull()) {
+    WLEDBridgeComponent::SegmentReadView cur;
+    bool have = comp->get_segment_view(id, cur);
+    uint16_t grp = seg["grp"].isNull() ? (have ? cur.grouping : 1u) : seg["grp"].as<uint16_t>();
+    uint16_t spc = seg["spc"].isNull() ? (have ? cur.spacing : 0u) : seg["spc"].as<uint16_t>();
+    comp->segment_set_grouping(id, grp, spc);
+  }
+  if (!seg["fx"].isNull())
+    comp->segment_set_effect(id, json_u8(seg["fx"]));
+  if (!seg["sx"].isNull())
+    comp->segment_set_speed(id, json_u8(seg["sx"]));
+  if (!seg["ix"].isNull())
+    comp->segment_set_intensity(id, json_u8(seg["ix"]));
+  if (!seg["pal"].isNull())
+    comp->segment_set_palette(id, json_u8(seg["pal"]));
+  if (!seg["c1"].isNull())
+    comp->segment_set_custom(id, 1, json_u8(seg["c1"]));
+  if (!seg["c2"].isNull())
+    comp->segment_set_custom(id, 2, json_u8(seg["c2"]));
+  if (!seg["c3"].isNull())
+    comp->segment_set_custom(id, 3, json_u8(seg["c3"]));
+  if (!seg["o1"].isNull())
+    comp->segment_set_check(id, 1, json_bool(seg["o1"]));
+  if (!seg["o2"].isNull())
+    comp->segment_set_check(id, 2, json_bool(seg["o2"]));
+  if (!seg["o3"].isNull())
+    comp->segment_set_check(id, 3, json_bool(seg["o3"]));
+  if (!seg["rev"].isNull())
+    comp->segment_set_reverse(id, json_bool(seg["rev"]));
+  if (!seg["mi"].isNull())
+    comp->segment_set_mirror(id, json_bool(seg["mi"]));
+
+  if (seg["col"].is<JsonArray>()) {
+    JsonArray cols = seg["col"].as<JsonArray>();
+    for (size_t i = 0; i < cols.size() && i < 3; i++) {
+      if (cols[i].is<JsonArray>() && cols[i].size() >= 3) {
+        uint8_t r = json_u8(cols[i][0]);
+        uint8_t g = json_u8(cols[i][1]);
+        uint8_t b = json_u8(cols[i][2]);
+        uint8_t w = cols[i].size() >= 4 ? json_u8(cols[i][3]) : 0;
+        comp->segment_set_color(id, static_cast<uint8_t>(i), RGBW32(r, g, b, w));
+      } else if (cols[i].is<uint32_t>()) {
+        comp->segment_set_color(id, static_cast<uint8_t>(i), cols[i].as<uint32_t>());
+      }
+    }
+  }
+
+  if (allow_power) {
+    if (!seg["on"].isNull())
+      comp->segment_set_on(id, json_bool(seg["on"]));
+    if (!seg["bri"].isNull())
+      comp->segment_set_opacity(id, json_u8(seg["bri"], 255));
+  }
 }
 
 // ============================================================
@@ -613,67 +700,23 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
   if (!doc["pdel"].isNull())
     comp_->delete_preset(json_u8(doc["pdel"]));
 
-  // Segment 0 params (WLED-compatible)
-  JsonVariant seg0;
-  if (doc["seg"].is<JsonArray>() && doc["seg"].size() > 0) {
-    seg0 = doc["seg"][0];
-  } else if (doc["seg"].is<JsonObject>()) {
-    seg0 = doc["seg"];
+  // Segments (WLED-compatible). seg may be an array (multi-segment), a single
+  // object, or — for legacy flat clients — params at the document root.
+  JsonVariant segv = doc["seg"];
+  if (segv.is<JsonArray>()) {
+    JsonArray arr = segv.as<JsonArray>();
+    for (size_t i = 0; i < arr.size(); i++) {
+      JsonVariant e = arr[i];
+      uint8_t id = e["id"].isNull() ? static_cast<uint8_t>(i) : json_u8(e["id"]);
+      apply_segment_json(comp_, id, e, true);
+    }
+  } else if (segv.is<JsonObject>()) {
+    uint8_t id = segv["id"].isNull() ? 0 : json_u8(segv["id"]);
+    apply_segment_json(comp_, id, segv, true);
   } else {
-    seg0 = doc;  // flat form (some clients send params at root level)
-  }
-
-  if (!seg0.isNull()) {
-    if (!seg0["fx"].isNull())
-      comp_->set_effect(json_u8(seg0["fx"], comp_->get_effect_index()));
-    if (!seg0["sx"].isNull())
-      comp_->set_speed(json_u8(seg0["sx"], comp_->get_params().speed));
-    if (!seg0["ix"].isNull())
-      comp_->set_intensity(json_u8(seg0["ix"], comp_->get_params().intensity));
-    if (!seg0["pal"].isNull())
-      comp_->set_palette(json_u8(seg0["pal"], comp_->get_params().palette_id));
-    if (!seg0["c1"].isNull())
-      comp_->set_custom1(json_u8(seg0["c1"], comp_->get_params().custom1));
-    if (!seg0["c2"].isNull())
-      comp_->set_custom2(json_u8(seg0["c2"], comp_->get_params().custom2));
-    if (!seg0["c3"].isNull())
-      comp_->set_custom3(json_u8(seg0["c3"], comp_->get_params().custom3));
-    if (!seg0["o1"].isNull())
-      comp_->set_check1(json_bool(seg0["o1"]));
-    if (!seg0["o2"].isNull())
-      comp_->set_check2(json_bool(seg0["o2"]));
-    if (!seg0["o3"].isNull())
-      comp_->set_check3(json_bool(seg0["o3"]));
-    if (!seg0["start"].isNull() || !seg0["stop"].isNull()) {
-      uint32_t start = seg0["start"].isNull() ? comp_->get_segment_start() : seg0["start"].as<uint32_t>();
-      uint32_t stop = seg0["stop"].isNull() ? comp_->get_segment_stop() : seg0["stop"].as<uint32_t>();
-      comp_->set_segment_bounds(start, stop);
-    }
-    if (!seg0["rev"].isNull())
-      comp_->set_segment_reverse(json_bool(seg0["rev"]));
-    if (!seg0["mi"].isNull())
-      comp_->set_segment_mirror(json_bool(seg0["mi"]));
-
-    // Colors: col is array of [r,g,b] arrays
-    if (seg0["col"].is<JsonArray>()) {
-      JsonArray cols = seg0["col"].as<JsonArray>();
-      for (size_t i = 0; i < cols.size() && i < 3; i++) {
-        if (cols[i].is<JsonArray>() && cols[i].size() >= 3) {
-          uint8_t r = json_u8(cols[i][0]);
-          uint8_t g = json_u8(cols[i][1]);
-          uint8_t b = json_u8(cols[i][2]);
-          uint8_t w = cols[i].size() >= 4 ? json_u8(cols[i][3]) : 0;
-          comp_->set_color(static_cast<uint8_t>(i), RGBW32(r, g, b, w));
-        } else if (cols[i].is<uint32_t>()) {
-          comp_->set_color(static_cast<uint8_t>(i), cols[i].as<uint32_t>());
-        }
-      }
-    }
-
-    if (!seg0["on"].isNull())
-      comp_->set_on(json_bool(seg0["on"]));
-    if (!seg0["bri"].isNull())
-      comp_->set_brightness(json_u8(seg0["bri"], comp_->get_brightness()));
+    // Flat root form — apply to main segment but leave on/bri to the global
+    // handlers above (allow_power = false).
+    apply_segment_json(comp_, 0, doc, false);
   }
 
   if (!doc["psave"].isNull())

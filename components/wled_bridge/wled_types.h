@@ -71,6 +71,9 @@ inline uint16_t hw_random16(uint16_t lim) {
   return g_prng.random16(lim);
 }
 
+// Maximum number of concurrent segments (1 main + extras).
+static constexpr uint8_t WLED_MAX_SEGMENTS = 8;
+
 // ---------- per-segment runtime state ----------
 struct SegmentState {
   uint32_t step{0};  // generic step/iteration counter
@@ -79,6 +82,11 @@ struct SegmentState {
   uint16_t aux1{0};  // effect-specific aux counter 1
   uint8_t *data{nullptr};
   size_t data_len{0};
+
+  SegmentState() = default;
+  // Non-copyable: owns a heap pointer; copying would double-free.
+  SegmentState(const SegmentState &) = delete;
+  SegmentState &operator=(const SegmentState &) = delete;
 
   // Allocate effect-private data (PSRAM first, internal heap fallback).
   // Returns true on success; if already allocated with same size, noop true.
@@ -121,6 +129,28 @@ struct EffectParams {
   bool check3{false};
   uint32_t colors[3]{0xFFAA00, 0x000000, 0x000000};
   uint8_t palette_id{0};
+};
+
+// ---------- additional (non-main) segment ----------
+// The "main" segment (index 0) keeps its state in WLEDBridgeComponent's scalar
+// members for backward compatibility; extra segments live in a fixed array.
+struct ExtraSegment {
+  uint16_t start{0};
+  uint16_t stop{0};  // exclusive; stop <= start means "empty/disabled"
+  uint16_t grouping{1};
+  uint16_t spacing{0};
+  bool reverse{false};
+  bool mirror{false};
+  bool on{true};
+  uint8_t opacity{255};
+  uint8_t mode{0};  // effect id
+  EffectParams params{};
+  SegmentState env{};
+
+  ExtraSegment() = default;
+  // Non-copyable because of SegmentState (owns heap data).
+  ExtraSegment(const ExtraSegment &) = delete;
+  ExtraSegment &operator=(const ExtraSegment &) = delete;
 };
 
 }  // namespace wled_bridge
