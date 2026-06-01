@@ -1,4 +1,5 @@
 #pragma once
+#include <vector>
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/light/addressable_light.h"
@@ -90,16 +91,10 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   }
 
   // ---- Setters called from generated code ----
-  void set_light_state(light::LightState *state) {
-    this->light_state_ = state;
-    this->light_ = static_cast<light::AddressableLight *>(state->get_output());
-  }
-  void set_max_ma(uint32_t ma) {
-    this->max_ma_ = ma;
-  }
-  void set_led_ma(uint32_t ma) {
-    this->led_ma_ = ma;
-  }
+  // add_bus() is called once per bus in declaration order.
+  // The first call establishes the primary bus (HA sync / effect registration).
+  void add_bus(light::LightState *state, uint32_t max_ma, uint32_t led_ma);
+
   void set_use_task(bool use_task) {
     this->use_task_ = use_task;
   }
@@ -118,10 +113,13 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     return this->params_;
   }
   uint32_t get_led_count() const {
-    return this->led_count_;
+    return this->total_leds_;
   }
   uint32_t get_max_ma() const {
-    return this->max_ma_;
+    uint32_t total = 0;
+    for (const auto &bus : this->buses_)
+      total += bus.max_ma;
+    return total;
   }
   uint32_t get_current_ma() const {
     return this->current_ma_;
@@ -230,11 +228,21 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   }
 
  protected:
+  // One physical LED strip with its position in the virtual LED space.
+  struct VirtualBus {
+    light::LightState *light_state;  // ESPHome LightState (for correction/effect_active)
+    light::AddressableLight *strip;  // addressable output (populated in setup)
+    uint32_t start;  // virtual start index (sum of preceding bus lengths)
+    uint32_t len;  // LED count of this strip
+    uint32_t max_ma;  // ABL budget for this bus (0 = unlimited)
+    uint32_t led_ma;  // estimated mA per LED at full white
+  };
+
   void sync_from_light_state_(bool publish);
   void render_frame_();
   void reset_output_correction_();
-  void restore_full_frame_();
-  void apply_output_scaling_();
+  uint8_t compute_output_scale_();
+  void flush_frame_to_buses_(uint8_t final_scale);
   void apply_transition_blend_(uint32_t now);
   void reset_segment_state_();
   void begin_transition_();
@@ -259,8 +267,11 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   static void render_task_fn_(void *arg);
   TaskHandle_t render_task_{nullptr};
 
+  // Bus registry — populated by add_bus() before setup().
+  std::vector<VirtualBus> buses_{};
+  // Primary bus aliases (first bus): used for HA sync and effect registration.
   light::LightState *light_state_{nullptr};
-  light::AddressableLight *light_{nullptr};
+  light::AddressableLight *light_{nullptr};  // kept for WLEDProxyEffect::stop()
 
   EffectParams params_{};
   SegmentState env_{};
@@ -268,18 +279,16 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint8_t active_fx_{0};
   uint8_t global_bri_{128};
   bool is_on_{true};
-  uint32_t led_count_{1};
+  uint32_t total_leds_{0};  // virtual LED space size (sum of all bus lengths)
   uint32_t segment_start_{0};
-  uint32_t segment_stop_{1};
+  uint32_t segment_stop_{0};
   bool segment_reverse_{false};
   bool segment_mirror_{false};
-  uint32_t max_ma_{2000};
-  uint32_t led_ma_{20};
   uint32_t current_ma_{0};
   bool use_task_{false};
   uint16_t transition_ms_{0};
-  uint32_t *full_frame_{nullptr};
-  uint32_t *transition_frame_{nullptr};
+  uint32_t *full_frame_{nullptr};  // unscaled rendered pixel values
+  uint32_t *transition_frame_{nullptr};  // snapshot taken at transition start
   uint32_t transition_start_ms_{0};
   uint32_t transition_duration_ms_{0};
   bool transition_active_{false};

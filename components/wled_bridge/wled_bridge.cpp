@@ -44,30 +44,58 @@ static uint8_t unit_to_u8(float value) {
 }
 
 // ============================================================
+// add_bus — called from generated code once per bus
+// ============================================================
+void WLEDBridgeComponent::add_bus(light::LightState *state, uint32_t max_ma, uint32_t led_ma) {
+  VirtualBus bus;
+  bus.light_state = state;
+  bus.strip = nullptr;  // resolved in setup() after strips are initialized
+  bus.start = 0;  // calculated in setup()
+  bus.len = 0;  // calculated in setup()
+  bus.max_ma = max_ma;
+  bus.led_ma = led_ma;
+  this->buses_.push_back(bus);
+
+  if (this->light_state_ == nullptr) {
+    // First bus → primary: used for HA sync and effect registration
+    this->light_state_ = state;
+  }
+}
+
+// ============================================================
 // setup
 // ============================================================
 void WLEDBridgeComponent::setup() {
-  if (this->light_ == nullptr) {
-    ESP_LOGE(TAG, "Light not set — check light_id in YAML");
+  if (this->buses_.empty()) {
+    ESP_LOGE(TAG, "No buses configured — add light_id or buses: in YAML");
     this->mark_failed();
     return;
   }
 
-  this->led_count_ = static_cast<uint32_t>(this->light_->size());
-  if (this->led_count_ == 0) {
-    ESP_LOGE(TAG, "Light reports 0 LEDs");
+  // Resolve strips and build virtual LED space
+  uint32_t virtual_pos = 0;
+  for (auto &bus : this->buses_) {
+    bus.strip = static_cast<light::AddressableLight *>(bus.light_state->get_output());
+    bus.start = virtual_pos;
+    bus.len = static_cast<uint32_t>(bus.strip->size());
+    virtual_pos += bus.len;
+
+    // Each bus: disable ESPHome colour correction (bridge handles gamma itself)
+    // and claim pixel ownership.
+    bus.strip->set_correction(1.0f, 1.0f, 1.0f);
+    bus.strip->set_effect_active(true);
+  }
+  this->total_leds_ = virtual_pos;
+  this->light_ = this->buses_[0].strip;  // primary alias for WLEDProxyEffect
+
+  if (this->total_leds_ == 0) {
+    ESP_LOGE(TAG, "All buses report 0 LEDs");
     this->mark_failed();
     return;
   }
+
   this->segment_start_ = 0;
-  this->segment_stop_ = this->led_count_;
-
-  // Tell ESPHome's light subsystem that an effect owns the pixels.
-  // update_state() won't overwrite our pixel data while this flag is set.
-  this->light_->set_effect_active(true);
-
-  // Disable ESPHome colour correction — WLED bridge handles gamma itself.
-  this->light_->set_correction(1.0f, 1.0f, 1.0f);
+  this->segment_stop_ = this->total_leds_;
 
   // Default effect parameters
   this->params_.speed = 128;
@@ -86,33 +114,34 @@ void WLEDBridgeComponent::setup() {
     this->sync_from_light_state_(false);
   }
 
-  this->full_frame_ = static_cast<uint32_t *>(
-      heap_caps_malloc(this->led_count_ * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  // Allocate virtual frame buffers (PSRAM-preferred, internal heap fallback)
+  size_t buf_bytes = this->total_leds_ * sizeof(uint32_t);
+  this->full_frame_ = static_cast<uint32_t *>(heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (this->full_frame_ == nullptr)
+    this->full_frame_ = static_cast<uint32_t *>(malloc(buf_bytes));
   if (this->full_frame_ == nullptr) {
-    this->full_frame_ = static_cast<uint32_t *>(malloc(this->led_count_ * sizeof(uint32_t)));
-  }
-  if (this->full_frame_ == nullptr) {
-    ESP_LOGE(TAG, "Unable to allocate full-frame buffer for %u LEDs", this->led_count_);
+    ESP_LOGE(TAG, "Unable to allocate full-frame buffer (%u LEDs)", this->total_leds_);
     this->mark_failed();
     return;
   }
-  memset(this->full_frame_, 0, this->led_count_ * sizeof(uint32_t));
-  this->transition_frame_ = static_cast<uint32_t *>(
-      heap_caps_malloc(this->led_count_ * sizeof(uint32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-  if (this->transition_frame_ == nullptr) {
-    this->transition_frame_ = static_cast<uint32_t *>(malloc(this->led_count_ * sizeof(uint32_t)));
-  }
-  if (this->transition_frame_ == nullptr) {
-    ESP_LOGE(TAG, "Unable to allocate transition buffer for %u LEDs", this->led_count_);
-    this->mark_failed();
-    return;
-  }
-  memset(this->transition_frame_, 0, this->led_count_ * sizeof(uint32_t));
+  memset(this->full_frame_, 0, buf_bytes);
 
-  // Zero the frame
-  for (int32_t i = 0; i < this->light_->size(); i++)
-    (*this->light_)[i].set(esphome::Color::BLACK);
-  this->light_->schedule_show();
+  this->transition_frame_ = static_cast<uint32_t *>(heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (this->transition_frame_ == nullptr)
+    this->transition_frame_ = static_cast<uint32_t *>(malloc(buf_bytes));
+  if (this->transition_frame_ == nullptr) {
+    ESP_LOGE(TAG, "Unable to allocate transition buffer (%u LEDs)", this->total_leds_);
+    this->mark_failed();
+    return;
+  }
+  memset(this->transition_frame_, 0, buf_bytes);
+
+  // Zero all strips
+  for (auto &bus : this->buses_) {
+    for (int32_t i = 0; i < static_cast<int32_t>(bus.len); i++)
+      (*bus.strip)[i].set(esphome::Color::BLACK);
+    bus.strip->schedule_show();
+  }
 
   // Register web handlers
   auto *wsb = web_server_base::global_web_server_base;
@@ -120,7 +149,6 @@ void WLEDBridgeComponent::setup() {
     this->json_handler_ = new WLEDJsonHandler(this);  // NOLINT
     this->sse_handler_ = new WLEDSseHandler(this);  // NOLINT
     this->ui_handler_ = new WLEDUiHandler();  // NOLINT
-
     wsb->get_server()->addHandler(this->ui_handler_);
     wsb->get_server()->addHandler(this->json_handler_);
     wsb->get_server()->addHandler(this->sse_handler_);
@@ -130,26 +158,19 @@ void WLEDBridgeComponent::setup() {
   }
 
   if (this->use_task_) {
-    xTaskCreatePinnedToCore(render_task_fn_, "wled_render",
-                            8192,  // stack in bytes
-                            this,  // parameter
-                            5,  // priority (above idle, below WiFi)
-                            &this->render_task_,
-                            APP_CPU_NUM  // pin to core 1
-    );
+    xTaskCreatePinnedToCore(render_task_fn_, "wled_render", 8192, this, 5, &this->render_task_, APP_CPU_NUM);
     ESP_LOGD(TAG, "Render task started on core 1");
   }
 
-  // Register every WLED effect as an ESPHome proxy effect so HA can select them
-  // by name (e.g. light.turn_on effect: "Fire 2012").
+  // Register every WLED effect as an ESPHome proxy effect (primary bus only)
   for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
     auto *proxy = new WLEDProxyEffect(WLED_EFFECTS[i].name, static_cast<uint8_t>(i), this);  // NOLINT
     proxy->init_internal(this->light_state_);
     this->light_state_->add_effects({proxy});
   }
 
-  ESP_LOGCONFIG(TAG, "WLED Bridge ready: %u LEDs, max %u mA, %u mA/LED, %zu effects registered", this->led_count_,
-                this->max_ma_, this->led_ma_, WLED_EFFECT_COUNT);
+  ESP_LOGCONFIG(TAG, "WLED Bridge ready: %u virtual LEDs across %zu bus(es), %zu effects", this->total_leds_,
+                this->buses_.size(), WLED_EFFECT_COUNT);
 }
 
 void WLEDBridgeComponent::load_presets_() {
@@ -257,10 +278,10 @@ void WLEDBridgeComponent::apply_preset_(const WLEDPresetRecord &preset) {
   this->params_.check2 = preset.check2 != 0;
   this->params_.check3 = preset.check3 != 0;
   this->params_.palette_id = preset.palette;
-  this->segment_start_ = std::min<uint32_t>(preset.segment_start, this->led_count_ - 1);
-  this->segment_stop_ = std::min<uint32_t>(preset.segment_stop, this->led_count_);
+  this->segment_start_ = std::min<uint32_t>(preset.segment_start, this->total_leds_ > 0 ? this->total_leds_ - 1 : 0);
+  this->segment_stop_ = std::min<uint32_t>(preset.segment_stop, this->total_leds_);
   if (this->segment_stop_ <= this->segment_start_)
-    this->segment_stop_ = this->led_count_;
+    this->segment_stop_ = this->total_leds_;
   this->segment_reverse_ = preset.reverse != 0;
   this->segment_mirror_ = preset.mirror != 0;
   this->transition_ms_ = preset.transition_ms;
@@ -284,10 +305,12 @@ void WLEDBridgeComponent::on_light_remote_values_update() {
 // loop
 // ============================================================
 void WLEDBridgeComponent::loop() {
-  // ESPHome's effect lifecycle may clear effect_active (e.g. when HA sets
-  // effect to "None" via the proxy effect's stop()). Bridge always owns pixels.
-  if (this->light_ != nullptr && !this->light_->is_effect_active())
-    this->light_->set_effect_active(true);
+  // Re-assert effect ownership on all buses — ESPHome effect lifecycle may
+  // clear effect_active when HA changes or removes an effect.
+  for (auto &bus : this->buses_) {
+    if (bus.strip != nullptr && !bus.strip->is_effect_active())
+      bus.strip->set_effect_active(true);
+  }
 
   if (!this->use_task_) {
     uint32_t now = millis();
@@ -309,14 +332,12 @@ void WLEDBridgeComponent::loop() {
 }
 
 void WLEDBridgeComponent::begin_transition_() {
-  if (this->transition_ms_ == 0 || this->transition_frame_ == nullptr || this->light_ == nullptr ||
-      this->transition_active_)
+  if (this->transition_ms_ == 0 || this->transition_frame_ == nullptr || this->full_frame_ == nullptr ||
+      this->transition_active_ || this->total_leds_ == 0)
     return;
 
-  for (int32_t i = 0; i < this->light_->size(); i++) {
-    esphome::Color c = (*this->light_)[i].get();
-    this->transition_frame_[i] = RGBW32(c.r, c.g, c.b, c.w);
-  }
+  // Snapshot the current unscaled rendered frame as transition source.
+  memcpy(this->transition_frame_, this->full_frame_, this->total_leds_ * sizeof(uint32_t));
   this->transition_start_ms_ = millis();
   this->transition_duration_ms_ = this->transition_ms_;
   this->transition_active_ = true;
@@ -382,28 +403,40 @@ void WLEDBridgeComponent::publish_light_state() {
 }
 
 // ============================================================
-// render_frame_
+// render_frame_ — frame-buffer pipeline (multi-bus aware)
+//
+// Pipeline:
+//   full_frame_[]  ← unscaled, persists between frames (enables fade effects)
+//        │
+//   effect writes into full_frame_[] via EffectContext
+//        │
+//   apply_transition_blend_() blends on full_frame_[] (still unscaled)
+//        │
+//   compute_output_scale_()  → final_scale (brightness * ABL)
+//        │
+//   reset_output_correction_()  → prevent ESPHome from re-scaling our output
+//        │
+//   flush_frame_to_buses_()  → scale(full_frame_) → each bus strip → schedule_show
 // ============================================================
 void WLEDBridgeComponent::render_frame_() {
-  if (this->light_ == nullptr)
+  if (this->buses_.empty() || this->full_frame_ == nullptr)
     return;
 
+  uint32_t now = millis();
+
   if (!this->is_on_) {
-    if (this->full_frame_ != nullptr)
-      memset(this->full_frame_, 0, this->led_count_ * sizeof(uint32_t));
+    memset(this->full_frame_, 0, this->total_leds_ * sizeof(uint32_t));
+    this->apply_transition_blend_(now);
     this->reset_output_correction_();
-    for (int32_t i = 0; i < this->light_->size(); i++)
-      (*this->light_)[i].set(esphome::Color::BLACK);
-    this->apply_transition_blend_(millis());
-    this->light_->schedule_show();
+    this->flush_frame_to_buses_(255u);
     return;
   }
 
-  this->reset_output_correction_();
-  this->restore_full_frame_();
-
-  uint32_t now = millis();
-  EffectContext ctx{this->light_,
+  // full_frame_[] already holds the unscaled result from the last frame.
+  // Effects that fade (comet, larson…) read previous values and write faded
+  // versions — no separate "restore" step needed.
+  EffectContext ctx{this->full_frame_,
+                    this->total_leds_,
                     &this->params_,
                     &this->env_,
                     now,
@@ -413,109 +446,91 @@ void WLEDBridgeComponent::render_frame_() {
                     this->segment_reverse_,
                     this->segment_mirror_};
 
-  // Run the active effect
-  if (this->active_fx_ < WLED_EFFECT_COUNT) {
+  if (this->active_fx_ < WLED_EFFECT_COUNT)
     WLED_EFFECTS[this->active_fx_].fn(ctx);
-  }
 
-  // Increment frame counter
   this->env_.call++;
 
-  // Apply WLED global brightness and the automatic brightness limiter after
-  // the selected effect has rendered its full-brightness frame.
-  this->apply_output_scaling_();
   this->apply_transition_blend_(now);
-
-  this->light_->schedule_show();
+  uint8_t final_scale = this->compute_output_scale_();
+  this->reset_output_correction_();
+  this->flush_frame_to_buses_(final_scale);
 }
 
 // ============================================================
-// reset_output_correction_ — keep ESPHome correction pass-through
+// reset_output_correction_ — prevent ESPHome from re-scaling our output
 // ============================================================
 void WLEDBridgeComponent::reset_output_correction_() {
-  if (this->light_state_ == nullptr || this->light_ == nullptr)
-    return;
-
-  // ESPHome LightCall/update_state may adjust AddressableLight's local
-  // brightness. The bridge applies WLED brightness itself, so force the
-  // addressable correction layer back to full-scale before writing pixels.
-  this->light_state_->current_values.set_state(true);
-  this->light_state_->current_values.set_brightness(1.0f);
-  this->light_->update_state(this->light_state_);
-}
-
-// ============================================================
-// restore_full_frame_ — restore unscaled pixels before rendering effects
-// ============================================================
-void WLEDBridgeComponent::restore_full_frame_() {
-  if (this->full_frame_ == nullptr)
-    return;
-
-  for (int32_t i = 0; i < this->light_->size(); i++) {
-    (*this->light_)[i].set_rgbw(R(this->full_frame_[i]), G(this->full_frame_[i]), B(this->full_frame_[i]),
-                                W(this->full_frame_[i]));
+  for (auto &bus : this->buses_) {
+    if (bus.light_state == nullptr || bus.strip == nullptr)
+      continue;
+    bus.light_state->current_values.set_state(true);
+    bus.light_state->current_values.set_brightness(1.0f);
+    bus.strip->update_state(bus.light_state);
   }
 }
 
 // ============================================================
-// apply_output_scaling_ — WLED global brightness + Automatic Brightness Limiter
-// Scales pixels in-place after rendering. Current is estimated from the actual
-// rendered RGBW values rather than from a worst-case all-white frame.
+// compute_output_scale_ — brightness + ABL → single 0-255 multiplier
+// Does NOT modify full_frame_[] so unscaled values persist for next frame.
 // ============================================================
-void WLEDBridgeComponent::apply_output_scaling_() {
-  if (this->light_ == nullptr || this->led_count_ == 0)
-    return;
+uint8_t WLEDBridgeComponent::compute_output_scale_() {
+  if (this->total_leds_ == 0)
+    return this->global_bri_;
 
+  // Estimate total current after applying global brightness
   uint64_t channel_sum = 0;
-  for (int32_t i = 0; i < this->light_->size(); i++) {
-    auto pv = (*this->light_)[i];
-    esphome::Color full = pv.get();
-    if (this->full_frame_ != nullptr)
-      this->full_frame_[i] = RGBW32(full.r, full.g, full.b, full.w);
-
-    esphome::Color c{
-        scale8_linear(full.r, this->global_bri_),
-        scale8_linear(full.g, this->global_bri_),
-        scale8_linear(full.b, this->global_bri_),
-        scale8_linear(full.w, this->global_bri_),
-    };
-    pv.set(c);
-    channel_sum += c.r;
-    channel_sum += c.g;
-    channel_sum += c.b;
-    channel_sum += c.w;
+  for (uint32_t i = 0; i < this->total_leds_; i++) {
+    uint32_t c = this->full_frame_[i];
+    channel_sum += scale8_linear(R(c), this->global_bri_);
+    channel_sum += scale8_linear(G(c), this->global_bri_);
+    channel_sum += scale8_linear(B(c), this->global_bri_);
+    channel_sum += scale8_linear(W(c), this->global_bri_);
   }
 
-  if (this->led_ma_ == 0) {
+  // Aggregate per-bus budget (0 = unlimited)
+  uint32_t total_max_ma = 0;
+  uint32_t primary_led_ma = 0;
+  for (const auto &bus : this->buses_) {
+    total_max_ma += bus.max_ma;
+    if (primary_led_ma == 0)
+      primary_led_ma = bus.led_ma;
+  }
+
+  if (primary_led_ma == 0) {
     this->current_ma_ = 0;
-    return;
+    return this->global_bri_;
   }
 
-  // led_ma is configured as the current of one RGB LED at full white.
-  // Include W in the sum too; this intentionally errs on the conservative side
-  // for RGBW strips until the bridge grows explicit channel-count metadata.
-  uint32_t estimated_ma = static_cast<uint32_t>((channel_sum * this->led_ma_) / (255u * 3u));
+  uint32_t estimated_ma = static_cast<uint32_t>((channel_sum * primary_led_ma) / (255u * 3u));
   this->current_ma_ = estimated_ma;
 
-  if (this->max_ma_ == 0 || estimated_ma <= this->max_ma_)
-    return;
+  if (total_max_ma == 0 || estimated_ma <= total_max_ma)
+    return this->global_bri_;
 
-  uint8_t abl_scale = static_cast<uint8_t>((static_cast<uint64_t>(this->max_ma_) * 255u) / estimated_ma);
-  uint64_t limited_channel_sum = 0;
-  for (int32_t i = 0; i < this->light_->size(); i++) {
-    auto pv = (*this->light_)[i];
-    esphome::Color c = pv.get();
-    c.r = scale8_linear(c.r, abl_scale);
-    c.g = scale8_linear(c.g, abl_scale);
-    c.b = scale8_linear(c.b, abl_scale);
-    c.w = scale8_linear(c.w, abl_scale);
-    pv.set(c);
-    limited_channel_sum += c.r;
-    limited_channel_sum += c.g;
-    limited_channel_sum += c.b;
-    limited_channel_sum += c.w;
+  // ABL: scale down to stay within budget
+  uint8_t abl_scale = static_cast<uint8_t>((static_cast<uint64_t>(total_max_ma) * 255u) / estimated_ma);
+  uint8_t final_scale = scale8_linear(this->global_bri_, abl_scale);
+  // Re-estimate after ABL
+  this->current_ma_ = static_cast<uint32_t>((static_cast<uint64_t>(estimated_ma) * final_scale) / 255u);
+  return final_scale;
+}
+
+// ============================================================
+// flush_frame_to_buses_ — write full_frame_[] (scaled on-the-fly) to strips
+// ============================================================
+void WLEDBridgeComponent::flush_frame_to_buses_(uint8_t final_scale) {
+  for (const auto &bus : this->buses_) {
+    if (bus.strip == nullptr)
+      continue;
+    for (uint32_t i = 0; i < bus.len; i++) {
+      uint32_t c = this->full_frame_[bus.start + i];
+      write_pixel((*bus.strip)[static_cast<int32_t>(i)],
+                  RGBW32(scale8_linear(R(c), final_scale), scale8_linear(G(c), final_scale),
+                         scale8_linear(B(c), final_scale), scale8_linear(W(c), final_scale)));
+    }
+    bus.strip->schedule_show();
   }
-  this->current_ma_ = static_cast<uint32_t>((limited_channel_sum * this->led_ma_) / (255u * 3u));
 }
 
 void WLEDBridgeComponent::apply_transition_blend_(uint32_t now) {
@@ -528,11 +543,11 @@ void WLEDBridgeComponent::apply_transition_blend_(uint32_t now) {
     return;
   }
 
+  // Blend on unscaled full_frame_[] so the next compute_output_scale_() sees
+  // correct values.
   uint8_t amount = static_cast<uint8_t>((elapsed * 255u) / this->transition_duration_ms_);
-  for (int32_t i = 0; i < this->light_->size(); i++) {
-    esphome::Color target = (*this->light_)[i].get();
-    uint32_t blended = color_blend(this->transition_frame_[i], RGBW32(target.r, target.g, target.b, target.w), amount);
-    (*this->light_)[i].set_rgbw(R(blended), G(blended), B(blended), W(blended));
+  for (uint32_t i = 0; i < this->total_leds_; i++) {
+    this->full_frame_[i] = color_blend(this->transition_frame_[i], this->full_frame_[i], amount);
   }
 }
 
@@ -609,10 +624,10 @@ bool WLEDBridgeComponent::delete_preset(uint8_t preset_id) {
 }
 
 void WLEDBridgeComponent::set_segment_bounds(uint32_t start, uint32_t stop) {
-  if (this->led_count_ == 0)
+  if (this->total_leds_ == 0)
     return;
-  start = std::min<uint32_t>(start, this->led_count_ - 1);
-  stop = std::min<uint32_t>(stop, this->led_count_);
+  start = std::min<uint32_t>(start, this->total_leds_ - 1);
+  stop = std::min<uint32_t>(stop, this->total_leds_);
   if (stop <= start)
     stop = start + 1;
   if (this->segment_start_ == start && this->segment_stop_ == stop)
@@ -648,10 +663,8 @@ void WLEDBridgeComponent::reset_segment_state_() {
   this->env_.aux0 = 0;
   this->env_.aux1 = 0;
   this->env_.free_data();
-  if (this->full_frame_ != nullptr)
-    memset(this->full_frame_, 0, this->led_count_ * sizeof(uint32_t));
-  for (int32_t i = 0; i < this->light_->size(); i++)
-    (*this->light_)[i].set(esphome::Color::BLACK);
+  if (this->full_frame_ != nullptr && this->total_leds_ > 0)
+    memset(this->full_frame_, 0, this->total_leds_ * sizeof(uint32_t));
 }
 
 // ============================================================
@@ -659,9 +672,13 @@ void WLEDBridgeComponent::reset_segment_state_() {
 // ============================================================
 void WLEDBridgeComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "WLED Bridge:");
-  ESP_LOGCONFIG(TAG, "  LEDs: %u", this->led_count_);
-  ESP_LOGCONFIG(TAG, "  Max current: %u mA", this->max_ma_);
-  ESP_LOGCONFIG(TAG, "  mA/LED: %u", this->led_ma_);
+  ESP_LOGCONFIG(TAG, "  Buses: %zu", this->buses_.size());
+  for (size_t i = 0; i < this->buses_.size(); i++) {
+    const auto &bus = this->buses_[i];
+    ESP_LOGCONFIG(TAG, "    Bus %zu: virtual [%u-%u) (%u LEDs), max %u mA, %u mA/LED", i, bus.start,
+                  bus.start + bus.len, bus.len, bus.max_ma, bus.led_ma);
+  }
+  ESP_LOGCONFIG(TAG, "  Virtual LEDs: %u", this->total_leds_);
   ESP_LOGCONFIG(TAG, "  FPS target: %u", WLED_FPS);
   ESP_LOGCONFIG(TAG, "  Effects: %zu", WLED_EFFECT_COUNT);
   ESP_LOGCONFIG(TAG, "  Palettes: %zu", WLED_PALETTE_COUNT);
