@@ -579,5 +579,109 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         )
 
 
+    def test_effects_count_matches_declared_constant(self) -> None:
+        effects_h = read(ROOT / "components" / "wled_bridge" / "wled_effects.h")
+        effects_cpp = read(ROOT / "components" / "wled_bridge" / "wled_effects.cpp")
+
+        # Declared constant
+        match = re.search(r"WLED_EFFECT_COUNT\s*=\s*(\d+)", effects_h)
+        self.assertIsNotNone(match, "WLED_EFFECT_COUNT not found in wled_effects.h")
+        declared = int(match.group(1))
+        self.assertGreaterEqual(declared, 44, "expected at least 44 effects")
+
+        # Table entries — count /* N */ comment markers in the table block
+        table_entries = re.findall(r"/\*\s*\d+\s*\*/", effects_cpp)
+        self.assertEqual(
+            len(table_entries),
+            declared,
+            f"WLED_EFFECT_COUNT={declared} but table has {len(table_entries)} entries",
+        )
+
+    def test_json_combined_endpoint_includes_effects_and_palettes(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        # /json route must build all four arrays
+        assert_contains_all(
+            self,
+            source,
+            [
+                '"effects":',
+                '"palettes":',
+                "build_effects_json()",
+                "build_palettes_json()",
+            ],
+        )
+        # /json combined block must concatenate effects + palettes
+        # Both strings should appear in the same code block after '"/json"'
+        combined_block_match = re.search(
+            r'strcmp\(url\.c_str\(\),\s*"/json"\)',
+            source,
+        )
+        self.assertIsNotNone(combined_block_match, '"/json" route not found in source')
+
+    def test_probe_endpoints_version_and_freeheap(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                '"/version"',
+                '"/freeheap"',
+                '"WLED Bridge',
+                "heap_caps_get_free_size",
+                "MALLOC_CAP_INTERNAL",
+            ],
+        )
+
+    def test_batch2_effect_functions_declared(self) -> None:
+        effects_h = read(ROOT / "components" / "wled_bridge" / "wled_effects.h")
+        effects_cpp = read(ROOT / "components" / "wled_bridge" / "wled_effects.cpp")
+
+        batch2 = [
+            "fx_juggle",
+            "fx_bouncing_balls",
+            "fx_fireworks",
+            "fx_police",
+            "fx_chase_flash",
+            "fx_heartbeat",
+            "fx_rain",
+            "fx_sparkle",
+            "fx_pride_2015",
+            "fx_candle",
+            "fx_fill_noise",
+            "fx_oscillate",
+            "fx_gradient",
+            "fx_pacifica",
+        ]
+        for fn in batch2:
+            self.assertIn(fn, effects_h, f"{fn} not declared in wled_effects.h")
+            self.assertIn(fn, effects_cpp, f"{fn} not implemented in wled_effects.cpp")
+
+    def test_batch2_effects_have_metadata_strings(self) -> None:
+        effects_cpp = read(ROOT / "components" / "wled_bridge" / "wled_effects.cpp")
+
+        # Each entry in the table: {"Name", "meta@...", fn}
+        # Batch 2 effect names that should appear in the table
+        batch2_names = [
+            "Juggle",
+            "Bouncing Balls",
+            "Fireworks",
+            "Police",
+            "Chase Flash",
+            "Heartbeat",
+            "Rain",
+            "Sparkle",
+            "Pride 2015",
+            "Candle",
+            "Fill Noise",
+            "Oscillate",
+            "Gradient",
+            "Pacifica",
+        ]
+        for name in batch2_names:
+            self.assertIn(f'"{name}"', effects_cpp, f'effect name "{name}" not in table')
+
+
 if __name__ == "__main__":
     unittest.main()
