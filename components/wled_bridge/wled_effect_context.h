@@ -14,13 +14,30 @@ struct EffectContext {
   EffectParams *params;
   SegmentState *env;
   uint32_t now;  // millis() snapshot for this frame
-  int32_t len;  // strip->size()
+  int32_t start;  // inclusive physical start
+  int32_t stop;  // exclusive physical stop
+  int32_t len;  // logical segment length
+  bool reverse;
+  bool mirror;
+
+  int32_t map_pixel(int32_t i) const {
+    if (i < 0 || i >= len)
+      return -1;
+    int32_t mapped = reverse ? (len - 1 - i) : i;
+    if (mirror) {
+      int32_t half = (len + 1) / 2;
+      if (mapped >= half)
+        mapped = len - 1 - mapped;
+    }
+    return start + mapped;
+  }
 
   // ---- pixel write ----
   void set_pixel(int32_t i, uint32_t color) {
-    if (i < 0 || i >= len)
+    int32_t physical = map_pixel(i);
+    if (physical < 0)
       return;
-    write_pixel((*strip)[i], color);
+    write_pixel((*strip)[physical], color);
   }
 
   void set_pixel_gamma(int32_t i, uint32_t color) {
@@ -40,7 +57,10 @@ struct EffectContext {
   // Fade each pixel toward black by amount (WLED's fade_out / scale down)
   void fade_to_black(uint8_t amount) {
     for (int32_t i = 0; i < len; i++) {
-      auto pv = (*strip)[i];
+      int32_t physical = map_pixel(i);
+      if (physical < 0)
+        continue;
+      auto pv = (*strip)[physical];
       pv.set_rgb(scale8(pv.get_red(), amount), scale8(pv.get_green(), amount), scale8(pv.get_blue(), amount));
     }
   }

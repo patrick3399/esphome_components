@@ -1,5 +1,6 @@
 #pragma once
 #include "esphome/core/component.h"
+#include "esphome/core/preferences.h"
 #include "esphome/components/light/addressable_light.h"
 #include "esphome/components/light/light_state.h"
 #include "wled_types.h"
@@ -10,12 +11,49 @@
 namespace esphome {
 namespace wled_bridge {
 
-class WLEDBridgeComponent : public Component {
+static constexpr uint8_t WLED_PRESET_COUNT = 16;
+static constexpr size_t WLED_PRESET_NAME_SIZE = 24;
+
+struct WLEDPresetRecord {
+  uint8_t valid{0};
+  uint8_t on{1};
+  uint8_t brightness{128};
+  uint8_t effect{0};
+  uint8_t speed{128};
+  uint8_t intensity{128};
+  uint8_t custom1{128};
+  uint8_t custom2{128};
+  uint8_t custom3{16};
+  uint8_t check1{0};
+  uint8_t check2{0};
+  uint8_t check3{0};
+  uint8_t palette{0};
+  uint16_t segment_start{0};
+  uint16_t segment_stop{0};
+  uint8_t reverse{0};
+  uint8_t mirror{0};
+  uint16_t transition_ms{0};
+  uint32_t colors[3]{0xFFAA00, 0x000000, 0x000000};
+  char name[WLED_PRESET_NAME_SIZE]{};
+};
+
+struct WLEDPresetStore {
+  uint32_t magic{0};
+  WLEDPresetRecord slots[WLED_PRESET_COUNT]{};
+};
+
+struct WLEDStoredState {
+  uint32_t magic{0};
+  WLEDPresetRecord state{};
+};
+
+class WLEDBridgeComponent : public Component, public light::LightRemoteValuesListener {
  public:
   // ---- ESPHome lifecycle ----
   void setup() override;
   void loop() override;
   void dump_config() override;
+  void on_light_remote_values_update() override;
   float get_setup_priority() const override {
     return setup_priority::LATE;
   }
@@ -57,6 +95,37 @@ class WLEDBridgeComponent : public Component {
   uint32_t get_current_ma() const {
     return this->current_ma_;
   }
+  uint32_t get_state_version() const {
+    return this->state_version_;
+  }
+  uint16_t get_transition_ms() const {
+    return this->transition_ms_;
+  }
+  uint8_t get_active_preset() const {
+    return this->active_preset_;
+  }
+  uint32_t get_segment_start() const {
+    return this->segment_start_;
+  }
+  uint32_t get_segment_stop() const {
+    return this->segment_stop_;
+  }
+  uint32_t get_segment_length() const {
+    return this->segment_stop_ > this->segment_start_ ? this->segment_stop_ - this->segment_start_ : 0;
+  }
+  bool is_segment_reversed() const {
+    return this->segment_reverse_;
+  }
+  bool is_segment_mirrored() const {
+    return this->segment_mirror_;
+  }
+  const WLEDPresetRecord *get_preset(uint8_t preset_id) const {
+    if (preset_id == 0 || preset_id > WLED_PRESET_COUNT)
+      return nullptr;
+    return &this->preset_store_.slots[preset_id - 1];
+  }
+  bool is_preset_valid(uint8_t preset_id) const;
+  void publish_light_state();
 
   // ---- State mutators (used by JSON POST handler) ----
   void set_on(bool on);
@@ -74,6 +143,30 @@ class WLEDBridgeComponent : public Component {
     this->params_.palette_id = pal;
     this->mark_dirty_();
   }
+  void set_custom1(uint8_t c1) {
+    this->params_.custom1 = c1;
+    this->mark_dirty_();
+  }
+  void set_custom2(uint8_t c2) {
+    this->params_.custom2 = c2;
+    this->mark_dirty_();
+  }
+  void set_custom3(uint8_t c3) {
+    this->params_.custom3 = c3;
+    this->mark_dirty_();
+  }
+  void set_check1(bool o1) {
+    this->params_.check1 = o1;
+    this->mark_dirty_();
+  }
+  void set_check2(bool o2) {
+    this->params_.check2 = o2;
+    this->mark_dirty_();
+  }
+  void set_check3(bool o3) {
+    this->params_.check3 = o3;
+    this->mark_dirty_();
+  }
   void set_color(uint8_t slot, uint32_t rgb) {
     if (slot < 3) {
       this->params_.colors[slot] = rgb;
@@ -88,7 +181,14 @@ class WLEDBridgeComponent : public Component {
   }
   void set_transition(uint16_t ms) {
     this->transition_ms_ = ms;
+    this->mark_dirty_();
   }
+  bool save_preset(uint8_t preset_id, const char *name = nullptr);
+  bool load_preset(uint8_t preset_id);
+  bool delete_preset(uint8_t preset_id);
+  void set_segment_bounds(uint32_t start, uint32_t stop);
+  void set_segment_reverse(bool reverse);
+  void set_segment_mirror(bool mirror);
 
   // SSE dirty flag — checked in loop() to broadcast state change
   bool is_state_dirty() const {
@@ -99,11 +199,30 @@ class WLEDBridgeComponent : public Component {
   }
 
  protected:
+  void sync_from_light_state_(bool publish);
   void render_frame_();
-  void apply_abl_();
+  void reset_output_correction_();
+  void restore_full_frame_();
+  void apply_output_scaling_();
+  void apply_transition_blend_(uint32_t now);
   void reset_segment_state_();
-  void mark_dirty_() {
+  void begin_transition_();
+  void load_presets_();
+  void persist_presets_();
+  void load_state_();
+  void persist_state_();
+  void schedule_state_save_();
+  void apply_preset_(const WLEDPresetRecord &preset);
+  WLEDPresetRecord current_as_preset_() const;
+  void set_default_preset_name_(WLEDPresetRecord *preset, uint8_t preset_id) const;
+  void copy_preset_name_(WLEDPresetRecord *preset, const char *name) const;
+  void mark_dirty_(bool clear_active_preset = true) {
+    if (clear_active_preset)
+      this->active_preset_ = 0;
+    this->begin_transition_();
+    this->state_version_++;
     this->state_dirty_ = true;
+    this->schedule_state_save_();
   }
 
   static void render_task_fn_(void *arg);
@@ -119,14 +238,32 @@ class WLEDBridgeComponent : public Component {
   uint8_t global_bri_{128};
   bool is_on_{true};
   uint32_t led_count_{1};
+  uint32_t segment_start_{0};
+  uint32_t segment_stop_{1};
+  bool segment_reverse_{false};
+  bool segment_mirror_{false};
   uint32_t max_ma_{2000};
   uint32_t led_ma_{20};
   uint32_t current_ma_{0};
   bool use_task_{false};
   uint16_t transition_ms_{0};
+  uint32_t *full_frame_{nullptr};
+  uint32_t *transition_frame_{nullptr};
+  uint32_t transition_start_ms_{0};
+  uint32_t transition_duration_ms_{0};
+  bool transition_active_{false};
+  uint8_t active_preset_{0};
+  WLEDPresetStore preset_store_{};
+  ESPPreferenceObject preset_pref_{};
+  ESPPreferenceObject state_pref_{};
 
   uint32_t last_frame_ms_{0};
+  uint32_t state_version_{0};
+  uint32_t state_save_due_ms_{0};
   bool state_dirty_{false};
+  bool state_loaded_{false};
+  bool state_pref_ready_{false};
+  bool suppress_light_sync_{false};
 
   WLEDJsonHandler *json_handler_{nullptr};
   WLEDSseHandler *sse_handler_{nullptr};

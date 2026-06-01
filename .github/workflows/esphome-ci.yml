@@ -46,5 +46,20 @@ jobs:
           find components/ -name '*.cpp' -o -name '*.h' | \
             xargs clang-format --dry-run --Werror
 
-  # CI intentionally runs lint/format only.
+  contract-tests:
+    name: Contract Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Run WLED bridge contract tests
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+  # CI intentionally avoids firmware builds.
   # Device YAMLs and firmware builds are verified locally while rewrites are in progress.
