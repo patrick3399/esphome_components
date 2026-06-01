@@ -584,8 +584,8 @@ HTML = dedent(
 
 def format_array(data: bytes) -> str:
     lines: list[str] = []
-    for start in range(0, len(data), 16):
-        chunk = data[start : start + 16]
+    for start in range(0, len(data), 19):
+        chunk = data[start : start + 19]
         lines.append("    " + ", ".join(f"0x{byte:02x}" for byte in chunk) + ",")
     return "\n".join(lines)
 
