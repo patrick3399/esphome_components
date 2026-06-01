@@ -2,6 +2,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/light/addressable_light.h"
+#include "esphome/components/light/addressable_light_effect.h"
 #include "esphome/components/light/light_state.h"
 #include "wled_types.h"
 #include "wled_effects.h"
@@ -10,6 +11,36 @@
 
 namespace esphome {
 namespace wled_bridge {
+
+class WLEDBridgeComponent;  // forward
+
+// Thin ESPHome effect proxy so HA can select WLED effects by name.
+// Delegates rendering entirely to WLEDBridgeComponent::loop().
+class WLEDProxyEffect : public light::AddressableLightEffect {
+ public:
+  WLEDProxyEffect(const char *name, uint8_t effect_id, WLEDBridgeComponent *comp)
+      : light::AddressableLightEffect(name), effect_id_(effect_id), comp_(comp) {}
+
+  void start() override;
+
+  void stop() override {
+    // Do NOT call parent::stop() — that calls set_effect_active(false).
+    // Bridge owns pixel writes unconditionally; reassert here.
+    if (this->state_ != nullptr) {
+      auto *al = static_cast<light::AddressableLight *>(
+          static_cast<light::AddressableLightState *>(this->state_)->get_output());
+      al->set_effect_active(true);
+    }
+  }
+
+  void apply(light::AddressableLight &it, const Color & /*current_color*/) override {
+    it.set_effect_active(true);  // keep asserted while this proxy is "active"
+  }
+
+ protected:
+  uint8_t effect_id_;
+  WLEDBridgeComponent *comp_;
+};
 
 static constexpr uint8_t WLED_PRESET_COUNT = 16;
 static constexpr size_t WLED_PRESET_NAME_SIZE = 24;

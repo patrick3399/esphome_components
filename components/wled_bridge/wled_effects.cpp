@@ -841,7 +841,8 @@ void fx_sparkle(EffectContext &ctx) {
 // 38 — Pride 2015 (Mark Kriegsman, simplified)
 void fx_pride_2015(EffectContext &ctx) {
   uint8_t sat = beatsin8(87u, 220u, 250u, NOW);
-  uint8_t bright_depth = beatsin8(341u, 96u, 224u, NOW);
+  // 341 truncates to 85 (uint8_t); keep original WLED intent (slow variation)
+  uint8_t bright_depth = beatsin8(85u, 96u, 224u, NOW);
   uint16_t bright_theta_inc = static_cast<uint16_t>(beatsin8(203u, 25u, 75u, NOW)) * 256u;
   uint16_t hue16 = static_cast<uint16_t>(NOW * (1u + (SPEED >> 5u)));
   uint16_t hue_inc = static_cast<uint16_t>(beatsin8(113u, 1u, 3u, NOW)) * 256u;

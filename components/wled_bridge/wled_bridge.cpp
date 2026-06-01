@@ -15,6 +15,17 @@
 namespace esphome {
 namespace wled_bridge {
 
+// ============================================================
+// WLEDProxyEffect
+// ============================================================
+void WLEDProxyEffect::start() {
+  light::AddressableLightEffect::start();  // sets effect_active = true
+  comp_->set_effect(effect_id_);
+}
+
+// ============================================================
+// WLEDBridgeComponent
+// ============================================================
 static const char *const TAG = "wled_bridge";
 static constexpr uint32_t WLED_PRESET_MAGIC = 0x574C5033;  // WLP3
 static constexpr uint32_t WLED_STATE_MAGIC = 0x574C5332;  // WLS2
@@ -129,8 +140,16 @@ void WLEDBridgeComponent::setup() {
     ESP_LOGD(TAG, "Render task started on core 1");
   }
 
-  ESP_LOGCONFIG(TAG, "WLED Bridge ready: %u LEDs, max %u mA, %u mA/LED", this->led_count_, this->max_ma_,
-                this->led_ma_);
+  // Register every WLED effect as an ESPHome proxy effect so HA can select them
+  // by name (e.g. light.turn_on effect: "Fire 2012").
+  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+    auto *proxy = new WLEDProxyEffect(WLED_EFFECTS[i].name, static_cast<uint8_t>(i), this);  // NOLINT
+    proxy->init_internal(this->light_state_);
+    this->light_state_->add_effects({proxy});
+  }
+
+  ESP_LOGCONFIG(TAG, "WLED Bridge ready: %u LEDs, max %u mA, %u mA/LED, %zu effects registered", this->led_count_,
+                this->max_ma_, this->led_ma_, WLED_EFFECT_COUNT);
 }
 
 void WLEDBridgeComponent::load_presets_() {
@@ -265,6 +284,11 @@ void WLEDBridgeComponent::on_light_remote_values_update() {
 // loop
 // ============================================================
 void WLEDBridgeComponent::loop() {
+  // ESPHome's effect lifecycle may clear effect_active (e.g. when HA sets
+  // effect to "None" via the proxy effect's stop()). Bridge always owns pixels.
+  if (this->light_ != nullptr && !this->light_->is_effect_active())
+    this->light_->set_effect_active(true);
+
   if (!this->use_task_) {
     uint32_t now = millis();
     if (now - this->last_frame_ms_ >= FRAMETIME_MS) {
