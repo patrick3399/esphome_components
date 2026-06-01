@@ -389,7 +389,8 @@ bool WLEDJsonHandler::canHandle(web_server_idf::AsyncWebServerRequest *request) 
   char url_buf[web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
   return strncmp(url.c_str(), "/json", 5) == 0 || strcmp(url.c_str(), "/presets.json") == 0 ||
-         strcmp(url.c_str(), "/win") == 0 || strncmp(url.c_str(), "/win&", 5) == 0;
+         strcmp(url.c_str(), "/win") == 0 || strncmp(url.c_str(), "/win&", 5) == 0 ||
+         strcmp(url.c_str(), "/version") == 0 || strcmp(url.c_str(), "/freeheap") == 0;
 }
 
 void WLEDJsonHandler::handleBody(web_server_idf::AsyncWebServerRequest *request, uint8_t *data, size_t len,
@@ -425,8 +426,14 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
   }
 
   // GET routing
-  if (strcmp(url.c_str(), "/json") == 0 || strcmp(url.c_str(), "/json/") == 0 || strcmp(url.c_str(), "/json/si") == 0) {
-    // Combined state+info
+  if (strcmp(url.c_str(), "/json") == 0 || strcmp(url.c_str(), "/json/") == 0) {
+    // Full WLED combined response: state + info + effects + palettes
+    std::string body = "{\"state\":" + build_state_json(comp_) + ",\"info\":" + build_info_json(comp_) +
+                       ",\"effects\":" + build_effects_json() + ",\"palettes\":" + build_palettes_json() + "}";
+    auto *resp = request->beginResponse(200, "application/json", body);
+    request->send(resp);
+  } else if (strcmp(url.c_str(), "/json/si") == 0) {
+    // State + info only (WLED /json/si endpoint)
     std::string body = "{\"state\":" + build_state_json(comp_) + ",\"info\":" + build_info_json(comp_) + "}";
     auto *resp = request->beginResponse(200, "application/json", body);
     request->send(resp);
@@ -442,6 +449,12 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
     handle_get_config_(request);
   } else if (strcmp(url.c_str(), "/json/net") == 0 || strcmp(url.c_str(), "/json/nodes") == 0) {
     handle_get_network_(request);
+  } else if (strcmp(url.c_str(), "/version") == 0) {
+    request->send(200, "application/json", "\"WLED Bridge 0.1.0\"");
+  } else if (strcmp(url.c_str(), "/freeheap") == 0) {
+    auto body = std::to_string(static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
+    auto *resp = request->beginResponse(200, "text/plain", body);
+    request->send(resp);
   } else {
     request->send(404, "application/json", "{\"error\":\"not found\"}");
   }

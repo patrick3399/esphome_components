@@ -638,6 +638,297 @@ void fx_ripple(EffectContext &ctx) {
 }
 
 // ============================================================
+// Batch 2 — effects 30-43
+// ============================================================
+
+// 30 — Juggle
+void fx_juggle(EffectContext &ctx) {
+  ctx.fade_to_black(192);
+  uint8_t numdots = 1 + (INTENSITY >> 5);
+  uint8_t max_pos = static_cast<uint8_t>(SEGLEN > 1 ? SEGLEN - 1 : 0);
+  for (uint8_t i = 0; i < numdots; i++) {
+    uint8_t pos = beatsin8(static_cast<uint8_t>(i * 2u + 7u), 0u, max_pos, NOW, static_cast<uint8_t>(i * 36u));
+    ctx.set_pixel(static_cast<int32_t>(pos), ctx.pal_color_at(static_cast<int32_t>(pos)));
+  }
+}
+
+// 31 — Bouncing Balls
+void fx_bouncing_balls(EffectContext &ctx) {
+  if (SEGLEN <= 1) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  struct Ball {
+    float impact_vel;
+    uint32_t last_frame;
+    uint32_t color;
+  };
+  uint8_t num_balls = 1u + (INTENSITY >> 5u);
+  if (!ctx.env->allocate_data(num_balls * sizeof(Ball))) {
+    ctx.fill_black();
+    return;
+  }
+  auto *balls = reinterpret_cast<Ball *>(ctx.env->data);
+
+  if (CALL == 0) {
+    for (uint8_t i = 0; i < num_balls; i++) {
+      balls[i].impact_vel = 0.11f * (0.7f + i * 0.1f);
+      balls[i].last_frame = 0;
+      balls[i].color = ctx.pal_color(hw_random8());
+    }
+  }
+
+  // Gravity in [0..1]/frame^2, speed-scaled
+  float g = -0.006f * (0.5f + SPEED / 255.0f);
+
+  ctx.fill_black();
+  for (uint8_t i = 0; i < num_balls; i++) {
+    float t = static_cast<float>(CALL - balls[i].last_frame);
+    float h = balls[i].impact_vel * t + 0.5f * g * t * t;
+
+    if (h <= 0.0f) {
+      balls[i].impact_vel *= 0.82f;
+      balls[i].last_frame = CALL;
+      if (balls[i].impact_vel < 0.012f) {
+        balls[i].impact_vel = 0.11f;
+        balls[i].color = ctx.pal_color(hw_random8());
+      }
+      h = 0.0f;
+    }
+
+    int32_t pos = static_cast<int32_t>(h * static_cast<float>(SEGLEN - 1));
+    if (pos >= 0 && pos < SEGLEN)
+      ctx.set_pixel(pos, balls[i].color);
+  }
+}
+
+// 32 — Fireworks
+void fx_fireworks(EffectContext &ctx) {
+  if (SEGLEN <= 3) {
+    ctx.fill_black();
+    return;
+  }
+  ctx.fade_to_black(220);
+  uint32_t interval = 200u + (255u - SPEED) * 10u;
+  if (NOW - STEP > interval) {
+    STEP = NOW;
+    int32_t pos = 1 + static_cast<int32_t>(hw_random16(static_cast<uint16_t>(SEGLEN - 2)));
+    uint32_t col = ctx.pal_color(hw_random8());
+    ctx.set_pixel(pos, col);
+    ctx.set_pixel(pos - 1, color_fade(col, 100u));
+    ctx.set_pixel(pos + 1, color_fade(col, 100u));
+  }
+}
+
+// 33 — Police Lights
+void fx_police(EffectContext &ctx) {
+  int32_t half = SEGLEN / 2;
+  uint32_t flash_cycle = 150u + (255u - SPEED) * 3u;
+  bool state = (NOW / flash_cycle) % 2u == 0u;
+
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    if (i < half)
+      ctx.set_pixel(i, state ? 0xFF0000u : 0u);
+    else
+      ctx.set_pixel(i, state ? 0u : 0x0000FFu);
+  }
+}
+
+// 34 — Chase Flash
+void fx_chase_flash(EffectContext &ctx) {
+  if (SEGLEN <= 1) {
+    ctx.fill(COLOR0);
+    return;
+  }
+  uint32_t chase_period = 500u + (255u - SPEED) * 10u;
+  uint32_t flash_cycle = 100u + (255u - SPEED) * 2u;
+
+  // Brief white flash every 4th flash cycle
+  if ((NOW / flash_cycle) % 4u == 0u) {
+    ctx.fill(0xFFFFFFu);
+    return;
+  }
+
+  ctx.fill(COLOR1);
+  int32_t pos = static_cast<int32_t>((NOW % chase_period) * static_cast<uint32_t>(SEGLEN) / chase_period);
+  int32_t dot_size = 1 + (INTENSITY >> 5);
+  for (int32_t i = 0; i < dot_size && pos + i < SEGLEN; i++)
+    ctx.set_pixel(pos + i, ctx.pal_color_at(pos + i));
+}
+
+// 35 — Heartbeat
+void fx_heartbeat(EffectContext &ctx) {
+  uint8_t bpm = 40u + (SPEED >> 4u);
+  uint32_t ms_per_beat = 60000u / bpm;
+
+  if (NOW - STEP >= ms_per_beat)
+    STEP = NOW - (NOW % ms_per_beat);
+
+  uint32_t t = NOW - STEP;
+  uint8_t bri = 0;
+  uint32_t pulse_ms = 25u;
+  if (t < pulse_ms) {
+    bri = sin8(static_cast<uint8_t>(t * 128u / pulse_ms));
+  } else if (t >= ms_per_beat / 2u && t < ms_per_beat / 2u + pulse_ms) {
+    uint32_t t2 = t - ms_per_beat / 2u;
+    bri = scale8(sin8(static_cast<uint8_t>(t2 * 128u / pulse_ms)), 180u);
+  }
+  ctx.fill(color_fade(ctx.pal_color(0), bri));
+}
+
+// 36 — Rain
+void fx_rain(EffectContext &ctx) {
+  struct Drop {
+    int32_t pos;
+    uint8_t bright;
+    uint8_t hue;
+  };
+  static constexpr uint8_t MAX_DROPS = 12;
+  if (!ctx.env->allocate_data(MAX_DROPS * sizeof(Drop))) {
+    ctx.fill_black();
+    return;
+  }
+  auto *drops = reinterpret_cast<Drop *>(ctx.env->data);
+
+  if (CALL == 0) {
+    for (uint8_t i = 0; i < MAX_DROPS; i++)
+      drops[i].pos = -1;
+  }
+
+  ctx.fade_to_black(230u);
+
+  uint32_t interval = 20u + (255u - SPEED) * 3u;
+  if (NOW - STEP > interval) {
+    STEP = NOW;
+    for (uint8_t i = 0; i < MAX_DROPS; i++) {
+      if (drops[i].pos >= 0) {
+        drops[i].pos++;
+        drops[i].bright = scale8(drops[i].bright, 220u);
+        if (drops[i].pos >= SEGLEN)
+          drops[i].pos = -1;
+      }
+    }
+    if (hw_random8() < INTENSITY) {
+      for (uint8_t i = 0; i < MAX_DROPS; i++) {
+        if (drops[i].pos < 0) {
+          drops[i].pos = 0;
+          drops[i].bright = 255;
+          drops[i].hue = hw_random8();
+          break;
+        }
+      }
+    }
+  }
+
+  for (uint8_t i = 0; i < MAX_DROPS; i++) {
+    if (drops[i].pos >= 0 && drops[i].pos < SEGLEN)
+      ctx.set_pixel(drops[i].pos, color_fade(ctx.wheel(drops[i].hue), drops[i].bright));
+  }
+}
+
+// 37 — Sparkle
+void fx_sparkle(EffectContext &ctx) {
+  ctx.fill(COLOR0);
+  uint32_t interval = 10u + (255u - SPEED) * 2u;
+  if (NOW - STEP > interval) {
+    STEP = NOW;
+    uint8_t n = 1u + (INTENSITY >> 4u);
+    for (uint8_t i = 0; i < n; i++)
+      ctx.set_pixel(static_cast<int32_t>(hw_random16(static_cast<uint16_t>(SEGLEN))), 0xFFFFFFu);
+  }
+}
+
+// 38 — Pride 2015 (Mark Kriegsman, simplified)
+void fx_pride_2015(EffectContext &ctx) {
+  uint8_t sat = beatsin8(87u, 220u, 250u, NOW);
+  uint8_t bright_depth = beatsin8(341u, 96u, 224u, NOW);
+  uint16_t bright_theta_inc = static_cast<uint16_t>(beatsin8(203u, 25u, 75u, NOW)) * 256u;
+  uint16_t hue16 = static_cast<uint16_t>(NOW * (1u + (SPEED >> 5u)));
+  uint16_t hue_inc = static_cast<uint16_t>(beatsin8(113u, 1u, 3u, NOW)) * 256u;
+  uint16_t bright_theta = static_cast<uint16_t>(NOW * 61u);
+
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    hue16 += hue_inc;
+    bright_theta += bright_theta_inc;
+    uint8_t b = sin8(static_cast<uint8_t>(bright_theta >> 8u));
+    b = 255u - scale8(255u - b, bright_depth);
+    uint32_t col = color_fade(ctx.wheel(static_cast<uint8_t>(hue16 >> 8u)), b);
+    col = color_blend(col, color_fade(0xFFFFFFu, b), static_cast<uint8_t>(255u - sat));
+    ctx.set_pixel(i, col);
+  }
+}
+
+// 39 — Candle
+void fx_candle(EffectContext &ctx) {
+  if (CALL == 0)
+    AUX0 = 150u;
+  uint32_t interval = 30u + (255u - SPEED) * 3u;
+  if (NOW - STEP > interval) {
+    STEP = NOW;
+    int16_t delta =
+        static_cast<int16_t>(hw_random8(static_cast<uint8_t>(INTENSITY >> 2u))) - static_cast<int16_t>(INTENSITY >> 3u);
+    int16_t bri = static_cast<int16_t>(AUX0) + delta;
+    if (bri > 200)
+      bri = 200;
+    if (bri < 40)
+      bri = 40;
+    AUX0 = static_cast<uint16_t>(bri);
+  }
+  ctx.fill(color_fade(COLOR0, static_cast<uint8_t>(AUX0)));
+}
+
+// 40 — Fill Noise
+void fx_fill_noise(EffectContext &ctx) {
+  uint16_t time_speed = 1u + (SPEED >> 3u);
+  uint16_t space_scale = 1u + (INTENSITY >> 4u);
+  uint32_t t = NOW * time_speed;
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint16_t x = static_cast<uint16_t>(i * space_scale);
+    uint8_t n = inoise8(x, static_cast<uint16_t>(t >> 1u));
+    ctx.set_pixel(i, ctx.pal_color(n));
+  }
+}
+
+// 41 — Oscillate
+void fx_oscillate(EffectContext &ctx) {
+  ctx.fill_black();
+  uint8_t num = 1u + (INTENSITY >> 5u);
+  for (uint8_t i = 0; i < num; i++) {
+    uint16_t bpm = static_cast<uint16_t>(SPEED / 8u + i * 3u + 3u);
+    int32_t pos = static_cast<int32_t>(beatsin16(bpm, 0u, static_cast<uint16_t>(SEGLEN > 0u ? SEGLEN - 1u : 0u), NOW,
+                                                 static_cast<uint16_t>(i * (65535u / (num > 0u ? num : 1u)))));
+    uint32_t col = ctx.wheel(static_cast<uint8_t>(i * 255u / num));
+    ctx.set_pixel(pos, col);
+    if (pos > 0)
+      ctx.set_pixel(pos - 1, color_fade(col, 128u));
+    if (pos < SEGLEN - 1)
+      ctx.set_pixel(pos + 1, color_fade(col, 128u));
+  }
+}
+
+// 42 — Gradient
+void fx_gradient(EffectContext &ctx) {
+  uint32_t offset = (NOW * SPEED) >> 8u;
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint8_t blend = static_cast<uint8_t>(
+        (static_cast<uint32_t>(i) * 255u / static_cast<uint32_t>(SEGLEN > 0 ? SEGLEN : 1) + offset) & 0xFFu);
+    ctx.set_pixel(i, ctx.params->palette_id != 0u ? ctx.pal_color(blend) : color_blend(COLOR0, COLOR1, blend));
+  }
+}
+
+// 43 — Pacifica (simplified ocean waves)
+void fx_pacifica(EffectContext &ctx) {
+  for (int32_t i = 0; i < SEGLEN; i++) {
+    uint8_t ci = static_cast<uint8_t>(static_cast<uint32_t>(i) * 255u / static_cast<uint32_t>(SEGLEN > 0 ? SEGLEN : 1));
+    uint8_t w1 = sin8(static_cast<uint8_t>((ci * 3u + (NOW >> 3u)) & 0xFFu));
+    uint8_t w2 = sin8(static_cast<uint8_t>((ci * 5u - (NOW >> 2u)) & 0xFFu));
+    uint8_t w3 = sin8(static_cast<uint8_t>((ci * 7u + (NOW >> 2u)) & 0xFFu));
+    uint8_t wave = static_cast<uint8_t>((static_cast<uint16_t>(w1) + w2 + w3) / 3u);
+    ctx.set_pixel(i, RGBW32(scale8(wave, 10u), scale8(wave, 100u), scale8(wave, 255u)));
+  }
+}
+
+// ============================================================
 // Effect table
 // ============================================================
 const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
@@ -671,6 +962,20 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 27 */ {"Noise 1D", "Noise 1D@!,Scale;!;!", fx_noise1d},
     /* 28 */ {"Palette", "Palette@Shift,Size;!;!", fx_palette},
     /* 29 */ {"Ripple", "Ripple@!,;!;!", fx_ripple},
+    /* 30 */ {"Juggle", "Juggle@!,Trail;!,!;!", fx_juggle},
+    /* 31 */ {"Bouncing Balls", "Bouncing Balls@Gravity,# of balls;!,!,!;!;01", fx_bouncing_balls},
+    /* 32 */ {"Fireworks", "Fireworks@Gravity,Firing side;!,!;!;01", fx_fireworks},
+    /* 33 */ {"Police", "Police@!,Width;;!;01", fx_police},
+    /* 34 */ {"Chase Flash", "Chase Flash@!,!;!,!;!", fx_chase_flash},
+    /* 35 */ {"Heartbeat", "Heartbeat@!,!;!;!;01", fx_heartbeat},
+    /* 36 */ {"Rain", "Rain@!,Spawning rate;!,!;!;01", fx_rain},
+    /* 37 */ {"Sparkle", "Sparkle@!,;!;!;01", fx_sparkle},
+    /* 38 */ {"Pride 2015", "Pride 2015@!,;;", fx_pride_2015},
+    /* 39 */ {"Candle", "Candle@!,Flicker;!;0;01", fx_candle},
+    /* 40 */ {"Fill Noise", "Fill Noise@!,Scale;!;!", fx_fill_noise},
+    /* 41 */ {"Oscillate", "Oscillate@!,;,!;!", fx_oscillate},
+    /* 42 */ {"Gradient", "Gradient@!,!;!,!;!", fx_gradient},
+    /* 43 */ {"Pacifica", "Pacifica@!,;,,;!", fx_pacifica},
 };
 
 }  // namespace wled_bridge

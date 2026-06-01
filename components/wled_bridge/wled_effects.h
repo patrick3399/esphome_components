@@ -13,7 +13,7 @@ struct EffectDescriptor {
   EffectFn fn;
 };
 
-static constexpr size_t WLED_EFFECT_COUNT = 30;
+static constexpr size_t WLED_EFFECT_COUNT = 44;
 extern const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT];
 
 // ---- forward declarations ----
@@ -47,6 +47,21 @@ void fx_meteor_smooth(EffectContext &);
 void fx_noise1d(EffectContext &);
 void fx_palette(EffectContext &);
 void fx_ripple(EffectContext &);
+// --- batch 2 ---
+void fx_juggle(EffectContext &);
+void fx_bouncing_balls(EffectContext &);
+void fx_fireworks(EffectContext &);
+void fx_police(EffectContext &);
+void fx_chase_flash(EffectContext &);
+void fx_heartbeat(EffectContext &);
+void fx_rain(EffectContext &);
+void fx_sparkle(EffectContext &);
+void fx_pride_2015(EffectContext &);
+void fx_candle(EffectContext &);
+void fx_fill_noise(EffectContext &);
+void fx_oscillate(EffectContext &);
+void fx_gradient(EffectContext &);
+void fx_pacifica(EffectContext &);
 
 }  // namespace wled_bridge
 }  // namespace esphome
