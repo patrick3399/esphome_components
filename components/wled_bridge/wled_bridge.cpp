@@ -27,8 +27,8 @@ void WLEDProxyEffect::start() {
 // WLEDBridgeComponent
 // ============================================================
 static const char *const TAG = "wled_bridge";
-static constexpr uint32_t WLED_PRESET_MAGIC = 0x574C5033;  // WLP3
-static constexpr uint32_t WLED_STATE_MAGIC = 0x574C5333;  // WLS3 (adds segment layout)
+static constexpr uint32_t WLED_PRESET_MAGIC = 0x574C5036;  // WLP6 (adds playlist presets)
+static constexpr uint32_t WLED_STATE_MAGIC = 0x574C5334;  // WLS4 (adds selected/main segment)
 static constexpr uint32_t WLED_STATE_SAVE_DELAY_MS = 2000;
 
 static uint8_t scale8_linear(uint8_t value, uint8_t scale) {
@@ -175,6 +175,19 @@ void WLEDBridgeComponent::setup() {
   memset(this->pixel_opacity_, 255, this->total_leds_);
   this->opacity_map_dirty_ = true;
 
+  this->pixel_override_colors_ =
+      static_cast<uint32_t *>(heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  if (this->pixel_override_colors_ == nullptr)
+    this->pixel_override_colors_ = static_cast<uint32_t *>(malloc(buf_bytes));
+  this->pixel_override_mask_ = static_cast<uint8_t *>(malloc(this->total_leds_));
+  if (this->pixel_override_colors_ == nullptr || this->pixel_override_mask_ == nullptr) {
+    ESP_LOGE(TAG, "Unable to allocate pixel override buffers (%u LEDs)", this->total_leds_);
+    this->mark_failed();
+    return;
+  }
+  memset(this->pixel_override_colors_, 0, buf_bytes);
+  memset(this->pixel_override_mask_, 0, this->total_leds_);
+
   // Zero all strips
   for (auto &bus : this->buses_) {
     for (int32_t i = 0; i < static_cast<int32_t>(bus.len); i++)
@@ -245,6 +258,7 @@ void WLEDBridgeComponent::load_state_() {
   this->main_spacing_ = recovered.main_spacing;
   this->main_opacity_ = recovered.main_opacity;
   this->apply_stored_extras_(recovered);
+  this->main_segment_ = recovered.main_segment < this->get_segment_count() ? recovered.main_segment : 0;
   this->state_loaded_ = true;
   ESP_LOGD(TAG, "Restored WLED bridge state (%u extra segment(s))", recovered.extra_count);
 }
@@ -289,6 +303,7 @@ void WLEDBridgeComponent::capture_extras_(WLEDStoredState *state) const {
   state->main_grouping = static_cast<uint8_t>(this->main_grouping_);
   state->main_spacing = static_cast<uint8_t>(this->main_spacing_);
   state->main_opacity = this->main_opacity_;
+  state->main_segment = this->get_main_segment();
   state->extra_count = this->extra_count_;
   for (uint8_t i = 0; i < this->extra_count_; i++) {
     const ExtraSegment &seg = this->extra_segments_[i];
@@ -354,10 +369,40 @@ WLEDPresetRecord WLEDBridgeComponent::current_as_preset_() const {
   preset.segment_stop = static_cast<uint16_t>(this->segment_stop_);
   preset.reverse = this->segment_reverse_ ? 1 : 0;
   preset.mirror = this->segment_mirror_ ? 1 : 0;
+  preset.main_segment = this->get_main_segment();
+  preset.main_grouping = static_cast<uint8_t>(this->main_grouping_);
+  preset.main_spacing = static_cast<uint8_t>(this->main_spacing_);
+  preset.main_opacity = this->main_opacity_;
+  preset.extra_count = this->extra_count_;
   preset.transition_ms = this->transition_ms_;
   preset.colors[0] = this->params_.colors[0];
   preset.colors[1] = this->params_.colors[1];
   preset.colors[2] = this->params_.colors[2];
+  for (uint8_t i = 0; i < this->extra_count_; i++) {
+    const ExtraSegment &seg = this->extra_segments_[i];
+    WLEDExtraSegRecord &rec = preset.extras[i];
+    rec.start = seg.start;
+    rec.stop = seg.stop;
+    rec.grouping = seg.grouping;
+    rec.spacing = seg.spacing;
+    rec.reverse = seg.reverse ? 1 : 0;
+    rec.mirror = seg.mirror ? 1 : 0;
+    rec.on = seg.on ? 1 : 0;
+    rec.opacity = seg.opacity;
+    rec.mode = seg.mode;
+    rec.speed = seg.params.speed;
+    rec.intensity = seg.params.intensity;
+    rec.custom1 = seg.params.custom1;
+    rec.custom2 = seg.params.custom2;
+    rec.custom3 = seg.params.custom3;
+    rec.check1 = seg.params.check1 ? 1 : 0;
+    rec.check2 = seg.params.check2 ? 1 : 0;
+    rec.check3 = seg.params.check3 ? 1 : 0;
+    rec.palette = seg.params.palette_id;
+    rec.colors[0] = seg.params.colors[0];
+    rec.colors[1] = seg.params.colors[1];
+    rec.colors[2] = seg.params.colors[2];
+  }
   return preset;
 }
 
@@ -396,10 +441,52 @@ void WLEDBridgeComponent::apply_preset_(const WLEDPresetRecord &preset) {
     this->segment_stop_ = this->total_leds_;
   this->segment_reverse_ = preset.reverse != 0;
   this->segment_mirror_ = preset.mirror != 0;
+  this->main_grouping_ = preset.main_grouping < 1 ? 1 : preset.main_grouping;
+  this->main_spacing_ = preset.main_spacing;
+  this->main_opacity_ = preset.main_opacity;
+  this->main_segment_ = preset.main_segment < this->get_segment_count() ? preset.main_segment : 0;
   this->transition_ms_ = preset.transition_ms;
   this->params_.colors[0] = preset.colors[0];
   this->params_.colors[1] = preset.colors[1];
   this->params_.colors[2] = preset.colors[2];
+  uint8_t count = std::min<uint8_t>(preset.extra_count, WLED_MAX_SEGMENTS - 1);
+  for (uint8_t i = 0; i < count; i++) {
+    const WLEDExtraSegRecord &rec = preset.extras[i];
+    ExtraSegment &seg = this->extra_segments_[i];
+    seg.env.free_data();
+    seg.env.step = seg.env.call = 0;
+    seg.env.aux0 = seg.env.aux1 = 0;
+    seg.start = std::min<uint16_t>(rec.start, this->total_leds_);
+    seg.stop = std::min<uint16_t>(rec.stop, this->total_leds_);
+    if (seg.stop <= seg.start)
+      seg.stop = std::min<uint16_t>(seg.start + 1, this->total_leds_);
+    seg.grouping = rec.grouping < 1 ? 1 : rec.grouping;
+    seg.spacing = rec.spacing;
+    seg.reverse = rec.reverse != 0;
+    seg.mirror = rec.mirror != 0;
+    seg.on = rec.on != 0;
+    seg.opacity = rec.opacity;
+    seg.mode = rec.mode < WLED_EFFECT_COUNT ? rec.mode : 0;
+    seg.params.speed = rec.speed;
+    seg.params.intensity = rec.intensity;
+    seg.params.custom1 = rec.custom1;
+    seg.params.custom2 = rec.custom2;
+    seg.params.custom3 = rec.custom3;
+    seg.params.check1 = rec.check1 != 0;
+    seg.params.check2 = rec.check2 != 0;
+    seg.params.check3 = rec.check3 != 0;
+    seg.params.palette_id = rec.palette;
+    seg.params.colors[0] = rec.colors[0];
+    seg.params.colors[1] = rec.colors[1];
+    seg.params.colors[2] = rec.colors[2];
+  }
+  for (uint8_t i = count; i < this->extra_count_; i++) {
+    this->extra_segments_[i].env.free_data();
+    this->extra_segments_[i].stop = 0;
+  }
+  this->extra_count_ = count;
+  this->main_segment_ = preset.main_segment < this->get_segment_count() ? preset.main_segment : 0;
+  this->opacity_map_dirty_ = true;
   if (effect_changed || segment_changed)
     this->reset_segment_state_();
 }
@@ -423,6 +510,9 @@ void WLEDBridgeComponent::loop() {
     if (bus.strip != nullptr && !bus.strip->is_effect_active())
       bus.strip->set_effect_active(true);
   }
+
+  this->process_playlist_();
+  this->process_nightlight_();
 
   if (!this->use_task_) {
     uint32_t now = millis();
@@ -540,6 +630,7 @@ void WLEDBridgeComponent::render_frame_() {
     memset(this->full_frame_, 0, this->total_leds_ * sizeof(uint32_t));
     this->apply_transition_blend_(now);
     this->reset_output_correction_();
+    this->last_output_scale_ = 255u;
     this->flush_frame_to_buses_(255u);
     return;
   }
@@ -580,8 +671,10 @@ void WLEDBridgeComponent::render_frame_() {
   if (this->opacity_map_dirty_)
     this->rebuild_opacity_map_();
 
+  this->apply_pixel_overrides_();
   this->apply_transition_blend_(now);
   uint8_t final_scale = this->compute_output_scale_();
+  this->last_output_scale_ = final_scale;
   this->reset_output_correction_();
   this->flush_frame_to_buses_(final_scale);
 }
@@ -653,43 +746,51 @@ uint8_t WLEDBridgeComponent::compute_output_scale_() {
   if (this->total_leds_ == 0)
     return this->global_bri_;
 
-  // Estimate total current after applying segment opacity + global brightness
-  uint64_t channel_sum = 0;
-  for (uint32_t i = 0; i < this->total_leds_; i++) {
-    uint32_t c = this->full_frame_[i];
-    uint8_t op = this->pixel_opacity_ != nullptr ? this->pixel_opacity_[i] : 255;
-    uint8_t bri = scale8_linear(op, this->global_bri_);
-    channel_sum += scale8_linear(R(c), bri);
-    channel_sum += scale8_linear(G(c), bri);
-    channel_sum += scale8_linear(B(c), bri);
-    channel_sum += scale8_linear(W(c), bri);
-  }
+  uint8_t limit_scale = 255;
+  uint64_t raw_total_ma = 0;
+  uint64_t total_max_ma = 0;
+  bool all_buses_limited = true;
 
-  // Aggregate per-bus budget (0 = unlimited)
-  uint32_t total_max_ma = 0;
-  uint32_t primary_led_ma = 0;
   for (const auto &bus : this->buses_) {
-    total_max_ma += bus.max_ma;
-    if (primary_led_ma == 0)
-      primary_led_ma = bus.led_ma;
+    if (bus.led_ma == 0 || bus.len == 0)
+      continue;
+
+    uint64_t channel_sum = 0;
+    for (uint32_t i = 0; i < bus.len; i++) {
+      uint32_t idx = bus.start + i;
+      uint32_t c = this->full_frame_[idx];
+      uint8_t op = this->pixel_opacity_ != nullptr ? this->pixel_opacity_[idx] : 255;
+      channel_sum += scale8_linear(R(c), op);
+      channel_sum += scale8_linear(G(c), op);
+      channel_sum += scale8_linear(B(c), op);
+      channel_sum += scale8_linear(W(c), op);
+    }
+
+    uint64_t raw_bus_ma = (channel_sum * bus.led_ma) / (255u * 3u);
+    raw_total_ma += raw_bus_ma;
+
+    if (bus.max_ma > 0) {
+      total_max_ma += bus.max_ma;
+      uint64_t requested_bus_ma = (raw_bus_ma * this->global_bri_) / 255u;
+      if (requested_bus_ma > bus.max_ma && raw_bus_ma > 0) {
+        uint8_t bus_limit = static_cast<uint8_t>((static_cast<uint64_t>(bus.max_ma) * 255u) / raw_bus_ma);
+        limit_scale = std::min<uint8_t>(limit_scale, bus_limit);
+      }
+    } else {
+      all_buses_limited = false;
+    }
   }
 
-  if (primary_led_ma == 0) {
-    this->current_ma_ = 0;
-    return this->global_bri_;
+  if (all_buses_limited && total_max_ma > 0 && raw_total_ma > 0) {
+    uint64_t requested_total_ma = (raw_total_ma * this->global_bri_) / 255u;
+    if (requested_total_ma > total_max_ma) {
+      uint8_t total_limit = static_cast<uint8_t>((total_max_ma * 255u) / raw_total_ma);
+      limit_scale = std::min<uint8_t>(limit_scale, total_limit);
+    }
   }
 
-  uint32_t estimated_ma = static_cast<uint32_t>((channel_sum * primary_led_ma) / (255u * 3u));
-  this->current_ma_ = estimated_ma;
-
-  if (total_max_ma == 0 || estimated_ma <= total_max_ma)
-    return this->global_bri_;
-
-  // ABL: scale down to stay within budget
-  uint8_t abl_scale = static_cast<uint8_t>((static_cast<uint64_t>(total_max_ma) * 255u) / estimated_ma);
-  uint8_t final_scale = scale8_linear(this->global_bri_, abl_scale);
-  // Re-estimate after ABL
-  this->current_ma_ = static_cast<uint32_t>((static_cast<uint64_t>(estimated_ma) * final_scale) / 255u);
+  uint8_t final_scale = std::min<uint8_t>(this->global_bri_, limit_scale);
+  this->current_ma_ = static_cast<uint32_t>((raw_total_ma * final_scale) / 255u);
   return final_scale;
 }
 
@@ -712,6 +813,60 @@ void WLEDBridgeComponent::flush_frame_to_buses_(uint8_t final_scale) {
                          scale8_linear(W(c), scale)));
     }
     bus.strip->schedule_show();
+  }
+}
+
+uint32_t WLEDBridgeComponent::get_live_pixel_color(uint32_t index) const {
+  if (this->full_frame_ == nullptr || index >= this->total_leds_)
+    return 0;
+  uint32_t c = this->full_frame_[index];
+  if (this->auto_white_mode_ != 0)
+    c = apply_auto_white(c, this->auto_white_mode_);
+  uint8_t op = this->pixel_opacity_ != nullptr ? this->pixel_opacity_[index] : 255;
+  uint8_t scale = scale8_linear(op, this->last_output_scale_);
+  return RGBW32(scale8_linear(R(c), scale), scale8_linear(G(c), scale), scale8_linear(B(c), scale),
+                scale8_linear(W(c), scale));
+}
+
+bool WLEDBridgeComponent::set_pixel_override(uint8_t segment_id, uint32_t segment_offset, uint32_t color) {
+  if (this->pixel_override_colors_ == nullptr || this->pixel_override_mask_ == nullptr)
+    return false;
+  SegmentReadView view;
+  if (!this->get_segment_view(segment_id, view))
+    return false;
+  uint32_t len = view.stop > view.start ? static_cast<uint32_t>(view.stop - view.start) : 0u;
+  if (segment_offset >= len)
+    return false;
+  uint32_t index = static_cast<uint32_t>(view.start) + segment_offset;
+  if (index >= this->total_leds_)
+    return false;
+  this->pixel_override_colors_[index] = color;
+  this->pixel_override_mask_[index] = 1;
+  this->pixel_overrides_active_ = true;
+  this->active_preset_ = 0;
+  if (!this->playlist_applying_)
+    this->stop_playlist();
+  this->state_version_++;
+  this->state_dirty_ = true;
+  return true;
+}
+
+void WLEDBridgeComponent::clear_pixel_overrides() {
+  if (!this->pixel_overrides_active_ || this->pixel_override_mask_ == nullptr)
+    return;
+  memset(this->pixel_override_mask_, 0, this->total_leds_);
+  this->pixel_overrides_active_ = false;
+  this->state_version_++;
+  this->state_dirty_ = true;
+}
+
+void WLEDBridgeComponent::apply_pixel_overrides_() {
+  if (!this->pixel_overrides_active_ || this->pixel_override_colors_ == nullptr ||
+      this->pixel_override_mask_ == nullptr)
+    return;
+  for (uint32_t i = 0; i < this->total_leds_; i++) {
+    if (this->pixel_override_mask_[i] != 0)
+      this->full_frame_[i] = this->pixel_override_colors_[i];
   }
 }
 
@@ -742,8 +897,94 @@ void WLEDBridgeComponent::set_on(bool on) {
 }
 
 void WLEDBridgeComponent::set_brightness(uint8_t bri) {
+  this->stop_nightlight();
   this->global_bri_ = bri;
   this->mark_dirty_();
+}
+
+int32_t WLEDBridgeComponent::get_nightlight_remaining_s() const {
+  if (!this->nightlight_active_)
+    return -1;
+  uint32_t elapsed_ms = millis() - this->nightlight_start_ms_;
+  uint32_t duration_ms = static_cast<uint32_t>(this->nightlight_duration_s_) * 1000u;
+  if (elapsed_ms >= duration_ms)
+    return 0;
+  return static_cast<int32_t>((duration_ms - elapsed_ms + 999u) / 1000u);
+}
+
+void WLEDBridgeComponent::configure_nightlight(uint16_t duration_s, uint8_t target_bri, uint8_t mode) {
+  this->nightlight_duration_s_ = duration_s;
+  this->nightlight_target_bri_ = target_bri;
+  this->nightlight_mode_ = std::min<uint8_t>(mode, 3);
+}
+
+void WLEDBridgeComponent::start_nightlight(uint16_t duration_s, uint8_t target_bri, uint8_t mode) {
+  this->configure_nightlight(duration_s, target_bri, mode);
+  this->nightlight_start_bri_ = this->global_bri_;
+  this->nightlight_start_ms_ = millis();
+  this->nightlight_next_update_ms_ = 0;
+
+  if (duration_s == 0) {
+    this->nightlight_active_ = false;
+    this->apply_nightlight_brightness_(target_bri, true);
+    return;
+  }
+
+  this->nightlight_active_ = true;
+  this->state_version_++;
+  this->state_dirty_ = true;
+}
+
+void WLEDBridgeComponent::stop_nightlight() {
+  if (!this->nightlight_active_)
+    return;
+  this->nightlight_active_ = false;
+  this->state_version_++;
+  this->state_dirty_ = true;
+}
+
+void WLEDBridgeComponent::process_nightlight_() {
+  if (!this->nightlight_active_)
+    return;
+
+  uint32_t now = millis();
+  if (this->nightlight_next_update_ms_ != 0 && static_cast<int32_t>(now - this->nightlight_next_update_ms_) < 0)
+    return;
+
+  uint32_t duration_ms = static_cast<uint32_t>(this->nightlight_duration_s_) * 1000u;
+  uint32_t elapsed_ms = now - this->nightlight_start_ms_;
+  if (duration_ms == 0 || elapsed_ms >= duration_ms) {
+    this->nightlight_active_ = false;
+    this->apply_nightlight_brightness_(this->nightlight_target_bri_, true);
+    return;
+  }
+
+  uint8_t bri = this->global_bri_;
+  if (this->nightlight_mode_ == 0) {
+    bri = this->nightlight_start_bri_;
+  } else {
+    int32_t delta =
+        static_cast<int32_t>(this->nightlight_target_bri_) - static_cast<int32_t>(this->nightlight_start_bri_);
+    bri = static_cast<uint8_t>(static_cast<int32_t>(this->nightlight_start_bri_) +
+                               (delta * static_cast<int32_t>(elapsed_ms)) / static_cast<int32_t>(duration_ms));
+  }
+  this->apply_nightlight_brightness_(bri, false);
+  this->nightlight_next_update_ms_ = now + 1000u;
+}
+
+void WLEDBridgeComponent::apply_nightlight_brightness_(uint8_t bri, bool finished) {
+  bool changed = this->global_bri_ != bri;
+  this->global_bri_ = bri;
+  if (finished && bri == 0 && this->is_on_) {
+    this->is_on_ = false;
+    changed = true;
+  }
+  if (!changed && !finished)
+    return;
+  this->state_version_++;
+  this->state_dirty_ = true;
+  this->schedule_state_save_();
+  this->publish_light_state();
 }
 
 void WLEDBridgeComponent::set_effect(uint8_t fx_index) {
@@ -781,12 +1022,66 @@ bool WLEDBridgeComponent::save_preset(uint8_t preset_id, const char *name) {
   return true;
 }
 
+bool WLEDBridgeComponent::set_preset(uint8_t preset_id, const WLEDPresetRecord &preset) {
+  if (preset_id == 0 || preset_id > WLED_PRESET_COUNT || preset.valid == 0)
+    return false;
+  WLEDPresetRecord stored = preset;
+  stored.valid = 1;
+  if (stored.effect >= WLED_EFFECT_COUNT)
+    stored.effect = 0;
+  if (stored.segment_stop <= stored.segment_start)
+    stored.segment_stop = this->total_leds_ > 0 ? static_cast<uint16_t>(this->total_leds_) : stored.segment_start + 1;
+  if (stored.main_grouping < 1)
+    stored.main_grouping = 1;
+  stored.extra_count = std::min<uint8_t>(stored.extra_count, WLED_MAX_SEGMENTS - 1);
+  stored.playlist_count = std::min<uint8_t>(stored.playlist_count, WLED_PLAYLIST_MAX_ENTRIES);
+  for (uint8_t i = 0; i < stored.extra_count; i++) {
+    WLEDExtraSegRecord &seg = stored.extras[i];
+    if (seg.stop <= seg.start)
+      seg.stop = seg.start + 1;
+    if (seg.grouping < 1)
+      seg.grouping = 1;
+    if (seg.mode >= WLED_EFFECT_COUNT)
+      seg.mode = 0;
+  }
+  uint8_t playlist_count = 0;
+  for (uint8_t i = 0; i < stored.playlist_count; i++) {
+    uint8_t entry = stored.playlist_presets[i];
+    if (entry == 0 || entry == preset_id)
+      continue;
+    stored.playlist_presets[playlist_count] = entry;
+    stored.playlist_durations[playlist_count] = stored.playlist_durations[i] == 0 ? 10 : stored.playlist_durations[i];
+    stored.playlist_transitions[playlist_count] = stored.playlist_transitions[i];
+    playlist_count++;
+  }
+  stored.playlist_count = playlist_count;
+  if (stored.main_segment > stored.extra_count)
+    stored.main_segment = 0;
+  this->set_default_preset_name_(&stored, preset_id);
+  this->preset_store_.slots[preset_id - 1] = stored;
+  if (this->active_preset_ == preset_id)
+    this->active_preset_ = 0;
+  this->persist_presets_();
+  this->mark_dirty_();
+  return true;
+}
+
 bool WLEDBridgeComponent::load_preset(uint8_t preset_id) {
   if (!this->is_preset_valid(preset_id))
     return false;
   const auto &preset = this->preset_store_.slots[preset_id - 1];
+  if (preset.playlist_count > 0) {
+    if (!this->start_playlist(preset.playlist_presets, preset.playlist_durations, preset.playlist_transitions,
+                              preset.playlist_count, preset.playlist_repeat))
+      return false;
+    this->active_playlist_preset_ = preset_id;
+    this->mark_dirty_(false);
+    return true;
+  }
   if (preset.effect >= WLED_EFFECT_COUNT)
     return false;
+  if (!this->playlist_applying_)
+    this->stop_playlist();
   this->begin_transition_();
   this->apply_preset_(preset);
   this->active_preset_ = preset_id;
@@ -803,6 +1098,82 @@ bool WLEDBridgeComponent::delete_preset(uint8_t preset_id) {
   this->persist_presets_();
   this->mark_dirty_(false);
   return true;
+}
+
+bool WLEDBridgeComponent::start_playlist(const uint8_t *presets, const uint16_t *durations, const uint16_t *transitions,
+                                         uint8_t count, uint8_t repeat) {
+  if (presets == nullptr || durations == nullptr || count == 0)
+    return false;
+
+  uint8_t stored_count = 0;
+  for (uint8_t i = 0; i < count && stored_count < WLED_PLAYLIST_MAX_ENTRIES; i++) {
+    uint8_t preset_id = presets[i];
+    if (!this->is_preset_valid(preset_id))
+      continue;
+    if (this->preset_store_.slots[preset_id - 1].playlist_count > 0)
+      continue;
+    this->playlist_presets_[stored_count] = preset_id;
+    this->playlist_durations_[stored_count] = durations[i] == 0 ? 10 : durations[i];
+    this->playlist_transitions_[stored_count] = transitions != nullptr ? transitions[i] : this->transition_ms_ / 100u;
+    stored_count++;
+  }
+
+  if (stored_count == 0)
+    return false;
+
+  this->playlist_count_ = stored_count;
+  this->playlist_index_ = 0;
+  this->playlist_repeat_remaining_ = repeat;
+  this->playlist_active_ = true;
+  this->active_playlist_preset_ = 0;
+  this->transition_ms_ = static_cast<uint16_t>(this->playlist_transitions_[0] * 100u);
+  this->playlist_applying_ = true;
+  this->load_preset(this->playlist_presets_[0]);
+  this->playlist_applying_ = false;
+  this->playlist_next_ms_ = millis() + static_cast<uint32_t>(this->playlist_durations_[0]) * 1000u;
+  this->mark_dirty_(false);
+  return true;
+}
+
+void WLEDBridgeComponent::stop_playlist() {
+  this->active_playlist_preset_ = 0;
+  if (!this->playlist_active_)
+    return;
+  this->playlist_active_ = false;
+  this->playlist_next_ms_ = 0;
+  this->mark_dirty_(false);
+}
+
+void WLEDBridgeComponent::process_playlist_() {
+  if (!this->playlist_active_ || this->playlist_count_ == 0 || this->playlist_next_ms_ == 0)
+    return;
+  if (static_cast<int32_t>(millis() - this->playlist_next_ms_) < 0)
+    return;
+  this->advance_playlist_();
+}
+
+void WLEDBridgeComponent::advance_playlist_() {
+  if (!this->playlist_active_ || this->playlist_count_ == 0)
+    return;
+
+  uint8_t next = static_cast<uint8_t>(this->playlist_index_ + 1);
+  if (next >= this->playlist_count_) {
+    if (this->playlist_repeat_remaining_ == 1) {
+      this->stop_playlist();
+      return;
+    }
+    if (this->playlist_repeat_remaining_ > 1)
+      this->playlist_repeat_remaining_--;
+    next = 0;
+  }
+
+  this->playlist_index_ = next;
+  this->transition_ms_ = static_cast<uint16_t>(this->playlist_transitions_[next] * 100u);
+  this->playlist_applying_ = true;
+  this->load_preset(this->playlist_presets_[next]);
+  this->playlist_applying_ = false;
+  this->playlist_next_ms_ = millis() + static_cast<uint32_t>(this->playlist_durations_[next]) * 1000u;
+  this->mark_dirty_(false);
 }
 
 void WLEDBridgeComponent::set_segment_bounds(uint32_t start, uint32_t stop) {
@@ -852,7 +1223,7 @@ bool WLEDBridgeComponent::get_segment_view(uint8_t id, SegmentReadView &out) con
     out.on = this->is_on_;
     out.reverse = this->segment_reverse_;
     out.mirror = this->segment_mirror_;
-    out.selected = true;
+    out.selected = this->get_main_segment() == 0;
     out.opacity = this->main_opacity_;
     out.mode = this->active_fx_;
     out.speed = this->params_.speed;
@@ -879,7 +1250,7 @@ bool WLEDBridgeComponent::get_segment_view(uint8_t id, SegmentReadView &out) con
   out.on = seg.on;
   out.reverse = seg.reverse;
   out.mirror = seg.mirror;
-  out.selected = false;
+  out.selected = this->get_main_segment() == id;
   out.opacity = seg.opacity;
   out.mode = seg.mode;
   out.speed = seg.params.speed;
@@ -931,6 +1302,11 @@ void WLEDBridgeComponent::segment_set_bounds(uint8_t id, uint32_t start, uint32_
       dst.env.aux0 = dst.env.aux1 = 0;
     }
     this->extra_count_--;
+    if (this->main_segment_ == id) {
+      this->main_segment_ = 0;
+    } else if (this->main_segment_ > id) {
+      this->main_segment_--;
+    }
     this->extra_segments_[this->extra_count_].env.free_data();
     this->extra_segments_[this->extra_count_].stop = 0;
     this->opacity_map_dirty_ = true;
@@ -1135,6 +1511,15 @@ void WLEDBridgeComponent::segment_set_mirror(uint8_t id, bool mirror) {
     return;
   seg->mirror = mirror;
   this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::set_main_segment(uint8_t id) {
+  if (id >= this->get_segment_count())
+    id = 0;
+  if (this->main_segment_ == id)
+    return;
+  this->main_segment_ = id;
+  this->mark_dirty_(false);
 }
 
 void WLEDBridgeComponent::reset_segment_state_() {

@@ -33,7 +33,9 @@ class WLEDJsonHandler : public web_server_idf::AsyncWebHandler {
   void handle_get_palettes_(web_server_idf::AsyncWebServerRequest *request);
   void handle_get_config_(web_server_idf::AsyncWebServerRequest *request);
   void handle_get_network_(web_server_idf::AsyncWebServerRequest *request);
+  void handle_get_pins_(web_server_idf::AsyncWebServerRequest *request);
   void handle_get_presets_(web_server_idf::AsyncWebServerRequest *request);
+  void handle_post_presets_(web_server_idf::AsyncWebServerRequest *request, const std::string &body);
   void handle_win_(web_server_idf::AsyncWebServerRequest *request, const std::string &url);
   void handle_post_state_(web_server_idf::AsyncWebServerRequest *request, const std::string &body);
 
@@ -73,10 +75,13 @@ class WLEDUiHandler : public web_server_idf::AsyncWebHandler {
 std::string build_state_json(const WLEDBridgeComponent *comp);
 std::string build_info_json(const WLEDBridgeComponent *comp);
 std::string build_effects_json();
+std::string build_fxdata_json();
 std::string build_palettes_json();
 std::string build_config_json(const WLEDBridgeComponent *comp);
 std::string build_network_json(const WLEDBridgeComponent *comp);
+std::string build_pins_json();
 std::string build_presets_json(const WLEDBridgeComponent *comp);
+std::string build_live_json(const WLEDBridgeComponent *comp);
 
 }  // namespace wled_bridge
 }  // namespace esphome

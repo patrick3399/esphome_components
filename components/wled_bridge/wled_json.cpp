@@ -1,6 +1,7 @@
 #include "wled_json.h"
 #include "wled_ui_data.h"
 #include "wled_bridge.h"
+#include "wled_color.h"
 #include "wled_effects.h"
 #include "wled_palette.h"
 #include "esphome/core/log.h"
@@ -56,6 +57,8 @@ static bool parse_u16(const std::string &value, uint16_t *out) {
 }
 
 static bool request_arg_u16(web_server_idf::AsyncWebServerRequest *request, const char *name, uint16_t *out) {
+  if (request == nullptr)
+    return false;
   if (!request->hasArg(name))
     return false;
   return parse_u16(request->arg(name), out);
@@ -71,9 +74,109 @@ static bool legacy_path_arg_u16(const std::string &url, const char *name, uint16
   return parse_u16(url.substr(pos, end == std::string::npos ? std::string::npos : end - pos), out);
 }
 
+static uint8_t clamp_segment_id(size_t id) {
+  if (id >= WLED_MAX_SEGMENTS)
+    return WLED_MAX_SEGMENTS - 1;
+  return static_cast<uint8_t>(id);
+}
+
+static uint32_t json_color(JsonVariant value, uint32_t fallback) {
+  if (value.is<JsonArray>()) {
+    JsonArray arr = value.as<JsonArray>();
+    if (arr.size() >= 3) {
+      uint8_t r = json_u8(arr[0]);
+      uint8_t g = json_u8(arr[1]);
+      uint8_t b = json_u8(arr[2]);
+      uint8_t w = arr.size() >= 4 ? json_u8(arr[3]) : 0;
+      return RGBW32(r, g, b, w);
+    }
+  }
+  if (value.is<uint32_t>())
+    return value.as<uint32_t>();
+  return fallback;
+}
+
+static int hex_nibble(char c) {
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  if (c >= 'a' && c <= 'f')
+    return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F')
+    return c - 'A' + 10;
+  return -1;
+}
+
+static bool parse_hex_color(const char *text, uint32_t *out) {
+  if (text == nullptr || out == nullptr)
+    return false;
+  if (text[0] == '#')
+    text++;
+  size_t len = strlen(text);
+  if (len != 6 && len != 8)
+    return false;
+  uint32_t value = 0;
+  for (size_t i = 0; i < len; i++) {
+    int nibble = hex_nibble(text[i]);
+    if (nibble < 0)
+      return false;
+    value = (value << 4) | static_cast<uint32_t>(nibble);
+  }
+  if (len == 6) {
+    *out = RGBW32(static_cast<uint8_t>((value >> 16) & 0xFF), static_cast<uint8_t>((value >> 8) & 0xFF),
+                  static_cast<uint8_t>(value & 0xFF), 0);
+  } else {
+    *out = RGBW32(static_cast<uint8_t>((value >> 16) & 0xFF), static_cast<uint8_t>((value >> 8) & 0xFF),
+                  static_cast<uint8_t>(value & 0xFF), static_cast<uint8_t>((value >> 24) & 0xFF));
+  }
+  return true;
+}
+
+static bool json_pixel_color(JsonVariant value, uint32_t *out) {
+  if (out == nullptr || value.isNull())
+    return false;
+  if (value.is<JsonArray>()) {
+    JsonArray arr = value.as<JsonArray>();
+    if (arr.size() == 0 || arr.size() > 4)
+      return false;
+    uint8_t r = arr.size() > 0 ? json_u8(arr[0]) : 0;
+    uint8_t g = arr.size() > 1 ? json_u8(arr[1]) : 0;
+    uint8_t b = arr.size() > 2 ? json_u8(arr[2]) : 0;
+    uint8_t w = arr.size() > 3 ? json_u8(arr[3]) : 0;
+    *out = RGBW32(r, g, b, w);
+    return true;
+  }
+  if (value.is<const char *>())
+    return parse_hex_color(value.as<const char *>(), out);
+  if (value.is<uint32_t>()) {
+    *out = value.as<uint32_t>();
+    return true;
+  }
+  return false;
+}
+
 static bool win_arg_u16(web_server_idf::AsyncWebServerRequest *request, const std::string &url, const char *name,
                         uint16_t *out) {
   return request_arg_u16(request, name, out) || legacy_path_arg_u16(url, name, out);
+}
+
+static bool legacy_path_has_arg(const std::string &url, const char *name) {
+  std::string token = std::string("&") + name;
+  size_t pos = url.find(token);
+  if (pos == std::string::npos)
+    return false;
+  size_t end = pos + token.size();
+  return end >= url.size() || url[end] == '&' || url[end] == '=';
+}
+
+static bool win_has_arg(web_server_idf::AsyncWebServerRequest *request, const std::string &url, const char *name) {
+  return (request != nullptr && request->hasArg(name)) || legacy_path_has_arg(url, name);
+}
+
+static bool json_on_is_toggle(JsonVariant value) {
+  if (!value.is<const char *>())
+    return false;
+  const char *text = value.as<const char *>();
+  return text != nullptr && (text[0] == 't' || text[0] == 'T');
 }
 
 static uint16_t transition_tenths_to_ms(uint16_t tenths) {
@@ -180,22 +283,52 @@ std::string build_state_json(const WLEDBridgeComponent *c) {
   }
   seg_array += "]";
 
+  std::string playlist = "{\"on\":";
+  playlist += c->is_playlist_active() ? "true" : "false";
+  playlist += ",\"index\":";
+  playlist += std::to_string(c->get_playlist_index());
+  playlist += ",\"repeat\":";
+  playlist += std::to_string(c->get_playlist_repeat_remaining());
+  playlist += ",\"ps\":[";
+  for (uint8_t i = 0; i < c->get_playlist_count(); i++) {
+    if (i > 0)
+      playlist += ",";
+    playlist += std::to_string(c->get_playlist_preset(i));
+  }
+  playlist += "],\"dur\":[";
+  for (uint8_t i = 0; i < c->get_playlist_count(); i++) {
+    if (i > 0)
+      playlist += ",";
+    playlist += std::to_string(c->get_playlist_duration(i));
+  }
+  playlist += "],\"transition\":[";
+  for (uint8_t i = 0; i < c->get_playlist_count(); i++) {
+    if (i > 0)
+      playlist += ",";
+    playlist += std::to_string(c->get_playlist_transition(i));
+  }
+  playlist += "]}";
+
   return string_sprintf("{"
                         "\"on\":%s,"
                         "\"bri\":%u,"
                         "\"transition\":%u,"
                         "\"tt\":%u,"
                         "\"ps\":%u,"
-                        "\"pl\":-1,"
+                        "\"pl\":%d,"
+                        "\"playlist\":%s,"
                         "\"presets\":%s,"
-                        "\"nl\":{\"on\":false,\"dur\":60,\"mode\":1,\"tbri\":0,\"rem\":-1},"
+                        "\"nl\":{\"on\":%s,\"dur\":%u,\"mode\":%u,\"tbri\":%u,\"rem\":%d},"
                         "\"udpn\":{\"send\":false,\"recv\":false,\"sgrp\":1,\"rgrp\":1},"
                         "\"time\":0,"
                         "\"lor\":0,"
                         "\"mainseg\":%u,"
                         "\"seg\":%s}",
                         c->is_on() ? "true" : "false", c->get_brightness(), transition_tenths, transition_tenths,
-                        c->get_active_preset(), presets.c_str(), c->get_main_segment(), seg_array.c_str());
+                        c->get_active_preset(), c->get_active_playlist(), playlist.c_str(), presets.c_str(),
+                        c->is_nightlight_active() ? "true" : "false", c->get_nightlight_duration_min(),
+                        c->get_nightlight_mode(), c->get_nightlight_target_brightness(),
+                        c->get_nightlight_remaining_s(), c->get_main_segment(), seg_array.c_str());
 }
 
 std::string build_info_json(const WLEDBridgeComponent *c) {
@@ -252,7 +385,22 @@ std::string build_effects_json() {
     if (i > 0)
       out += ",";
     out += "\"";
-    out += WLED_EFFECTS[i].meta;
+    out += json_escape(WLED_EFFECTS[i].name);
+    out += "\"";
+  }
+  out += "]";
+  return out;
+}
+
+std::string build_fxdata_json() {
+  std::string out = "[";
+  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+    if (i > 0)
+      out += ",";
+    const char *meta = WLED_EFFECTS[i].meta;
+    const char *data = meta == nullptr ? nullptr : strchr(meta, '@');
+    out += "\"";
+    out += json_escape(data == nullptr ? "" : data + 1);
     out += "\"";
   }
   out += "]";
@@ -273,6 +421,17 @@ std::string build_palettes_json() {
 }
 
 std::string build_config_json(const WLEDBridgeComponent *c) {
+  std::string bus_ins = "[";
+  size_t bus_count = c->get_bus_count();
+  for (size_t i = 0; i < bus_count; i++) {
+    if (i > 0)
+      bus_ins += ",";
+    bus_ins += string_sprintf("{\"start\":%u,\"len\":%u,\"pin\":[-1],\"order\":0,\"rev\":false,"
+                              "\"skip\":0,\"type\":22,\"ref\":false,\"maxpwr\":%u,\"ledma\":%u}",
+                              c->get_bus_start(i), c->get_bus_len(i), c->get_bus_max_ma(i), c->get_bus_led_ma(i));
+  }
+  bus_ins += "]";
+
   return string_sprintf(
       "{"
       "\"rev\":[1,0],"
@@ -298,7 +457,7 @@ std::string build_config_json(const WLEDBridgeComponent *c) {
       "\"cct\":false,"
       "\"cr\":false,"
       "\"cb\":0,"
-      "\"ins\":[{\"start\":0,\"len\":%u,\"pin\":[-1],\"order\":0,\"rev\":false,\"skip\":0,\"type\":22,\"ref\":false}]"
+      "\"ins\":%s"
       "},"
       "\"btn\":{\"max\":0,\"ins\":[]},"
       "\"ir\":{\"pin\":-1,\"type\":0},"
@@ -321,10 +480,10 @@ std::string build_config_json(const WLEDBridgeComponent *c) {
       "\"ol\":{\"clock\":0,\"cntdwn\":false,\"min\":0,\"max\":29},"
       "\"timers\":{\"cntdwn\":{\"goal\":[20,1,1,0,0,0],\"macro\":0},\"ins\":[]}"
       "}",
-      c->get_led_count(), c->get_max_ma(), c->get_led_count() == 0 ? 0 : c->get_max_ma() / c->get_led_count(),
-      c->get_auto_white_mode(), c->get_led_count(), c->get_transition_ms() / 100u, c->get_active_preset(),
-      c->is_on() ? "true" : "false", c->get_brightness(), c->get_effect_index(), c->get_params().speed,
-      c->get_params().intensity, c->get_params().palette_id);
+      c->get_led_count(), c->get_max_ma(), bus_count == 0 ? 0 : c->get_bus_led_ma(0), c->get_auto_white_mode(),
+      bus_ins.c_str(), c->get_transition_ms() / 100u, c->get_active_preset(), c->is_on() ? "true" : "false",
+      c->get_brightness(), c->get_effect_index(), c->get_params().speed, c->get_params().intensity,
+      c->get_params().palette_id);
 }
 
 std::string build_network_json(const WLEDBridgeComponent *c) {
@@ -347,6 +506,47 @@ std::string build_network_json(const WLEDBridgeComponent *c) {
                         c->get_max_ma());
 }
 
+std::string build_pins_json() {
+  // ESPHome owns GPIO allocation. Keep the WLED probe endpoint read-only and
+  // empty so settings pages/tools do not infer that WLED may reconfigure pins.
+  return "{\"pins\":[]}";
+}
+
+static std::string build_preset_segment_json(uint8_t id, uint16_t start, uint16_t stop, uint16_t grouping,
+                                             uint16_t spacing, bool on, uint8_t opacity, const uint32_t colors[3],
+                                             uint8_t fx, uint8_t sx, uint8_t ix, uint8_t pal, uint8_t c1, uint8_t c2,
+                                             uint8_t c3, bool o1, bool o2, bool o3, bool reverse, bool mirror,
+                                             bool selected) {
+  return string_sprintf("{"
+                        "\"id\":%u,"
+                        "\"start\":%u,"
+                        "\"stop\":%u,"
+                        "\"grp\":%u,"
+                        "\"spc\":%u,"
+                        "\"on\":%s,"
+                        "\"bri\":%u,"
+                        "\"col\":[[%u,%u,%u,%u],[%u,%u,%u,%u],[%u,%u,%u,%u]],"
+                        "\"fx\":%u,"
+                        "\"sx\":%u,"
+                        "\"ix\":%u,"
+                        "\"pal\":%u,"
+                        "\"c1\":%u,"
+                        "\"c2\":%u,"
+                        "\"c3\":%u,"
+                        "\"o1\":%s,"
+                        "\"o2\":%s,"
+                        "\"o3\":%s,"
+                        "\"sel\":%s,"
+                        "\"rev\":%s,"
+                        "\"mi\":%s"
+                        "}",
+                        id, start, stop, grouping, spacing, on ? "true" : "false", opacity, R(colors[0]), G(colors[0]),
+                        B(colors[0]), W(colors[0]), R(colors[1]), G(colors[1]), B(colors[1]), W(colors[1]),
+                        R(colors[2]), G(colors[2]), B(colors[2]), W(colors[2]), fx, sx, ix, pal, c1, c2, c3,
+                        o1 ? "true" : "false", o2 ? "true" : "false", o3 ? "true" : "false",
+                        selected ? "true" : "false", reverse ? "true" : "false", mirror ? "true" : "false");
+}
+
 std::string build_presets_json(const WLEDBridgeComponent *c) {
   std::string out = "{";
   bool first = true;
@@ -356,47 +556,393 @@ std::string build_presets_json(const WLEDBridgeComponent *c) {
       continue;
 
     std::string name = json_escape(preset->name[0] != '\0' ? preset->name : "Preset");
-    std::string preset_json = string_sprintf(
-        "%s\"%u\":{"
-        "\"n\":\"%s\","
-        "\"on\":%s,"
-        "\"bri\":%u,"
-        "\"transition\":%u,"
-        "\"tt\":%u,"
-        "\"seg\":[{"
-        "\"id\":0,"
-        "\"start\":%u,"
-        "\"stop\":%u,"
-        "\"on\":%s,"
-        "\"bri\":%u,"
-        "\"col\":[[%u,%u,%u,%u],[%u,%u,%u,%u],[%u,%u,%u,%u]],"
-        "\"fx\":%u,"
-        "\"sx\":%u,"
-        "\"ix\":%u,"
-        "\"pal\":%u,"
-        "\"c1\":%u,"
-        "\"c2\":%u,"
-        "\"c3\":%u,"
-        "\"o1\":%s,"
-        "\"o2\":%s,"
-        "\"o3\":%s,"
-        "\"rev\":%s,"
-        "\"mi\":%s"
-        "}]}",
-        first ? "" : ",", id, name.c_str(), preset->on != 0 ? "true" : "false", preset->brightness,
-        preset->transition_ms / 100u, preset->transition_ms / 100u, preset->segment_start, preset->segment_stop,
-        preset->on != 0 ? "true" : "false", preset->brightness, R(preset->colors[0]), G(preset->colors[0]),
-        B(preset->colors[0]), W(preset->colors[0]), R(preset->colors[1]), G(preset->colors[1]), B(preset->colors[1]),
-        W(preset->colors[1]), R(preset->colors[2]), G(preset->colors[2]), B(preset->colors[2]), W(preset->colors[2]),
-        preset->effect, preset->speed, preset->intensity, preset->palette, preset->custom1, preset->custom2,
-        preset->custom3, preset->check1 != 0 ? "true" : "false", preset->check2 != 0 ? "true" : "false",
-        preset->check3 != 0 ? "true" : "false", preset->reverse != 0 ? "true" : "false",
-        preset->mirror != 0 ? "true" : "false");
+    std::string seg_json = "[";
+    seg_json += build_preset_segment_json(
+        0, preset->segment_start, preset->segment_stop, preset->main_grouping, preset->main_spacing, preset->on != 0,
+        preset->main_opacity, preset->colors, preset->effect, preset->speed, preset->intensity, preset->palette,
+        preset->custom1, preset->custom2, preset->custom3, preset->check1 != 0, preset->check2 != 0,
+        preset->check3 != 0, preset->reverse != 0, preset->mirror != 0, preset->main_segment == 0);
+    uint8_t extra_count = std::min<uint8_t>(preset->extra_count, WLED_MAX_SEGMENTS - 1);
+    for (uint8_t i = 0; i < extra_count; i++) {
+      const WLEDExtraSegRecord &seg = preset->extras[i];
+      seg_json += ",";
+      seg_json += build_preset_segment_json(static_cast<uint8_t>(i + 1), seg.start, seg.stop, seg.grouping, seg.spacing,
+                                            seg.on != 0, seg.opacity, seg.colors, seg.mode, seg.speed, seg.intensity,
+                                            seg.palette, seg.custom1, seg.custom2, seg.custom3, seg.check1 != 0,
+                                            seg.check2 != 0, seg.check3 != 0, seg.reverse != 0, seg.mirror != 0,
+                                            preset->main_segment == i + 1);
+    }
+    seg_json += "]";
+
+    std::string preset_json = string_sprintf("%s\"%u\":{\"n\":\"%s\",\"on\":%s,\"bri\":%u,\"transition\":%u,"
+                                             "\"tt\":%u,\"mainseg\":%u,\"seg\":%s}",
+                                             first ? "" : ",", id, name.c_str(), preset->on != 0 ? "true" : "false",
+                                             preset->brightness, preset->transition_ms / 100u,
+                                             preset->transition_ms / 100u, preset->main_segment, seg_json.c_str());
+    if (preset->playlist_count > 0) {
+      std::string playlist = ",\"playlist\":{\"ps\":[";
+      for (uint8_t i = 0; i < preset->playlist_count; i++) {
+        if (i > 0)
+          playlist += ",";
+        playlist += std::to_string(preset->playlist_presets[i]);
+      }
+      playlist += "],\"dur\":[";
+      for (uint8_t i = 0; i < preset->playlist_count; i++) {
+        if (i > 0)
+          playlist += ",";
+        playlist += std::to_string(preset->playlist_durations[i]);
+      }
+      playlist += "],\"transition\":[";
+      for (uint8_t i = 0; i < preset->playlist_count; i++) {
+        if (i > 0)
+          playlist += ",";
+        playlist += std::to_string(preset->playlist_transitions[i]);
+      }
+      playlist += "],\"repeat\":";
+      playlist += std::to_string(preset->playlist_repeat);
+      playlist += "}";
+      size_t close = preset_json.rfind('}');
+      if (close != std::string::npos)
+        preset_json.insert(close, playlist);
+    }
     out += preset_json;
     first = false;
   }
   out += "}";
   return out;
+}
+
+std::string build_live_json(const WLEDBridgeComponent *c) {
+  static constexpr uint32_t MAX_LIVE_LEDS = 256;
+  uint32_t used = c->get_led_count();
+  uint32_t step = used == 0 ? 1 : ((used - 1u) / MAX_LIVE_LEDS) + 1u;
+  std::string out = "{\"leds\":[";
+  bool first = true;
+  for (uint32_t i = 0; i < used; i += step) {
+    uint32_t color = c->get_live_pixel_color(i);
+    uint8_t r = qadd8(W(color), R(color));
+    uint8_t g = qadd8(W(color), G(color));
+    uint8_t b = qadd8(W(color), B(color));
+    if (!first)
+      out += ",";
+    out += string_sprintf("\"%02X%02X%02X\"", r, g, b);
+    first = false;
+  }
+  out += "],\"n\":";
+  out += std::to_string(step);
+  out += "}";
+  return out;
+}
+
+static void fill_extra_record_from_json(WLEDExtraSegRecord *rec, JsonVariant seg) {
+  if (rec == nullptr || seg.isNull())
+    return;
+  if (!seg["start"].isNull())
+    rec->start = seg["start"].as<uint16_t>();
+  if (!seg["stop"].isNull())
+    rec->stop = seg["stop"].as<uint16_t>();
+  if (!seg["grp"].isNull())
+    rec->grouping = seg["grp"].as<uint16_t>();
+  if (rec->grouping < 1)
+    rec->grouping = 1;
+  if (!seg["spc"].isNull())
+    rec->spacing = seg["spc"].as<uint16_t>();
+  if (!seg["on"].isNull())
+    rec->on = json_bool(seg["on"]) ? 1 : 0;
+  if (!seg["bri"].isNull())
+    rec->opacity = json_u8(seg["bri"], rec->opacity);
+  if (!seg["fx"].isNull())
+    rec->mode = json_u8(seg["fx"], rec->mode);
+  if (!seg["sx"].isNull())
+    rec->speed = json_u8(seg["sx"], rec->speed);
+  if (!seg["ix"].isNull())
+    rec->intensity = json_u8(seg["ix"], rec->intensity);
+  if (!seg["pal"].isNull())
+    rec->palette = json_u8(seg["pal"], rec->palette);
+  if (!seg["c1"].isNull())
+    rec->custom1 = json_u8(seg["c1"], rec->custom1);
+  if (!seg["c2"].isNull())
+    rec->custom2 = json_u8(seg["c2"], rec->custom2);
+  if (!seg["c3"].isNull())
+    rec->custom3 = json_u8(seg["c3"], rec->custom3);
+  if (!seg["o1"].isNull())
+    rec->check1 = json_bool(seg["o1"]) ? 1 : 0;
+  if (!seg["o2"].isNull())
+    rec->check2 = json_bool(seg["o2"]) ? 1 : 0;
+  if (!seg["o3"].isNull())
+    rec->check3 = json_bool(seg["o3"]) ? 1 : 0;
+  if (!seg["rev"].isNull())
+    rec->reverse = json_bool(seg["rev"]) ? 1 : 0;
+  if (!seg["mi"].isNull())
+    rec->mirror = json_bool(seg["mi"]) ? 1 : 0;
+  if (seg["col"].is<JsonArray>()) {
+    JsonArray cols = seg["col"].as<JsonArray>();
+    for (size_t i = 0; i < cols.size() && i < 3; i++)
+      rec->colors[i] = json_color(cols[i], rec->colors[i]);
+  }
+}
+
+static WLEDPresetRecord preset_from_json(uint8_t preset_id, JsonVariant value) {
+  WLEDPresetRecord preset;
+  preset.valid = 1;
+  if (!value["n"].isNull())
+    snprintf(preset.name, sizeof(preset.name), "%s", value["n"].as<const char *>());
+  if (!value["on"].isNull())
+    preset.on = json_bool(value["on"]) ? 1 : 0;
+  if (!value["bri"].isNull())
+    preset.brightness = json_u8(value["bri"], preset.brightness);
+  if (!value["transition"].isNull())
+    preset.transition_ms = transition_tenths_to_ms(value["transition"].as<uint16_t>());
+  if (!value["tt"].isNull())
+    preset.transition_ms = transition_tenths_to_ms(value["tt"].as<uint16_t>());
+  if (!value["mainseg"].isNull())
+    preset.main_segment = json_u8(value["mainseg"]);
+  if (value["playlist"].is<JsonObject>()) {
+    JsonObject playlist = value["playlist"].as<JsonObject>();
+    JsonVariant psv = playlist["ps"];
+    if (psv.isNull())
+      psv = playlist["presets"];
+    JsonArray ps = psv.is<JsonArray>() ? psv.as<JsonArray>() : JsonArray();
+    JsonArray dur = playlist["dur"].is<JsonArray>() ? playlist["dur"].as<JsonArray>() : JsonArray();
+    if (dur.isNull() && playlist["durations"].is<JsonArray>())
+      dur = playlist["durations"].as<JsonArray>();
+    JsonArray tr = playlist["transition"].is<JsonArray>() ? playlist["transition"].as<JsonArray>() : JsonArray();
+    if (tr.isNull() && playlist["tt"].is<JsonArray>())
+      tr = playlist["tt"].as<JsonArray>();
+    uint16_t default_duration = playlist["dur"].is<uint16_t>() ? playlist["dur"].as<uint16_t>() : 10u;
+    if (!playlist["duration"].isNull())
+      default_duration = playlist["duration"].as<uint16_t>();
+    uint16_t default_transition = playlist["transition"].is<uint16_t>() ? playlist["transition"].as<uint16_t>() : 7u;
+    if (!playlist["tt"].isNull() && playlist["tt"].is<uint16_t>())
+      default_transition = playlist["tt"].as<uint16_t>();
+    for (size_t i = 0; i < ps.size() && preset.playlist_count < WLED_PLAYLIST_MAX_ENTRIES; i++) {
+      uint8_t entry = json_u8(ps[i]);
+      if (entry == 0 || entry == preset_id)
+        continue;
+      uint8_t out = preset.playlist_count++;
+      preset.playlist_presets[out] = entry;
+      preset.playlist_durations[out] = (!dur.isNull() && i < dur.size()) ? dur[i].as<uint16_t>() : default_duration;
+      preset.playlist_transitions[out] = (!tr.isNull() && i < tr.size()) ? tr[i].as<uint16_t>() : default_transition;
+    }
+    if (!playlist["repeat"].isNull())
+      preset.playlist_repeat = json_u8(playlist["repeat"]);
+    else if (!playlist["r"].isNull())
+      preset.playlist_repeat = json_u8(playlist["r"]);
+  }
+
+  auto apply_main = [&preset](JsonVariant seg) {
+    WLEDExtraSegRecord tmp;
+    tmp.start = preset.segment_start;
+    tmp.stop = preset.segment_stop;
+    tmp.grouping = preset.main_grouping;
+    tmp.spacing = preset.main_spacing;
+    tmp.on = preset.on;
+    tmp.opacity = preset.main_opacity;
+    tmp.mode = preset.effect;
+    tmp.speed = preset.speed;
+    tmp.intensity = preset.intensity;
+    tmp.custom1 = preset.custom1;
+    tmp.custom2 = preset.custom2;
+    tmp.custom3 = preset.custom3;
+    tmp.check1 = preset.check1;
+    tmp.check2 = preset.check2;
+    tmp.check3 = preset.check3;
+    tmp.palette = preset.palette;
+    tmp.reverse = preset.reverse;
+    tmp.mirror = preset.mirror;
+    tmp.colors[0] = preset.colors[0];
+    tmp.colors[1] = preset.colors[1];
+    tmp.colors[2] = preset.colors[2];
+    fill_extra_record_from_json(&tmp, seg);
+    preset.segment_start = tmp.start;
+    preset.segment_stop = tmp.stop;
+    preset.main_grouping = static_cast<uint8_t>(std::min<uint16_t>(tmp.grouping, 255));
+    preset.main_spacing = static_cast<uint8_t>(std::min<uint16_t>(tmp.spacing, 255));
+    preset.main_opacity = tmp.opacity;
+    preset.effect = tmp.mode;
+    preset.speed = tmp.speed;
+    preset.intensity = tmp.intensity;
+    preset.custom1 = tmp.custom1;
+    preset.custom2 = tmp.custom2;
+    preset.custom3 = tmp.custom3;
+    preset.check1 = tmp.check1;
+    preset.check2 = tmp.check2;
+    preset.check3 = tmp.check3;
+    preset.palette = tmp.palette;
+    preset.reverse = tmp.reverse;
+    preset.mirror = tmp.mirror;
+    preset.colors[0] = tmp.colors[0];
+    preset.colors[1] = tmp.colors[1];
+    preset.colors[2] = tmp.colors[2];
+  };
+
+  if (value["seg"].is<JsonArray>()) {
+    JsonArray arr = value["seg"].as<JsonArray>();
+    uint8_t max_extra = 0;
+    for (size_t i = 0; i < arr.size(); i++) {
+      JsonVariant seg = arr[i];
+      uint8_t id = seg["id"].isNull() ? clamp_segment_id(i) : json_u8(seg["id"]);
+      if (id == 0) {
+        apply_main(seg);
+      } else if (id < WLED_MAX_SEGMENTS) {
+        fill_extra_record_from_json(&preset.extras[id - 1], seg);
+        max_extra = std::max<uint8_t>(max_extra, id);
+      }
+      if (!seg["sel"].isNull() && json_bool(seg["sel"]))
+        preset.main_segment = id;
+    }
+    preset.extra_count = max_extra;
+  } else if (value["seg"].is<JsonObject>()) {
+    JsonVariant seg = value["seg"];
+    uint8_t id = seg["id"].isNull() ? 0 : json_u8(seg["id"]);
+    if (id == 0) {
+      apply_main(seg);
+    } else if (id < WLED_MAX_SEGMENTS) {
+      fill_extra_record_from_json(&preset.extras[id - 1], seg);
+      preset.extra_count = id;
+    }
+    if (!seg["sel"].isNull() && json_bool(seg["sel"]))
+      preset.main_segment = id;
+  } else {
+    apply_main(value);
+  }
+
+  if (preset.name[0] == '\0')
+    snprintf(preset.name, sizeof(preset.name), "Preset %u", preset_id);
+  if (preset.main_segment > preset.extra_count)
+    preset.main_segment = 0;
+  return preset;
+}
+
+static bool parse_playlist_json(WLEDBridgeComponent *comp, JsonVariant value) {
+  if (comp == nullptr || value.isNull() || !value.is<JsonObject>())
+    return false;
+
+  if (!value["on"].isNull() && !json_bool(value["on"])) {
+    comp->stop_playlist();
+    return true;
+  }
+
+  JsonVariant psv = value["ps"];
+  if (psv.isNull())
+    psv = value["presets"];
+  if (!psv.is<JsonArray>())
+    return false;
+
+  JsonArray ps = psv.as<JsonArray>();
+  uint8_t presets[WLED_PLAYLIST_MAX_ENTRIES]{};
+  uint16_t durations[WLED_PLAYLIST_MAX_ENTRIES]{};
+  uint16_t transitions[WLED_PLAYLIST_MAX_ENTRIES]{};
+  uint8_t count = 0;
+
+  JsonArray dur = value["dur"].is<JsonArray>() ? value["dur"].as<JsonArray>() : JsonArray();
+  if (dur.isNull() && value["durations"].is<JsonArray>())
+    dur = value["durations"].as<JsonArray>();
+  JsonArray tr = value["transition"].is<JsonArray>() ? value["transition"].as<JsonArray>() : JsonArray();
+  if (tr.isNull() && value["tt"].is<JsonArray>())
+    tr = value["tt"].as<JsonArray>();
+
+  uint16_t default_duration = value["dur"].is<uint16_t>() ? value["dur"].as<uint16_t>() : 10u;
+  if (!value["duration"].isNull())
+    default_duration = value["duration"].as<uint16_t>();
+  uint16_t default_transition = value["transition"].is<uint16_t>() ? value["transition"].as<uint16_t>() : 7u;
+  if (!value["tt"].isNull() && value["tt"].is<uint16_t>())
+    default_transition = value["tt"].as<uint16_t>();
+
+  for (size_t i = 0; i < ps.size() && count < WLED_PLAYLIST_MAX_ENTRIES; i++) {
+    uint8_t preset_id = json_u8(ps[i]);
+    if (preset_id == 0)
+      continue;
+    presets[count] = preset_id;
+    durations[count] = (!dur.isNull() && i < dur.size()) ? dur[i].as<uint16_t>() : default_duration;
+    transitions[count] = (!tr.isNull() && i < tr.size()) ? tr[i].as<uint16_t>() : default_transition;
+    count++;
+  }
+
+  uint8_t repeat = 0;
+  if (!value["repeat"].isNull())
+    repeat = json_u8(value["repeat"]);
+  else if (!value["r"].isNull())
+    repeat = json_u8(value["r"]);
+  return comp->start_playlist(presets, durations, transitions, count, repeat);
+}
+
+static bool parse_nightlight_json(WLEDBridgeComponent *comp, JsonVariant value) {
+  if (comp == nullptr || value.isNull() || !value.is<JsonObject>())
+    return false;
+
+  uint16_t duration_min = comp->get_nightlight_duration_min();
+  if (!value["dur"].isNull())
+    duration_min = value["dur"].as<uint16_t>();
+  else if (!value["fade"].isNull())
+    duration_min = value["fade"].as<uint16_t>();
+
+  uint8_t target = comp->get_nightlight_target_brightness();
+  if (!value["tbri"].isNull())
+    target = json_u8(value["tbri"], target);
+  else if (!value["bri"].isNull())
+    target = json_u8(value["bri"], target);
+
+  uint8_t mode = comp->get_nightlight_mode();
+  if (!value["mode"].isNull())
+    mode = json_u8(value["mode"], mode);
+
+  uint32_t duration_s = static_cast<uint32_t>(duration_min) * 60u;
+  uint16_t clamped_duration_s = static_cast<uint16_t>(std::min<uint32_t>(duration_s, 65535u));
+  comp->configure_nightlight(clamped_duration_s, target, mode);
+
+  if (!value["on"].isNull()) {
+    if (json_bool(value["on"]))
+      comp->start_nightlight(clamped_duration_s, target, mode);
+    else
+      comp->stop_nightlight();
+  } else if (comp->is_nightlight_active()) {
+    comp->start_nightlight(clamped_duration_s, target, mode);
+  }
+  return true;
+}
+
+static bool apply_segment_pixels_json(WLEDBridgeComponent *comp, uint8_t id, JsonVariant value) {
+  if (comp == nullptr || value.isNull() || !value.is<JsonArray>())
+    return false;
+
+  JsonArray arr = value.as<JsonArray>();
+  if (arr.size() == 0) {
+    comp->clear_pixel_overrides();
+    return true;
+  }
+
+  bool changed = false;
+  uint32_t start = 0;
+  uint32_t stop = 0;
+  uint8_t index_state = 0;  // 0 = need start, 1 = have start, 2 = have range
+  for (size_t i = 0; i < arr.size(); i++) {
+    JsonVariant item = arr[i];
+    if (item.is<int>()) {
+      uint32_t index = static_cast<uint32_t>(abs(item.as<int>()));
+      if (index_state == 0) {
+        start = index;
+        stop = index + 1;
+        index_state = 1;
+      } else {
+        stop = index;
+        index_state = 2;
+      }
+      continue;
+    }
+
+    uint32_t color = 0;
+    if (!json_pixel_color(item, &color))
+      continue;
+    if (index_state == 0)
+      continue;
+    if (index_state < 2 || stop <= start)
+      stop = start + 1;
+    for (uint32_t p = start; p < stop; p++)
+      changed |= comp->set_pixel_override(id, p, color);
+    index_state = 0;
+  }
+  return changed;
 }
 
 // Apply one WLED seg object to segment `id`. When allow_power is false (flat
@@ -445,6 +991,13 @@ static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVarian
     comp->segment_set_reverse(id, json_bool(seg["rev"]));
   if (!seg["mi"].isNull())
     comp->segment_set_mirror(id, json_bool(seg["mi"]));
+  if (!seg["sel"].isNull()) {
+    if (json_bool(seg["sel"])) {
+      comp->set_main_segment(id);
+    } else if (comp->get_main_segment() == id) {
+      comp->set_main_segment(0);
+    }
+  }
 
   if (seg["col"].is<JsonArray>()) {
     JsonArray cols = seg["col"].as<JsonArray>();
@@ -460,6 +1013,8 @@ static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVarian
       }
     }
   }
+  if (!seg["i"].isNull())
+    apply_segment_pixels_json(comp, id, seg["i"]);
 
   if (allow_power) {
     if (!seg["on"].isNull())
@@ -500,6 +1055,9 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
   if (strcmp(url.c_str(), "/presets.json") == 0) {
     if (request->method() == HTTP_GET) {
       handle_get_presets_(request);
+    } else if (request->method() == HTTP_POST) {
+      handle_post_presets_(request, this->post_body_);
+      this->post_body_.clear();
     } else {
       request->send(405, "application/json", "{\"error\":\"method not allowed\"}");
     }
@@ -528,14 +1086,25 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
     handle_get_state_(request);
   } else if (strcmp(url.c_str(), "/json/info") == 0) {
     handle_get_info_(request);
+  } else if (strcmp(url.c_str(), "/json/live") == 0) {
+    auto body = build_live_json(comp_);
+    auto *resp = request->beginResponse(200, "application/json", body);
+    request->send(resp);
   } else if (strcmp(url.c_str(), "/json/effects") == 0 || strcmp(url.c_str(), "/json/eff") == 0) {
     handle_get_effects_(request);
-  } else if (strcmp(url.c_str(), "/json/palettes") == 0 || strcmp(url.c_str(), "/json/pal") == 0) {
+  } else if (strcmp(url.c_str(), "/json/fxdata") == 0) {
+    auto body = build_fxdata_json();
+    auto *resp = request->beginResponse(200, "application/json", body);
+    request->send(resp);
+  } else if (strcmp(url.c_str(), "/json/palettes") == 0 || strcmp(url.c_str(), "/json/pal") == 0 ||
+             strcmp(url.c_str(), "/json/palx") == 0) {
     handle_get_palettes_(request);
   } else if (strcmp(url.c_str(), "/json/cfg") == 0) {
     handle_get_config_(request);
   } else if (strcmp(url.c_str(), "/json/net") == 0 || strcmp(url.c_str(), "/json/nodes") == 0) {
     handle_get_network_(request);
+  } else if (strcmp(url.c_str(), "/json/pins") == 0) {
+    handle_get_pins_(request);
   } else if (strcmp(url.c_str(), "/version") == 0) {
     request->send(200, "application/json", "\"WLED Bridge 0.1.0\"");
   } else if (strcmp(url.c_str(), "/freeheap") == 0) {
@@ -583,9 +1152,70 @@ void WLEDJsonHandler::handle_get_network_(web_server_idf::AsyncWebServerRequest 
   request->send(resp);
 }
 
+void WLEDJsonHandler::handle_get_pins_(web_server_idf::AsyncWebServerRequest *request) {
+  auto body = build_pins_json();
+  auto *resp = request->beginResponse(200, "application/json", body);
+  request->send(resp);
+}
+
 void WLEDJsonHandler::handle_get_presets_(web_server_idf::AsyncWebServerRequest *request) {
   auto body = build_presets_json(comp_);
   auto *resp = request->beginResponse(200, "application/json", body);
+  request->send(resp);
+}
+
+void WLEDJsonHandler::handle_post_presets_(web_server_idf::AsyncWebServerRequest *request, const std::string &body) {
+  if (body.empty()) {
+    auto response_body = build_presets_json(comp_);
+    auto *resp = request->beginResponse(200, "application/json", response_body);
+    request->send(resp);
+    return;
+  }
+
+  auto doc = json::parse_json(body);
+  if (doc.isNull() || !doc.is<JsonObject>()) {
+    request->send(400, "application/json", "{\"error\":\"invalid presets json\"}");
+    return;
+  }
+
+  JsonObject root = doc.as<JsonObject>();
+  JsonObject presets = root;
+  if (root["presets"].is<JsonObject>())
+    presets = root["presets"].as<JsonObject>();
+
+  uint8_t imported = 0;
+  uint8_t deleted = 0;
+  for (JsonPair kv : presets) {
+    const char *key = kv.key().c_str();
+    if (key == nullptr || key[0] == '\0')
+      continue;
+    char *end = nullptr;
+    long parsed_id = strtol(key, &end, 10);
+    if (end == key || *end != '\0' || parsed_id <= 0 || parsed_id > WLED_PRESET_COUNT)
+      continue;
+
+    uint8_t preset_id = static_cast<uint8_t>(parsed_id);
+    JsonVariant value = kv.value();
+    if (value.isNull()) {
+      if (comp_->delete_preset(preset_id))
+        deleted++;
+      continue;
+    }
+    if (!value.is<JsonObject>())
+      continue;
+    if (!value["delete"].isNull() && json_bool(value["delete"])) {
+      if (comp_->delete_preset(preset_id))
+        deleted++;
+      continue;
+    }
+
+    WLEDPresetRecord preset = preset_from_json(preset_id, value);
+    if (comp_->set_preset(preset_id, preset))
+      imported++;
+  }
+
+  std::string response = string_sprintf("{\"success\":true,\"imported\":%u,\"deleted\":%u}", imported, deleted);
+  auto *resp = request->beginResponse(200, "application/json", response);
   request->send(resp);
 }
 
@@ -638,6 +1268,46 @@ void WLEDJsonHandler::handle_win_(web_server_idf::AsyncWebServerRequest *request
     if (comp_->delete_preset(static_cast<uint8_t>(value > 255 ? 255 : value)))
       changed = true;
   }
+  bool use_default_nightlight_duration = win_has_arg(request, url, "ND");
+  bool nightlight_changed = false;
+  uint16_t nightlight_duration_min = comp_->get_nightlight_duration_min();
+  uint8_t nightlight_target = comp_->get_nightlight_target_brightness();
+  uint8_t nightlight_mode = comp_->get_nightlight_mode();
+  if (win_arg_u16(request, url, "NT", &value)) {
+    nightlight_target = static_cast<uint8_t>(value > 255 ? 255 : value);
+    nightlight_changed = true;
+  }
+  if (win_arg_u16(request, url, "NF", &value)) {
+    nightlight_mode = static_cast<uint8_t>(value > 3 ? 3 : value);
+    nightlight_changed = true;
+  }
+  if (win_arg_u16(request, url, "NL", &value)) {
+    if (value == 0) {
+      comp_->stop_nightlight();
+    } else {
+      if (!use_default_nightlight_duration)
+        nightlight_duration_min = value;
+      uint32_t duration_s = static_cast<uint32_t>(nightlight_duration_min) * 60u;
+      comp_->start_nightlight(static_cast<uint16_t>(std::min<uint32_t>(duration_s, 65535u)), nightlight_target,
+                              nightlight_mode);
+    }
+    changed = true;
+  } else if (use_default_nightlight_duration) {
+    uint32_t duration_s = static_cast<uint32_t>(nightlight_duration_min) * 60u;
+    comp_->start_nightlight(static_cast<uint16_t>(std::min<uint32_t>(duration_s, 65535u)), nightlight_target,
+                            nightlight_mode);
+    changed = true;
+  } else if (nightlight_changed && comp_->is_nightlight_active()) {
+    uint32_t duration_s = static_cast<uint32_t>(nightlight_duration_min) * 60u;
+    comp_->start_nightlight(static_cast<uint16_t>(std::min<uint32_t>(duration_s, 65535u)), nightlight_target,
+                            nightlight_mode);
+    changed = true;
+  } else if (nightlight_changed) {
+    uint32_t duration_s = static_cast<uint32_t>(nightlight_duration_min) * 60u;
+    comp_->configure_nightlight(static_cast<uint16_t>(std::min<uint32_t>(duration_s, 65535u)), nightlight_target,
+                                nightlight_mode);
+    changed = true;
+  }
 
   uint16_t r = R(comp_->get_params().colors[0]);
   uint16_t g = G(comp_->get_params().colors[0]);
@@ -668,6 +1338,8 @@ void WLEDJsonHandler::handle_win_(web_server_idf::AsyncWebServerRequest *request
   if (changed)
     comp_->publish_light_state();
 
+  if (request == nullptr)
+    return;
   auto state_body = build_state_json(comp_);
   auto *resp = request->beginResponse(200, "application/json", state_body);
   request->send(resp);
@@ -687,8 +1359,19 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
   }
 
   // on / bri
-  if (!doc["on"].isNull())
-    comp_->set_on(json_bool(doc["on"]));
+  bool was_on = comp_->is_on();
+  if (!doc["on"].isNull()) {
+    if (json_on_is_toggle(doc["on"])) {
+      uint8_t requested_bri = doc["bri"].isNull() ? 0 : json_u8(doc["bri"]);
+      if (!was_on && requested_bri > 0) {
+        comp_->set_on(true);
+      } else {
+        comp_->set_on(!comp_->is_on());
+      }
+    } else {
+      comp_->set_on(json_bool(doc["on"]));
+    }
+  }
   if (!doc["bri"].isNull())
     comp_->set_brightness(json_u8(doc["bri"], comp_->get_brightness()));
   if (!doc["transition"].isNull())
@@ -699,6 +1382,14 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
     comp_->load_preset(json_u8(doc["ps"]));
   if (!doc["pdel"].isNull())
     comp_->delete_preset(json_u8(doc["pdel"]));
+  if (!doc["pl"].isNull() && doc["pl"].as<int>() < 0)
+    comp_->stop_playlist();
+  if (!doc["playlist"].isNull())
+    parse_playlist_json(comp_, doc["playlist"]);
+  if (!doc["nl"].isNull())
+    parse_nightlight_json(comp_, doc["nl"]);
+  bool has_mainseg = !doc["mainseg"].isNull();
+  uint8_t requested_mainseg = has_mainseg ? json_u8(doc["mainseg"]) : 0;
 
   // Segments (WLED-compatible). seg may be an array (multi-segment), a single
   // object, or — for legacy flat clients — params at the document root.
@@ -721,6 +1412,13 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
 
   if (!doc["psave"].isNull())
     comp_->save_preset(json_u8(doc["psave"]), doc["n"].isNull() ? nullptr : doc["n"].as<const char *>());
+  if (has_mainseg)
+    comp_->set_main_segment(requested_mainseg);
+  if (!doc["win"].isNull() && doc["win"].is<const char *>()) {
+    std::string win_url = "/win&";
+    win_url += doc["win"].as<const char *>();
+    handle_win_(nullptr, win_url);
+  }
 
   comp_->publish_light_state();
 
@@ -736,7 +1434,7 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
 bool WLEDSseHandler::canHandle(web_server_idf::AsyncWebServerRequest *request) const {
   char url_buf[web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
-  return strcmp(url.c_str(), "/wled_events") == 0 || strcmp(url.c_str(), "/json/live") == 0;
+  return strcmp(url.c_str(), "/wled_events") == 0;
 }
 
 void WLEDSseHandler::handleRequest(web_server_idf::AsyncWebServerRequest *request) {

@@ -40,9 +40,10 @@ CONFIG_SCHEMA = cv.Schema(
         # Accept either a single light_id (backward compat) or a buses: list.
         cv.Optional(CONF_LIGHT_ID): cv.use_id(light.AddressableLightState),
         cv.Optional(CONF_BUSES): cv.All(cv.ensure_list(BUS_SCHEMA), cv.Length(min=1)),
-        # Global defaults used when light_id (not buses:) is specified
-        cv.Optional(CONF_MAX_MA, default=5000): cv.positive_int,
-        cv.Optional(CONF_LED_MA, default=55): cv.positive_int,
+        # Global defaults used when light_id (not buses:) is specified.
+        # Keep defaults in codegen so buses: configs don't show unused globals.
+        cv.Optional(CONF_MAX_MA): cv.positive_int,
+        cv.Optional(CONF_LED_MA): cv.positive_int,
         cv.Optional(CONF_USE_TASK, default=False): cv.boolean,
         cv.Optional(CONF_AUTO_WHITE, default="none"): cv.enum(
             AUTO_WHITE_MODES, lower=True
@@ -77,4 +78,8 @@ async def to_code(config):
     else:
         # Single light_id backward-compat path: one bus, global max_ma/led_ma.
         light_state = await cg.get_variable(config[CONF_LIGHT_ID])
-        cg.add(var.add_bus(light_state, config[CONF_MAX_MA], config[CONF_LED_MA]))
+        cg.add(
+            var.add_bus(
+                light_state, config.get(CONF_MAX_MA, 5000), config.get(CONF_LED_MA, 55)
+            )
+        )

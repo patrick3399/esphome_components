@@ -46,34 +46,7 @@ class WLEDProxyEffect : public light::AddressableLightEffect {
 
 static constexpr uint8_t WLED_PRESET_COUNT = 16;
 static constexpr size_t WLED_PRESET_NAME_SIZE = 24;
-
-struct WLEDPresetRecord {
-  uint8_t valid{0};
-  uint8_t on{1};
-  uint8_t brightness{128};
-  uint8_t effect{0};
-  uint8_t speed{128};
-  uint8_t intensity{128};
-  uint8_t custom1{128};
-  uint8_t custom2{128};
-  uint8_t custom3{16};
-  uint8_t check1{0};
-  uint8_t check2{0};
-  uint8_t check3{0};
-  uint8_t palette{0};
-  uint16_t segment_start{0};
-  uint16_t segment_stop{0};
-  uint8_t reverse{0};
-  uint8_t mirror{0};
-  uint16_t transition_ms{0};
-  uint32_t colors[3]{0xFFAA00, 0x000000, 0x000000};
-  char name[WLED_PRESET_NAME_SIZE]{};
-};
-
-struct WLEDPresetStore {
-  uint32_t magic{0};
-  WLEDPresetRecord slots[WLED_PRESET_COUNT]{};
-};
+static constexpr uint8_t WLED_PLAYLIST_MAX_ENTRIES = 16;
 
 // Compact persisted form of one extra (non-main) segment.
 struct WLEDExtraSegRecord {
@@ -98,12 +71,52 @@ struct WLEDExtraSegRecord {
   uint32_t colors[3]{0xFFAA00, 0x000000, 0x000000};
 };
 
+struct WLEDPresetRecord {
+  uint8_t valid{0};
+  uint8_t on{1};
+  uint8_t brightness{128};
+  uint8_t effect{0};
+  uint8_t speed{128};
+  uint8_t intensity{128};
+  uint8_t custom1{128};
+  uint8_t custom2{128};
+  uint8_t custom3{16};
+  uint8_t check1{0};
+  uint8_t check2{0};
+  uint8_t check3{0};
+  uint8_t palette{0};
+  uint16_t segment_start{0};
+  uint16_t segment_stop{0};
+  uint8_t reverse{0};
+  uint8_t mirror{0};
+  uint8_t main_segment{0};
+  uint8_t main_grouping{1};
+  uint8_t main_spacing{0};
+  uint8_t main_opacity{255};
+  uint8_t extra_count{0};
+  uint8_t playlist_count{0};
+  uint8_t playlist_repeat{0};
+  uint16_t transition_ms{0};
+  uint32_t colors[3]{0xFFAA00, 0x000000, 0x000000};
+  WLEDExtraSegRecord extras[WLED_MAX_SEGMENTS - 1]{};
+  uint8_t playlist_presets[WLED_PLAYLIST_MAX_ENTRIES]{};
+  uint16_t playlist_durations[WLED_PLAYLIST_MAX_ENTRIES]{};
+  uint16_t playlist_transitions[WLED_PLAYLIST_MAX_ENTRIES]{};
+  char name[WLED_PRESET_NAME_SIZE]{};
+};
+
+struct WLEDPresetStore {
+  uint32_t magic{0};
+  WLEDPresetRecord slots[WLED_PRESET_COUNT]{};
+};
+
 struct WLEDStoredState {
   uint32_t magic{0};
   WLEDPresetRecord state{};  // main segment + globals
   uint8_t main_grouping{1};
   uint8_t main_spacing{0};
   uint8_t main_opacity{255};
+  uint8_t main_segment{0};
   uint8_t extra_count{0};
   WLEDExtraSegRecord extras[WLED_MAX_SEGMENTS - 1]{};
 };
@@ -154,6 +167,21 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint32_t get_led_count() const {
     return this->total_leds_;
   }
+  size_t get_bus_count() const {
+    return this->buses_.size();
+  }
+  uint32_t get_bus_start(size_t bus_index) const {
+    return bus_index < this->buses_.size() ? this->buses_[bus_index].start : 0;
+  }
+  uint32_t get_bus_len(size_t bus_index) const {
+    return bus_index < this->buses_.size() ? this->buses_[bus_index].len : 0;
+  }
+  uint32_t get_bus_max_ma(size_t bus_index) const {
+    return bus_index < this->buses_.size() ? this->buses_[bus_index].max_ma : 0;
+  }
+  uint32_t get_bus_led_ma(size_t bus_index) const {
+    return bus_index < this->buses_.size() ? this->buses_[bus_index].led_ma : 0;
+  }
   uint32_t get_max_ma() const {
     uint32_t total = 0;
     for (const auto &bus : this->buses_)
@@ -163,14 +191,57 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint32_t get_current_ma() const {
     return this->current_ma_;
   }
+  uint32_t get_live_pixel_color(uint32_t index) const;
+  bool set_pixel_override(uint8_t segment_id, uint32_t segment_offset, uint32_t color);
+  void clear_pixel_overrides();
   uint32_t get_state_version() const {
     return this->state_version_;
   }
   uint16_t get_transition_ms() const {
     return this->transition_ms_;
   }
+  bool is_nightlight_active() const {
+    return this->nightlight_active_;
+  }
+  uint16_t get_nightlight_duration_s() const {
+    return this->nightlight_duration_s_;
+  }
+  uint16_t get_nightlight_duration_min() const {
+    return static_cast<uint16_t>((static_cast<uint32_t>(this->nightlight_duration_s_) + 59u) / 60u);
+  }
+  uint8_t get_nightlight_mode() const {
+    return this->nightlight_mode_;
+  }
+  uint8_t get_nightlight_target_brightness() const {
+    return this->nightlight_target_bri_;
+  }
+  int32_t get_nightlight_remaining_s() const;
   uint8_t get_active_preset() const {
     return this->active_preset_;
+  }
+  bool is_playlist_active() const {
+    return this->playlist_active_;
+  }
+  int16_t get_active_playlist() const {
+    return this->playlist_active_ ? static_cast<int16_t>(this->active_playlist_preset_) : -1;
+  }
+  uint8_t get_playlist_index() const {
+    return this->playlist_index_;
+  }
+  uint8_t get_playlist_count() const {
+    return this->playlist_count_;
+  }
+  uint8_t get_playlist_repeat_remaining() const {
+    return this->playlist_repeat_remaining_;
+  }
+  uint8_t get_playlist_preset(uint8_t index) const {
+    return index < this->playlist_count_ ? this->playlist_presets_[index] : 0;
+  }
+  uint16_t get_playlist_duration(uint8_t index) const {
+    return index < this->playlist_count_ ? this->playlist_durations_[index] : 0;
+  }
+  uint16_t get_playlist_transition(uint8_t index) const {
+    return index < this->playlist_count_ ? this->playlist_transitions_[index] : 0;
   }
   uint32_t get_segment_start() const {
     return this->segment_start_;
@@ -203,7 +274,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     return WLED_MAX_SEGMENTS;
   }
   uint8_t get_main_segment() const {
-    return 0;
+    return this->main_segment_ < this->get_segment_count() ? this->main_segment_ : 0;
   }
   struct SegmentReadView {
     uint16_t start, stop, grouping, spacing;
@@ -230,6 +301,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void segment_set_color(uint8_t id, uint8_t slot, uint32_t rgb);
   void segment_set_reverse(uint8_t id, bool reverse);
   void segment_set_mirror(uint8_t id, bool mirror);
+  void set_main_segment(uint8_t id);
 
   // ---- State mutators (used by JSON POST handler) ----
   void set_on(bool on);
@@ -288,8 +360,15 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     this->mark_dirty_();
   }
   bool save_preset(uint8_t preset_id, const char *name = nullptr);
+  bool set_preset(uint8_t preset_id, const WLEDPresetRecord &preset);
   bool load_preset(uint8_t preset_id);
   bool delete_preset(uint8_t preset_id);
+  bool start_playlist(const uint8_t *presets, const uint16_t *durations, const uint16_t *transitions, uint8_t count,
+                      uint8_t repeat);
+  void stop_playlist();
+  void configure_nightlight(uint16_t duration_s, uint8_t target_bri, uint8_t mode);
+  void start_nightlight(uint16_t duration_s, uint8_t target_bri, uint8_t mode);
+  void stop_nightlight();
   void set_segment_bounds(uint32_t start, uint32_t stop);
   void set_segment_reverse(bool reverse);
   void set_segment_mirror(bool mirror);
@@ -345,13 +424,21 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void capture_extras_(WLEDStoredState *state) const;
   void apply_stored_extras_(const WLEDStoredState &state);
   void schedule_state_save_();
+  void process_playlist_();
+  void advance_playlist_();
+  void process_nightlight_();
+  void apply_nightlight_brightness_(uint8_t bri, bool finished);
+  void apply_pixel_overrides_();
   void apply_preset_(const WLEDPresetRecord &preset);
   WLEDPresetRecord current_as_preset_() const;
   void set_default_preset_name_(WLEDPresetRecord *preset, uint8_t preset_id) const;
   void copy_preset_name_(WLEDPresetRecord *preset, const char *name) const;
   void mark_dirty_(bool clear_active_preset = true) {
-    if (clear_active_preset)
+    if (clear_active_preset) {
       this->active_preset_ = 0;
+      if (!this->playlist_applying_)
+        this->stop_playlist();
+    }
     this->begin_transition_();
     this->state_version_++;
     this->state_dirty_ = true;
@@ -382,21 +469,43 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint16_t main_grouping_{1};
   uint16_t main_spacing_{0};
   uint8_t main_opacity_{255};
+  uint8_t main_segment_{0};
   // ---- extra segments (id 1..) ----
   std::array<ExtraSegment, WLED_MAX_SEGMENTS - 1> extra_segments_{};
   uint8_t extra_count_{0};
   uint8_t *pixel_opacity_{nullptr};  // per-LED opacity (segment bri / on-off mask)
   bool opacity_map_dirty_{true};
   uint32_t current_ma_{0};
+  uint8_t last_output_scale_{255};
   uint8_t auto_white_mode_{0};
   bool use_task_{false};
   uint16_t transition_ms_{0};
+  bool nightlight_active_{false};
+  uint16_t nightlight_duration_s_{60};
+  uint8_t nightlight_mode_{1};
+  uint8_t nightlight_target_bri_{0};
+  uint8_t nightlight_start_bri_{0};
+  uint32_t nightlight_start_ms_{0};
+  uint32_t nightlight_next_update_ms_{0};
   uint32_t *full_frame_{nullptr};  // unscaled rendered pixel values
+  uint32_t *pixel_override_colors_{nullptr};
+  uint8_t *pixel_override_mask_{nullptr};
+  bool pixel_overrides_active_{false};
   uint32_t *transition_frame_{nullptr};  // snapshot taken at transition start
   uint32_t transition_start_ms_{0};
   uint32_t transition_duration_ms_{0};
   bool transition_active_{false};
   uint8_t active_preset_{0};
+  uint8_t active_playlist_preset_{0};
+  bool playlist_applying_{false};
+  bool playlist_active_{false};
+  uint8_t playlist_count_{0};
+  uint8_t playlist_index_{0};
+  uint8_t playlist_repeat_remaining_{0};  // 0 = forever
+  uint32_t playlist_next_ms_{0};
+  uint8_t playlist_presets_[WLED_PLAYLIST_MAX_ENTRIES]{};
+  uint16_t playlist_durations_[WLED_PLAYLIST_MAX_ENTRIES]{};  // seconds
+  uint16_t playlist_transitions_[WLED_PLAYLIST_MAX_ENTRIES]{};  // tenths of seconds
   WLEDPresetStore preset_store_{};
   ESPPreferenceObject preset_pref_{};
   ESPPreferenceObject state_pref_{};

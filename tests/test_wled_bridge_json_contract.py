@@ -130,8 +130,10 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             [
                 "build_config_json",
                 "build_network_json",
+                "build_pins_json",
                 "handle_get_config_",
                 "handle_get_network_",
+                "handle_get_pins_",
             ],
         )
         assert_contains_all(
@@ -143,6 +145,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"/json/cfg"',
                 '"/json/net"',
                 '"/json/nodes"',
+                '"/json/pins"',
                 '"rev"',
                 '"vid"',
                 '"id"',
@@ -159,6 +162,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"def"',
                 '"if"',
                 '"nodes"',
+                '"pins"',
                 '"fxcount"',
                 '"palcount"',
             ],
@@ -177,11 +181,14 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"/json/info"',
                 '"/json/effects"',
                 '"/json/eff"',
+                '"/json/fxdata"',
                 '"/json/palettes"',
                 '"/json/pal"',
+                '"/json/palx"',
                 '"/json/cfg"',
                 '"/json/net"',
                 '"/json/nodes"',
+                '"/json/pins"',
                 '"/presets.json"',
                 '"/win"',
                 '"/win&"',
@@ -205,6 +212,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 'doc["psave"]',
                 'doc["pdel"]',
                 'doc["n"]',
+                'doc["win"]',
+                "json_on_is_toggle",
+                "handle_win_(nullptr, win_url)",
                 'segv.is<JsonArray>()',
                 'segv.is<JsonObject>()',
                 'seg["fx"]',
@@ -222,6 +232,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 'seg["rev"]',
                 'seg["mi"]',
                 'seg["col"]',
+                'seg["i"]',
                 "RGBW32(r, g, b, w)",
                 "publish_light_state",
             ],
@@ -265,6 +276,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "request_arg_u16",
                 "legacy_path_arg_u16",
                 "win_arg_u16",
+                "request == nullptr",
                 "transition_tenths_to_ms",
                 '"/win"',
                 '"/win&"',
@@ -292,6 +304,27 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "comp_->delete_preset",
                 "comp_->set_color(0, RGBW32",
                 "comp_->publish_light_state();",
+            ],
+        )
+
+    def test_json_state_accepts_wled_win_passthrough_and_toggle_on(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "json_on_is_toggle",
+                "text[0] == 't'",
+                "text[0] == 'T'",
+                "bool was_on = comp_->is_on();",
+                "uint8_t requested_bri",
+                "comp_->set_on(true);",
+                'doc["win"]',
+                'std::string win_url = "/win&";',
+                'win_url += doc["win"].as<const char *>();',
+                "handle_win_(nullptr, win_url);",
+                "if (request == nullptr)",
             ],
         )
 
@@ -345,9 +378,11 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "get_preset(id)",
                 "json_escape",
                 '"n":"%s"',
-                '"seg":[{',
+                '"seg":%s',
+                "build_preset_segment_json",
                 '"transition"',
                 '"tt"',
+                '"mainseg"',
                 '"col"',
                 '"fx"',
                 '"pal"',
@@ -358,7 +393,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             bridge_source,
             [
-                "WLED_PRESET_MAGIC = 0x574C5033",
+                "WLED_PRESET_MAGIC = 0x574C5036",
                 "set_default_preset_name_",
                 "copy_preset_name_",
                 '"Preset %u"',
@@ -399,7 +434,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             source,
             [
-                "WLED_STATE_MAGIC = 0x574C5333",
+                "WLED_STATE_MAGIC = 0x574C5334",
                 "WLED_STATE_SAVE_DELAY_MS",
                 'fnv1a_hash("wled_bridge_state")',
                 "make_preference<WLEDStoredState>",
@@ -468,6 +503,118 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "pending_version_",
                 "get_state_version",
                 '"/wled_events"',
+            ],
+        )
+
+    def test_live_led_peek_matches_wled_http_shape(self) -> None:
+        header = read(WLED_BRIDGE_H)
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "get_live_pixel_color",
+                "last_output_scale_",
+            ],
+        )
+        assert_contains_all(
+            self,
+            source,
+            [
+                "build_live_json",
+                '"/json/live"',
+                "MAX_LIVE_LEDS = 256",
+                '"leds"',
+                '"n"',
+                "%02X%02X%02X",
+                "qadd8(W(color), R(color))",
+            ],
+        )
+
+    def test_segment_i_pixel_override_payload_is_supported(self) -> None:
+        header = read(WLED_BRIDGE_H)
+        source = read(WLED_JSON_CPP)
+        bridge_source = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "set_pixel_override",
+                "clear_pixel_overrides",
+                "apply_pixel_overrides_",
+                "pixel_override_colors_",
+                "pixel_override_mask_",
+                "pixel_overrides_active_",
+            ],
+        )
+        assert_contains_all(
+            self,
+            source,
+            [
+                "apply_segment_pixels_json",
+                'seg["i"]',
+                "json_pixel_color",
+                "parse_hex_color",
+                "clear_pixel_overrides",
+                "set_pixel_override",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_source,
+            [
+                "apply_pixel_overrides_();",
+                "this->pixel_override_colors_[index] = color;",
+                "this->pixel_override_mask_[index] = 1;",
+            ],
+        )
+
+    def test_effect_metadata_is_separate_from_effect_names(self) -> None:
+        header = read(ROOT / "components" / "wled_bridge" / "wled_json.h")
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "build_effects_json",
+                "build_fxdata_json",
+            ],
+        )
+        assert_contains_all(
+            self,
+            source,
+            [
+                "WLED_EFFECTS[i].name",
+                "build_fxdata_json",
+                "strchr(meta, '@')",
+                '"/json/fxdata"',
+                '"/json/palx"',
+            ],
+        )
+
+    def test_pins_probe_is_read_only_under_esphome_hardware_ownership(self) -> None:
+        header = read(ROOT / "components" / "wled_bridge" / "wled_json.h")
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "build_pins_json",
+                "handle_get_pins_",
+            ],
+        )
+        assert_contains_all(
+            self,
+            source,
+            [
+                "ESPHome owns GPIO allocation",
+                "return \"{\"pins\":[]}\"",
+                '"/json/pins"',
+                "handle_get_pins_",
             ],
         )
 
