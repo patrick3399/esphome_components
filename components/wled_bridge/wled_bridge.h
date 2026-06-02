@@ -8,8 +8,11 @@
 #include "esphome/components/light/light_state.h"
 #include "wled_types.h"
 #include "wled_effects.h"
-
 #include "wled_json.h"
+#include "wled_udp.h"
+#ifdef USE_ESP32
+#include "wled_ws.h"
+#endif
 
 namespace esphome {
 namespace wled_bridge {
@@ -150,6 +153,48 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint8_t get_auto_white_mode() const {
     return this->auto_white_mode_;
   }
+
+  // 2D matrix geometry
+  void set_matrix_width(uint16_t w) {
+    this->matrix_width_ = w;
+  }
+  void set_matrix_height(uint16_t h) {
+    this->matrix_height_ = h;
+  }
+  void set_matrix_serpentine(bool s) {
+    this->matrix_serpentine_ = s;
+  }
+  uint16_t get_matrix_width() const {
+    return this->matrix_width_;
+  }
+  uint16_t get_matrix_height() const {
+    return this->matrix_height_;
+  }
+  bool get_matrix_serpentine() const {
+    return this->matrix_serpentine_;
+  }
+  bool is_2d() const {
+    return this->matrix_width_ > 0 && this->matrix_height_ > 0;
+  }
+
+  // UDP sync
+  void set_udp_port(uint16_t port) {
+    this->udp_port_ = port;
+  }
+  void set_udp_send(bool v) {
+    this->udp_send_ = v;
+  }
+  void set_udp_receive(bool v) {
+    this->udp_receive_ = v;
+  }
+  uint16_t get_udp_port() const {
+    return this->udp_port_;
+  }
+#ifdef USE_ESP32
+  int get_ws_client_count() const {
+    return this->ws_handler_ != nullptr ? static_cast<int>(this->ws_handler_->client_count()) : 0;
+  }
+#endif
 
   // ---- State accessors (used by JSON layer) ----
   bool is_on() const {
@@ -521,6 +566,20 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   WLEDJsonHandler *json_handler_{nullptr};
   WLEDSseHandler *sse_handler_{nullptr};
   WLEDUiHandler *ui_handler_{nullptr};
+#ifdef USE_ESP32
+  WLEDWsHandler *ws_handler_{nullptr};
+#endif
+  WLEDUdpSync udp_sync_{};
+
+  // 2D matrix geometry (0 = no 2D)
+  uint16_t matrix_width_{0};
+  uint16_t matrix_height_{0};
+  bool matrix_serpentine_{false};
+
+  // UDP sync config
+  uint16_t udp_port_{21324};
+  bool udp_send_{false};
+  bool udp_receive_{false};
 };
 
 }  // namespace wled_bridge

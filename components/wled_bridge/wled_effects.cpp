@@ -4303,6 +4303,21 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 119 */ {"Drip", "Drip@Gravity,# of drips,,,,,Overlay;!,!;!;;m12=1", fx_drip},
     /* 120 */ {"Dancing Shadows", "Dancing Shadows@!,# of shadows;!;!", fx_dancing_shadows},
     /* 121 */ {"TV Simulator", "TV Simulator@!,!;;!;01", fx_tv_simulator},
+    /* 122 */ {"2D Matrix", "2D Matrix@!,Brightness;!,Spawn,Trail;!;;pal=11,m12=2", fx_2d_matrix},
+    /* 123 */ {"2D Plasma", "2D Plasma@Phase,Scale;!;!;;m12=2", fx_2d_plasma},
+    /* 124 */ {"2D Gameoflife", "2D Gameoflife@!;!;!;;m12=2", fx_2d_gameoflife},
+    /* 125 */ {"2D Tartan", "2D Tartan@!,Scale;!;!;;m12=2", fx_2d_tartan},
+    /* 126 */ {"2D Waverly", "2D Waverly@!,Amplitude;!;!;;m12=2", fx_2d_waverly},
+    /* 127 */ {"2D Noise", "2D Noise@!,Scale;!;!;;m12=2", fx_2d_noise},
+    /* 128 */ {"2D Sindots", "2D Sindots@!,# dots;!;!;;m12=2", fx_2d_sindots},
+    /* 129 */ {"2D Lissajous", "2D Lissajous@!,Ratio;!;!;;m12=2", fx_2d_lissajous},
+    /* 130 */ {"2D Frizzles", "2D Frizzles@!,;!;!;;m12=2", fx_2d_frizzles},
+    /* 131 */ {"2D BlackHole", "2D BlackHole@!,Swirl;!;!;;m12=2", fx_2d_blackhole},
+    /* 132 */ {"2D SineSin", "2D SineSin@!,Scale;!;!;;m12=2", fx_2d_sinesin},
+    /* 133 */ {"2D Julia", "2D Julia@!,Iterations;!;!;;m12=2", fx_2d_julia},
+    /* 134 */ {"2D Metaballs", "2D Metaballs@!,;!;!;;m12=2", fx_2d_metaballs},
+    /* 135 */ {"2D Fire", "2D Fire@Cooling,Sparking;,!;!;;m12=2", fx_2d_fire},
+    /* 136 */ {"2D Gravity", "2D Gravity@!,Spawn;!;!;;m12=2", fx_2d_gravity},
 };
 
 }  // namespace wled_bridge

@@ -332,6 +332,13 @@ std::string build_state_json(const WLEDBridgeComponent *c) {
 }
 
 std::string build_info_json(const WLEDBridgeComponent *c) {
+  // Build matrix field: present only when 2D is configured
+  std::string matrix_field;
+  if (c->is_2d()) {
+    matrix_field = string_sprintf(",\"matrix\":{\"w\":%u,\"h\":%u,\"s\":%s}", c->get_matrix_width(),
+                                  c->get_matrix_height(), c->get_matrix_serpentine() ? "true" : "false");
+  }
+
   return string_sprintf("{"
                         "\"ver\":\"0.1.0\","
                         "\"vid\":2605010,"
@@ -345,13 +352,12 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
                         "},"
                         "\"str\":false,"
                         "\"name\":\"WLED Bridge\","
-                        "\"udpport\":21324,"
-                        "\"udp\":0,"
+                        "\"udpport\":%u,"
                         "\"live\":false,"
                         "\"liveseg\":-1,"
                         "\"lm\":\"\","
                         "\"lip\":\"\","
-                        "\"ws\":0,"
+                        "\"ws\":%d,"
                         "\"fxcount\":%zu,"
                         "\"palcount\":%zu,"
                         "\"wifi\":{"
@@ -372,11 +378,18 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
                         "\"btype\":\"ESPHome external component\","
                         "\"release\":\"0.1.0\","
                         "\"mac\":\"\""
+                        "%s"
                         "}",
                         c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(),
-                        WLEDBridgeComponent::get_max_segments(), WLED_EFFECT_COUNT, WLED_PALETTE_COUNT,
+                        WLEDBridgeComponent::get_max_segments(), c->get_udp_port(),
+#ifdef USE_ESP32
+                        c->get_ws_client_count(),
+#else
+                        0,
+#endif
+                        WLED_EFFECT_COUNT, WLED_PALETTE_COUNT,
                         static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-                        static_cast<uint32_t>(millis() / 1000u));
+                        static_cast<uint32_t>(millis() / 1000u), matrix_field.c_str());
 }
 
 std::string build_effects_json() {
@@ -1345,16 +1358,22 @@ void WLEDJsonHandler::handle_win_(web_server_idf::AsyncWebServerRequest *request
   request->send(resp);
 }
 
+void WLEDJsonHandler::apply_body_str(const std::string &body) {
+  handle_post_state_(nullptr, body);
+}
+
 void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *request, const std::string &body) {
   if (body.empty()) {
-    request->send(200, "application/json", "{}");
+    if (request)
+      request->send(200, "application/json", "{}");
     return;
   }
 
   // Parse JSON using ESPHome's ArduinoJson wrapper
   auto doc = json::parse_json(body);
   if (doc.isNull()) {
-    request->send(400, "application/json", "{\"error\":\"invalid json\"}");
+    if (request)
+      request->send(400, "application/json", "{\"error\":\"invalid json\"}");
     return;
   }
 
@@ -1422,10 +1441,11 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
 
   comp_->publish_light_state();
 
-  // Return updated state
-  auto state_body = build_state_json(comp_);
-  auto *resp = request->beginResponse(200, "application/json", state_body);
-  request->send(resp);
+  if (request != nullptr) {
+    auto state_body = build_state_json(comp_);
+    auto *resp = request->beginResponse(200, "application/json", state_body);
+    request->send(resp);
+  }
 }
 
 // ============================================================

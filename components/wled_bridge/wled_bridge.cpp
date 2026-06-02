@@ -8,6 +8,9 @@
 #include "wled_json.h"
 #include "wled_ui_data.h"
 #include "esphome/components/web_server_base/web_server_base.h"
+#ifdef USE_ESP32
+#include <esp_http_server.h>
+#endif
 #include <algorithm>
 #include <stdio.h>
 #include <string.h>
@@ -205,8 +208,21 @@ void WLEDBridgeComponent::setup() {
     wsb->get_server()->addHandler(this->json_handler_);
     wsb->get_server()->addHandler(this->sse_handler_);
     ESP_LOGD(TAG, "WLED JSON API registered");
+#ifdef USE_ESP32
+    // Register native WebSocket /ws on raw httpd handle
+    httpd_handle_t raw_server = wsb->get_server()->get_server();
+    if (raw_server != nullptr) {
+      this->ws_handler_ = new WLEDWsHandler(this, this->json_handler_, raw_server);  // NOLINT
+      this->ws_handler_->register_handler();
+    }
+#endif
   } else {
     ESP_LOGW(TAG, "web_server_base not available — JSON API disabled");
+  }
+
+  // UDP sync
+  if (this->udp_send_ || this->udp_receive_) {
+    this->udp_sync_.setup(this, this->udp_port_, this->udp_send_, this->udp_receive_);
   }
 
   if (this->use_task_) {
@@ -221,8 +237,13 @@ void WLEDBridgeComponent::setup() {
     this->light_state_->add_effects({proxy});
   }
 
-  ESP_LOGCONFIG(TAG, "WLED Bridge ready: %u virtual LEDs across %zu bus(es), %zu effects", this->total_leds_,
-                this->buses_.size(), WLED_EFFECT_COUNT);
+  if (this->is_2d()) {
+    ESP_LOGCONFIG(TAG, "WLED Bridge ready: %u virtual LEDs (%ux%u matrix) across %zu bus(es), %zu effects",
+                  this->total_leds_, this->matrix_width_, this->matrix_height_, this->buses_.size(), WLED_EFFECT_COUNT);
+  } else {
+    ESP_LOGCONFIG(TAG, "WLED Bridge ready: %u virtual LEDs across %zu bus(es), %zu effects", this->total_leds_,
+                  this->buses_.size(), WLED_EFFECT_COUNT);
+  }
 }
 
 void WLEDBridgeComponent::load_presets_() {
@@ -522,9 +543,19 @@ void WLEDBridgeComponent::loop() {
     }
   }
 
-  // Broadcast state change via SSE
-  if (this->state_dirty_ && this->sse_handler_ != nullptr) {
-    this->sse_handler_->broadcast_state();
+  // UDP receive
+  this->udp_sync_.loop();
+
+  // Broadcast state change via SSE, WebSocket, and UDP
+  if (this->state_dirty_) {
+    if (this->sse_handler_ != nullptr)
+      this->sse_handler_->broadcast_state();
+#ifdef USE_ESP32
+    if (this->ws_handler_ != nullptr)
+      this->ws_handler_->broadcast_state();
+#endif
+    if (this->udp_send_)
+      this->udp_sync_.send_notification();
     this->state_dirty_ = false;
   }
   if (this->state_save_due_ms_ != 0 && static_cast<int32_t>(millis() - this->state_save_due_ms_) >= 0) {
@@ -690,6 +721,11 @@ void WLEDBridgeComponent::render_segment_(const SegmentView &view, uint32_t now)
 
   EffectContext ctx{this->full_frame_, this->total_leds_, view.params,   view.env,    now, view.start, view.stop, vlen,
                     view.reverse,      view.mirror,       view.grouping, view.spacing};
+
+  // Inject 2D matrix geometry so effects can use ctx.is_2d() / ctx.xy()
+  ctx.matrix_w = this->matrix_width_;
+  ctx.matrix_h = this->matrix_height_;
+  ctx.serpentine = this->matrix_serpentine_;
 
   if (view.mode < WLED_EFFECT_COUNT)
     WLED_EFFECTS[view.mode].fn(ctx);

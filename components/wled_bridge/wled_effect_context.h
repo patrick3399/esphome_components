@@ -115,6 +115,48 @@ struct EffectContext {
     }
     return false;
   }
+
+  // ---- 2D matrix support ----
+  // These are zero when no matrix is configured; effects must guard with is_2d().
+  uint16_t matrix_w{0};
+  uint16_t matrix_h{0};
+  bool serpentine{false};
+
+  bool is_2d() const {
+    return matrix_w > 0 && matrix_h > 0;
+  }
+
+  // Map (x,y) to segment-local 1D virtual index. Returns -1 if out of bounds.
+  int32_t xy(int16_t x, int16_t y) const {
+    if (x < 0 || y < 0 || x >= static_cast<int16_t>(matrix_w) || y >= static_cast<int16_t>(matrix_h))
+      return -1;
+    int32_t row = static_cast<int32_t>(y);
+    int32_t col = static_cast<int32_t>(x);
+    if (serpentine && (row & 1))
+      col = static_cast<int32_t>(matrix_w) - 1 - col;
+    return row * static_cast<int32_t>(matrix_w) + col;
+  }
+
+  void set_pixel_2d(int16_t x, int16_t y, uint32_t color) {
+    int32_t i = xy(x, y);
+    if (i >= 0)
+      set_pixel(i, color);
+  }
+
+  uint32_t get_pixel_2d(int16_t x, int16_t y) const {
+    int32_t i = xy(x, y);
+    if (i < 0)
+      return 0;
+    int32_t base = map_pixel(i);
+    if (base < 0 || base >= static_cast<int32_t>(frame_len))
+      return 0;
+    return frame_buf[base];
+  }
+
+  // Fade all 2D pixels (same as fade_to_black but named for clarity in 2D effects).
+  void fade_2d(uint8_t amount) {
+    fade_to_black(amount);
+  }
 };
 
 }  // namespace wled_bridge

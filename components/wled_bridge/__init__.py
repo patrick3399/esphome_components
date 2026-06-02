@@ -4,6 +4,12 @@ from esphome.components import light, web_server_base
 from esphome.const import CONF_ID
 from esphome.core import CORE
 
+try:
+    from esphome.components.esp32 import add_idf_sdkconfig_option
+    _HAS_SDKCONFIG = True
+except ImportError:
+    _HAS_SDKCONFIG = False
+
 DEPENDENCIES = ["light"]
 AUTO_LOAD = ["web_server_base", "json"]
 
@@ -16,6 +22,12 @@ CONF_MAX_MA = "max_ma"
 CONF_LED_MA = "led_ma"
 CONF_USE_TASK = "use_task"
 CONF_AUTO_WHITE = "auto_white"
+CONF_MATRIX_WIDTH = "matrix_width"
+CONF_MATRIX_HEIGHT = "matrix_height"
+CONF_MATRIX_SERPENTINE = "matrix_serpentine"
+CONF_UDP_PORT = "udp_port"
+CONF_UDP_SEND = "udp_send"
+CONF_UDP_RECEIVE = "udp_receive"
 
 # Auto-white modes for RGBW strips (derive W channel from RGB).
 AUTO_WHITE_MODES = {
@@ -48,6 +60,14 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_AUTO_WHITE, default="none"): cv.enum(
             AUTO_WHITE_MODES, lower=True
         ),
+        # 2D matrix geometry — required for 2D effects
+        cv.Optional(CONF_MATRIX_WIDTH, default=0): cv.int_range(min=0, max=256),
+        cv.Optional(CONF_MATRIX_HEIGHT, default=0): cv.int_range(min=0, max=256),
+        cv.Optional(CONF_MATRIX_SERPENTINE, default=False): cv.boolean,
+        # UDP WLED notifier sync
+        cv.Optional(CONF_UDP_PORT, default=21324): cv.port,
+        cv.Optional(CONF_UDP_SEND, default=False): cv.boolean,
+        cv.Optional(CONF_UDP_RECEIVE, default=False): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -69,6 +89,20 @@ async def to_code(config):
 
     cg.add(var.set_use_task(config[CONF_USE_TASK]))
     cg.add(var.set_auto_white_mode(config[CONF_AUTO_WHITE]))
+
+    # 2D matrix
+    cg.add(var.set_matrix_width(config[CONF_MATRIX_WIDTH]))
+    cg.add(var.set_matrix_height(config[CONF_MATRIX_HEIGHT]))
+    cg.add(var.set_matrix_serpentine(config[CONF_MATRIX_SERPENTINE]))
+
+    # UDP sync
+    cg.add(var.set_udp_port(config[CONF_UDP_PORT]))
+    cg.add(var.set_udp_send(config[CONF_UDP_SEND]))
+    cg.add(var.set_udp_receive(config[CONF_UDP_RECEIVE]))
+
+    # Enable IDF WebSocket support so /ws endpoint works
+    if _HAS_SDKCONFIG and CORE.is_esp32:
+        add_idf_sdkconfig_option("CONFIG_HTTPD_WS_SUPPORT", True)
 
     if CONF_BUSES in config:
         # Multi-bus path: call add_bus() for each entry in order.

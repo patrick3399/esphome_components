@@ -13,7 +13,7 @@ struct EffectDescriptor {
   EffectFn fn;
 };
 
-static constexpr size_t WLED_EFFECT_COUNT = 122;
+static constexpr size_t WLED_EFFECT_COUNT = 137;
 extern const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT];
 
 // ---- forward declarations ----
@@ -149,6 +149,23 @@ void fx_popcorn(EffectContext &);
 void fx_drip(EffectContext &);
 void fx_dancing_shadows(EffectContext &);
 void fx_tv_simulator(EffectContext &);
+
+// --- 2D effects ---
+void fx_2d_matrix(EffectContext &);
+void fx_2d_plasma(EffectContext &);
+void fx_2d_gameoflife(EffectContext &);
+void fx_2d_tartan(EffectContext &);
+void fx_2d_waverly(EffectContext &);
+void fx_2d_noise(EffectContext &);
+void fx_2d_sindots(EffectContext &);
+void fx_2d_lissajous(EffectContext &);
+void fx_2d_frizzles(EffectContext &);
+void fx_2d_blackhole(EffectContext &);
+void fx_2d_sinesin(EffectContext &);
+void fx_2d_julia(EffectContext &);
+void fx_2d_metaballs(EffectContext &);
+void fx_2d_fire(EffectContext &);
+void fx_2d_gravity(EffectContext &);
 
 }  // namespace wled_bridge
 }  // namespace esphome

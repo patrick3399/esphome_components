@@ -26,6 +26,10 @@ class WLEDJsonHandler : public web_server_idf::AsyncWebHandler {
   void handleBody(web_server_idf::AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index,
                   size_t total) override;
 
+  // Parse and apply a JSON state body without sending an HTTP response.
+  // Used by WLEDWsHandler to apply incoming WebSocket commands.
+  void apply_body_str(const std::string &body);
+
  protected:
   void handle_get_state_(web_server_idf::AsyncWebServerRequest *request);
   void handle_get_info_(web_server_idf::AsyncWebServerRequest *request);
