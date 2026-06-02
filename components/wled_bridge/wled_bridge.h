@@ -320,6 +320,23 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   }
 #endif
 
+  // DDP realtime receiver
+  void set_ddp_enabled(bool v) {
+    this->ddp_enabled_ = v;
+  }
+  bool get_ddp_enabled() const {
+    return this->ddp_enabled_;
+  }
+#ifdef USE_ESP32
+  bool is_ddp_receiving() const {
+    return this->ddp_receiver_.is_receiving();
+  }
+#else
+  bool is_ddp_receiving() const {
+    return false;
+  }
+#endif
+
   // ---- State accessors (used by JSON layer) ----
   bool is_on() const {
     return this->is_on_;
@@ -694,6 +711,9 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   WLEDWsHandler *ws_handler_{nullptr};
 #endif
   WLEDUdpSync udp_sync_{};
+#ifdef USE_ESP32
+  WLEDDdpReceiver ddp_receiver_{};
+#endif
 
   // 2D matrix geometry (0 = no 2D)
   uint16_t matrix_width_{0};
@@ -718,6 +738,9 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool udp_notify_alexa_{false};
   bool udp_notify_hue_{false};
   uint8_t udp_retries_{0};
+
+  // DDP realtime receiver
+  bool ddp_enabled_{false};
 };
 
 // ---- ESPHome automation actions ----

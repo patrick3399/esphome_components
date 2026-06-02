@@ -240,6 +240,11 @@ void WLEDBridgeComponent::setup() {
   // can open sockets later.
   this->udp_sync_.setup(this, this->udp_port_, this->udp_port2_, this->udp_send_, this->udp_receive_);
 
+  // DDP realtime pixel receiver (Hyperion / Prismatik / xLights)
+#ifdef USE_ESP32
+  this->ddp_receiver_.setup(this, this->ddp_enabled_);
+#endif
+
   if (this->use_task_) {
     xTaskCreatePinnedToCore(render_task_fn_, "wled_render", 8192, this, 5, &this->render_task_, APP_CPU_NUM);
     ESP_LOGD(TAG, "Render task started on core 1");
@@ -560,6 +565,9 @@ void WLEDBridgeComponent::loop() {
 
   // UDP receive
   this->udp_sync_.loop();
+#ifdef USE_ESP32
+  this->ddp_receiver_.loop();
+#endif
 
   // Broadcast state change via SSE, WebSocket, and UDP
   if (this->state_dirty_) {

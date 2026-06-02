@@ -41,6 +41,35 @@ class WLEDUdpSync {
   uint32_t last_send_ms_{0};
 };
 
+// DDP (Distributed Display Protocol) realtime pixel receiver.
+// Listens on UDP 4048 for pixel data from Hyperion / Prismatik / xLights.
+// Writes directly to the bridge's pixel override buffer; when the push flag
+// arrives, the bridge renders the frame immediately.
+class WLEDDdpReceiver {
+ public:
+  void setup(WLEDBridgeComponent *comp, bool enabled);
+  void set_enabled(bool enabled);
+  bool is_enabled() const {
+    return this->enabled_;
+  }
+  bool is_receiving() const {
+    return this->receiving_;
+  }
+  void loop();
+
+ protected:
+  void open_socket_();
+  void close_socket_();
+  void process_packet_(const uint8_t *buf, size_t len);
+
+  WLEDBridgeComponent *comp_{nullptr};
+  bool enabled_{false};
+  bool receiving_{false};
+  int fd_{-1};
+  uint32_t last_receive_ms_{0};
+  bool push_seen_{false};
+};
+
 }  // namespace wled_bridge
 }  // namespace esphome
 

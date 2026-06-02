@@ -380,57 +380,57 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
                                   c->get_matrix_height(), c->get_matrix_serpentine() ? "true" : "false");
   }
 
-  return string_sprintf("{"
-                        "\"ver\":\"0.1.0\","
-                        "\"vid\":2605010,"
-                        "\"leds\":{"
-                        "\"count\":%u,"
-                        "\"pwr\":%u,"
-                        "\"fps\":%u,"
-                        "\"maxpwr\":%u,"
-                        "\"maxseg\":%u,"
-                        "\"cco\":0"
-                        "},"
-                        "\"str\":false,"
-                        "\"name\":\"WLED Bridge\","
-                        "\"udpport\":%u,"
-                        "\"live\":false,"
-                        "\"liveseg\":-1,"
-                        "\"lm\":\"\","
-                        "\"lip\":\"\","
-                        "\"ws\":%d,"
-                        "\"fxcount\":%zu,"
-                        "\"palcount\":%zu,"
-                        "\"wifi\":{"
-                        "\"bssid\":\"\","
-                        "\"rssi\":-50,"
-                        "\"signal\":90,"
-                        "\"channel\":1"
-                        "},"
-                        "\"arch\":\"esp32s3\","
-                        "\"core\":\"idf\","
-                        "\"freeheap\":%u,"
-                        "\"uptime\":%u,"
-                        "\"opt\":511,"
-                        "\"ndc\":0,"
-                        "\"cn\":\"ESPHome\","
-                        "\"brand\":\"ESPHome\","
-                        "\"product\":\"WLED Bridge\","
-                        "\"btype\":\"ESPHome external component\","
-                        "\"release\":\"0.1.0\","
-                        "\"mac\":\"\""
-                        "%s"
-                        "}",
-                        c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(),
-                        WLEDBridgeComponent::get_max_segments(), c->get_udp_port(),
+  return string_sprintf(
+      "{"
+      "\"ver\":\"0.1.0\","
+      "\"vid\":2605010,"
+      "\"leds\":{"
+      "\"count\":%u,"
+      "\"pwr\":%u,"
+      "\"fps\":%u,"
+      "\"maxpwr\":%u,"
+      "\"maxseg\":%u,"
+      "\"cco\":0"
+      "},"
+      "\"str\":false,"
+      "\"name\":\"WLED Bridge\","
+      "\"udpport\":%u,"
+      "\"live\":%s,"
+      "\"liveseg\":-1,"
+      "\"lm\":\"%s\","
+      "\"lip\":\"\","
+      "\"ws\":%d,"
+      "\"fxcount\":%zu,"
+      "\"palcount\":%zu,"
+      "\"wifi\":{"
+      "\"bssid\":\"\","
+      "\"rssi\":-50,"
+      "\"signal\":90,"
+      "\"channel\":1"
+      "},"
+      "\"arch\":\"esp32s3\","
+      "\"core\":\"idf\","
+      "\"freeheap\":%u,"
+      "\"uptime\":%u,"
+      "\"opt\":511,"
+      "\"ndc\":0,"
+      "\"cn\":\"ESPHome\","
+      "\"brand\":\"ESPHome\","
+      "\"product\":\"WLED Bridge\","
+      "\"btype\":\"ESPHome external component\","
+      "\"release\":\"0.1.0\","
+      "\"mac\":\"\""
+      "%s"
+      "}",
+      c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(), WLEDBridgeComponent::get_max_segments(),
+      c->get_udp_port(), c->is_ddp_receiving() ? "true" : "false", c->is_ddp_receiving() ? "DDP" : "",
 #ifdef USE_ESP32
-                        c->get_ws_client_count(),
+      c->get_ws_client_count(),
 #else
-                        0,
+      0,
 #endif
-                        WLED_EFFECT_COUNT, WLED_PALETTE_COUNT,
-                        static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-                        static_cast<uint32_t>(millis() / 1000u), matrix_field.c_str());
+      WLED_EFFECT_COUNT, WLED_PALETTE_COUNT, static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+      static_cast<uint32_t>(millis() / 1000u), matrix_field.c_str());
 }
 
 std::string build_effects_json() {

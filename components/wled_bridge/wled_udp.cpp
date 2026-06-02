@@ -386,6 +386,141 @@ void WLEDUdpSync::apply_packet_(const uint8_t *buf, size_t len) {
   this->comp_->publish_light_state();
 }
 
+// ============================================================
+// DDP (Distributed Display Protocol) receiver — UDP port 4048
+// ============================================================
+
+static constexpr uint16_t DDP_PORT = 4048;
+static constexpr size_t DDP_HEADER_LEN = 10;
+static constexpr uint8_t DDP_FLAGS_VER1 = 0x40;
+static constexpr uint8_t DDP_FLAGS_PUSH = 0x01;
+static constexpr uint8_t DDP_FLAGS_QUERY = 0x02;
+static constexpr uint8_t DDP_FLAGS_REPLY = 0x04;
+static constexpr uint8_t DDP_FLAGS_STORAGE = 0x08;
+static constexpr uint8_t DDP_ID_DISPLAY = 1;
+static constexpr uint8_t DDP_ID_ALL = 255;
+static constexpr uint32_t DDP_TIMEOUT_MS = 2500;
+
+void WLEDDdpReceiver::setup(WLEDBridgeComponent *comp, bool enabled) {
+  this->comp_ = comp;
+  this->enabled_ = enabled;
+  if (enabled)
+    this->open_socket_();
+  ESP_LOGCONFIG(TAG, "DDP receiver on port %u: %s", DDP_PORT, enabled ? "enabled" : "disabled");
+}
+
+void WLEDDdpReceiver::set_enabled(bool enabled) {
+  this->enabled_ = enabled;
+  if (enabled)
+    this->open_socket_();
+  else
+    this->close_socket_();
+}
+
+void WLEDDdpReceiver::open_socket_() {
+  if (this->fd_ >= 0)
+    return;
+  int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (fd < 0) {
+    ESP_LOGW(TAG, "DDP: could not create socket: %d", errno);
+    return;
+  }
+  int enable = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+  int flags = fcntl(fd, F_GETFL, 0);
+  fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+  struct sockaddr_in addr = {};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  addr.sin_port = htons(DDP_PORT);
+  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
+    ESP_LOGW(TAG, "DDP: bind failed on port %u: %d", DDP_PORT, errno);
+    close(fd);
+    return;
+  }
+  this->fd_ = fd;
+}
+
+void WLEDDdpReceiver::close_socket_() {
+  if (this->fd_ >= 0) {
+    close(this->fd_);
+    this->fd_ = -1;
+  }
+  this->receiving_ = false;
+}
+
+void WLEDDdpReceiver::loop() {
+  if (!this->enabled_ || this->fd_ < 0)
+    return;
+
+  uint8_t buf[1472];
+  struct sockaddr_in src = {};
+  socklen_t src_len = sizeof(src);
+
+  for (int i = 0; i < 8; i++) {
+    ssize_t len = recvfrom(this->fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&src), &src_len);
+    if (len <= 0)
+      break;
+    if (static_cast<size_t>(len) >= DDP_HEADER_LEN)
+      this->process_packet_(buf, static_cast<size_t>(len));
+  }
+
+  if (this->receiving_ && (millis() - this->last_receive_ms_ > DDP_TIMEOUT_MS)) {
+    this->receiving_ = false;
+    this->comp_->clear_pixel_overrides();
+    ESP_LOGD(TAG, "DDP: stream timeout, returning to effects");
+  }
+}
+
+void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len) {
+  uint8_t flags = buf[0];
+
+  if ((flags & DDP_FLAGS_VER1) == 0)
+    return;
+  if (flags & (DDP_FLAGS_QUERY | DDP_FLAGS_REPLY | DDP_FLAGS_STORAGE))
+    return;
+
+  uint8_t dest = buf[3];
+  if (dest != DDP_ID_DISPLAY && dest != DDP_ID_ALL)
+    return;
+
+  uint32_t channel_offset = (static_cast<uint32_t>(buf[4]) << 24) | (static_cast<uint32_t>(buf[5]) << 16) |
+                            (static_cast<uint32_t>(buf[6]) << 8) | buf[7];
+  uint16_t data_len = (static_cast<uint16_t>(buf[8]) << 8) | buf[9];
+
+  if (DDP_HEADER_LEN + data_len > len)
+    data_len = static_cast<uint16_t>(len - DDP_HEADER_LEN);
+
+  const uint8_t *pixel_data = buf + DDP_HEADER_LEN;
+
+  uint8_t data_type = buf[2];
+  uint8_t channels_per_pixel = ((data_type >> 3) & 0x07);
+  if (channels_per_pixel < 3)
+    channels_per_pixel = 3;
+
+  uint32_t led_count = this->comp_->get_led_count();
+  uint32_t start_led = channel_offset / channels_per_pixel;
+  uint32_t pixel_count = data_len / channels_per_pixel;
+
+  for (uint32_t i = 0; i < pixel_count && (start_led + i) < led_count; i++) {
+    const uint8_t *p = pixel_data + i * channels_per_pixel;
+    uint8_t r = p[0];
+    uint8_t g = p[1];
+    uint8_t b = p[2];
+    uint8_t w = (channels_per_pixel >= 4) ? p[3] : 0;
+    this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, w));
+  }
+
+  this->last_receive_ms_ = millis();
+  this->receiving_ = true;
+
+  if ((flags & DDP_FLAGS_PUSH) || !this->push_seen_) {
+    if (flags & DDP_FLAGS_PUSH)
+      this->push_seen_ = true;
+  }
+}
+
 }  // namespace wled_bridge
 }  // namespace esphome
 #endif  // USE_ESP32

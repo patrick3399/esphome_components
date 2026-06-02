@@ -48,6 +48,7 @@ CONF_UDP_PORT = "udp_port"
 CONF_UDP_PORT2 = "udp_port2"
 CONF_UDP_SEND = "udp_send"
 CONF_UDP_RECEIVE = "udp_receive"
+CONF_DDP_RECEIVE = "ddp_receive"
 
 # Auto-white modes for RGBW strips (derive W channel from RGB).
 AUTO_WHITE_MODES = {
@@ -89,6 +90,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_UDP_PORT2, default=65506): cv.port,
         cv.Optional(CONF_UDP_SEND, default=False): cv.boolean,
         cv.Optional(CONF_UDP_RECEIVE, default=False): cv.boolean,
+        # DDP realtime pixel receiver (Hyperion / Prismatik / xLights)
+        cv.Optional(CONF_DDP_RECEIVE, default=False): cv.boolean,
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -121,6 +124,9 @@ async def to_code(config):
     cg.add(var.set_udp_port2(config[CONF_UDP_PORT2]))
     cg.add(var.set_udp_send(config[CONF_UDP_SEND]))
     cg.add(var.set_udp_receive(config[CONF_UDP_RECEIVE]))
+
+    # DDP realtime receiver
+    cg.add(var.set_ddp_enabled(config[CONF_DDP_RECEIVE]))
 
     # Enable IDF WebSocket support so /ws endpoint works
     if _HAS_SDKCONFIG and CORE.is_esp32:
