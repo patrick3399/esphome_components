@@ -1,0 +1,67 @@
+esphome:
+  name: wled-bridge-matrix-poc
+  friendly_name: WLED Bridge Matrix PoC
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+  flash_size: 16MB
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+web_server:
+  port: 80
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [wled_bridge]
+
+# 16x16 matrix (256 LEDs total). Adjust num_leds, matrix_width, matrix_height
+# to match your actual panel. serpentine: true for panels that zigzag rows.
+light:
+  - platform: esp32_rmt_led_strip
+    id: my_matrix
+    name: "LED Matrix"
+    pin: GPIO38
+    num_leds: 256         # 16 x 16
+    chipset: WS2812
+    rgb_order: GRB
+    use_dma: true
+    use_psram: true
+    gamma_correct: 0.0
+    color_correct: [1.0, 1.0, 1.0]
+
+wled_bridge:
+  light_id: my_matrix
+  max_ma: 10000         # 16x16 panel, generous headroom
+  led_ma: 55
+  use_task: false
+  auto_white: none
+
+  # 2D matrix geometry — enables fx_2d_* effects
+  matrix_width: 16
+  matrix_height: 16
+  matrix_serpentine: true   # set false for linear row layout
+
+  # Optional: WLED UDP notifier sync (port 21324)
+  # udp_send: true
+  # udp_receive: true
+  # udp_port: 21324
