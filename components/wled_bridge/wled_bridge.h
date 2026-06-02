@@ -328,6 +328,14 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     return this->boot_preset_;
   }
 
+  // Brightness factor (0-100%, caps maximum brightness)
+  void set_brightness_factor(uint8_t percent) {
+    this->brightness_factor_ = percent > 100 ? 100 : percent;
+  }
+  uint8_t get_brightness_factor() const {
+    return this->brightness_factor_;
+  }
+
   // DDP realtime receiver
   void set_ddp_enabled(bool v) {
     this->ddp_enabled_ = v;
@@ -777,6 +785,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
 
   // Boot preset
   uint8_t boot_preset_{0};
+  uint8_t brightness_factor_{100};
 
   // DDP realtime receiver
   bool ddp_enabled_{false};

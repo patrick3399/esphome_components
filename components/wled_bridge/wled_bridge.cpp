@@ -811,8 +811,12 @@ void WLEDBridgeComponent::reset_output_correction_() {
 // Does NOT modify full_frame_[] so unscaled values persist for next frame.
 // ============================================================
 uint8_t WLEDBridgeComponent::compute_output_scale_() {
+  uint8_t effective_bri = this->global_bri_;
+  if (this->brightness_factor_ < 100) {
+    effective_bri = static_cast<uint8_t>((static_cast<uint16_t>(effective_bri) * this->brightness_factor_) / 100u);
+  }
   if (this->total_leds_ == 0)
-    return this->global_bri_;
+    return effective_bri;
 
   uint8_t limit_scale = 255;
   uint64_t raw_total_ma = 0;
@@ -839,7 +843,7 @@ uint8_t WLEDBridgeComponent::compute_output_scale_() {
 
     if (bus.max_ma > 0) {
       total_max_ma += bus.max_ma;
-      uint64_t requested_bus_ma = (raw_bus_ma * this->global_bri_) / 255u;
+      uint64_t requested_bus_ma = (raw_bus_ma * effective_bri) / 255u;
       if (requested_bus_ma > bus.max_ma && raw_bus_ma > 0) {
         uint8_t bus_limit = static_cast<uint8_t>((static_cast<uint64_t>(bus.max_ma) * 255u) / raw_bus_ma);
         limit_scale = std::min<uint8_t>(limit_scale, bus_limit);
@@ -850,14 +854,14 @@ uint8_t WLEDBridgeComponent::compute_output_scale_() {
   }
 
   if (all_buses_limited && total_max_ma > 0 && raw_total_ma > 0) {
-    uint64_t requested_total_ma = (raw_total_ma * this->global_bri_) / 255u;
+    uint64_t requested_total_ma = (raw_total_ma * effective_bri) / 255u;
     if (requested_total_ma > total_max_ma) {
       uint8_t total_limit = static_cast<uint8_t>((total_max_ma * 255u) / raw_total_ma);
       limit_scale = std::min<uint8_t>(limit_scale, total_limit);
     }
   }
 
-  uint8_t final_scale = std::min<uint8_t>(this->global_bri_, limit_scale);
+  uint8_t final_scale = std::min<uint8_t>(effective_bri, limit_scale);
   this->current_ma_ = static_cast<uint32_t>((raw_total_ma * final_scale) / 255u);
   return final_scale;
 }

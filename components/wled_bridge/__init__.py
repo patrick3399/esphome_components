@@ -54,6 +54,7 @@ CONF_BOOT_PRESET = "boot_preset"
 CONF_E131_RECEIVE = "e131_receive"
 CONF_E131_UNIVERSE = "e131_universe"
 CONF_E131_UNIVERSE_COUNT = "e131_universe_count"
+CONF_BRIGHTNESS_FACTOR = "brightness_factor"
 
 # Auto-white modes for RGBW strips (derive W channel from RGB).
 AUTO_WHITE_MODES = {
@@ -103,6 +104,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_E131_RECEIVE, default=False): cv.boolean,
         cv.Optional(CONF_E131_UNIVERSE, default=1): cv.int_range(min=1, max=63999),
         cv.Optional(CONF_E131_UNIVERSE_COUNT, default=1): cv.int_range(min=1, max=8),
+        # Brightness factor (0-100%, caps maximum brightness like WLED BF setting)
+        cv.Optional(CONF_BRIGHTNESS_FACTOR, default=100): cv.int_range(min=1, max=100),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -164,6 +167,10 @@ async def to_code(config):
     cg.add(var.set_e131_enabled(config[CONF_E131_RECEIVE]))
     cg.add(var.set_e131_universe(config[CONF_E131_UNIVERSE]))
     cg.add(var.set_e131_universe_count(config[CONF_E131_UNIVERSE_COUNT]))
+
+    # Brightness factor
+    if config[CONF_BRIGHTNESS_FACTOR] < 100:
+        cg.add(var.set_brightness_factor(config[CONF_BRIGHTNESS_FACTOR]))
 
     # Enable IDF WebSocket support so /ws endpoint works
     if _HAS_SDKCONFIG and CORE.is_esp32:
