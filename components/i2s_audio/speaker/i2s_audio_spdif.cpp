@@ -83,7 +83,9 @@ void I2SAudioSpeakerSPDIF::dump_config() {
                 this->sample_rate_);
 }
 
-void I2SAudioSpeakerSPDIF::on_task_stopped() { this->spdif_silence_start_ = 0; }
+void I2SAudioSpeakerSPDIF::on_task_stopped() {
+  this->spdif_silence_start_ = 0;
+}
 
 size_t I2SAudioSpeakerSPDIF::play(const uint8_t *data, size_t length, TickType_t ticks_to_wait) {
   if (this->is_failed()) {
@@ -114,11 +116,11 @@ size_t I2SAudioSpeakerSPDIF::play(const uint8_t *data, size_t length, TickType_t
       if (effective_ticks_to_wait == 0) {
         effective_ticks_to_wait = pdMS_TO_TICKS(1);
       }
-      bytes_written = temp_ring_buffer->write_without_replacement((void *) data, length, effective_ticks_to_wait);
+      bytes_written = temp_ring_buffer->write_without_replacement((void *)data, length, effective_ticks_to_wait);
       if (bytes_written == 0 && length > 0) {
         // Retry once to catch short free-space windows during rapid seek/track transitions.
         bytes_written =
-            temp_ring_buffer->write_without_replacement((void *) data, length, pdMS_TO_TICKS(SPDIF_PLAY_RETRY_WAIT_MS));
+            temp_ring_buffer->write_without_replacement((void *)data, length, pdMS_TO_TICKS(SPDIF_PLAY_RETRY_WAIT_MS));
       }
     }
   }
@@ -413,7 +415,7 @@ esp_err_t I2SAudioSpeakerSPDIF::start_i2s_driver(audio::AudioStreamInfo &audio_s
   }
   const uint8_t bits_per_sample = audio_stream_info.get_bits_per_sample();
   if (bits_per_sample != 16 && bits_per_sample != 24 && bits_per_sample != 32) {
-    ESP_LOGE(TAG, "Only supports 16, 24, or 32 bits per sample (got %u)", (unsigned) bits_per_sample);
+    ESP_LOGE(TAG, "Only supports 16, 24, or 32 bits per sample (got %u)", (unsigned)bits_per_sample);
     return ESP_ERR_NOT_SUPPORTED;
   }
   if (audio_stream_info.get_channels() != 2) {
@@ -442,9 +444,9 @@ esp_err_t I2SAudioSpeakerSPDIF::start_i2s_driver(audio::AudioStreamInfo &audio_s
   uint32_t dma_buffer_length = SPDIF_BLOCK_I2S_FRAMES;  // One SPDIF block = 384 I2S frames = 3072 bytes
 
   // Log DMA configuration for debugging
-  ESP_LOGV(TAG, "I2S DMA config: %zu buffers x %lu frames = %lu bytes total", (size_t) SPDIF_DMA_BUFFERS_COUNT,
-           (unsigned long) dma_buffer_length,
-           (unsigned long) (SPDIF_DMA_BUFFERS_COUNT * dma_buffer_length * 8));  // 8 bytes per frame for 32-bit stereo
+  ESP_LOGV(TAG, "I2S DMA config: %zu buffers x %lu frames = %lu bytes total", (size_t)SPDIF_DMA_BUFFERS_COUNT,
+           (unsigned long)dma_buffer_length,
+           (unsigned long)(SPDIF_DMA_BUFFERS_COUNT * dma_buffer_length * 8));  // 8 bytes per frame for 32-bit stereo
 
   i2s_chan_config_t chan_cfg = {
       .id = this->parent_->get_port(),

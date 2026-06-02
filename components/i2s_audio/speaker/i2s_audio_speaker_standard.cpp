@@ -90,8 +90,8 @@ void I2SAudioSpeaker::run_speaker_task() {
       size_t bytes_loaded = 0;
       esp_err_t err = i2s_channel_preload_data(this->tx_handle_, silence_buffer, dma_buffer_bytes, &bytes_loaded);
       if (err != ESP_OK || bytes_loaded != dma_buffer_bytes) {
-        ESP_LOGV(TAG, "Failed to preload silence into DMA buffer %u (err=%d, loaded=%u)", (unsigned) i, (int) err,
-                 (unsigned) bytes_loaded);
+        ESP_LOGV(TAG, "Failed to preload silence into DMA buffer %u (err=%d, loaded=%u)", (unsigned)i, (int)err,
+                 (unsigned)bytes_loaded);
         successful_setup = false;
         break;
       }
@@ -230,7 +230,7 @@ void I2SAudioSpeaker::run_speaker_task() {
           if (bw != to_write) {
             // A short real-audio write breaks DMA descriptor alignment for every subsequent event;
             // the only safe recovery is to restart the task.
-            ESP_LOGV(TAG, "Partial real audio write: %u of %u bytes", (unsigned) bw, (unsigned) to_write);
+            ESP_LOGV(TAG, "Partial real audio write: %u of %u bytes", (unsigned)bw, (unsigned)to_write);
             xEventGroupSetBits(this->event_group_, SpeakerEventGroupBits::ERR_PARTIAL_WRITE);
             partial_write_failure = true;
             break;
@@ -254,7 +254,7 @@ void I2SAudioSpeaker::run_speaker_task() {
         i2s_channel_write(this->tx_handle_, silence_buffer, silence_bytes, &bw, WRITE_TIMEOUT_TICKS);
         if (bw != silence_bytes) {
           // Same descriptor-alignment hazard as a partial real-audio write.
-          ESP_LOGV(TAG, "Partial silence write: %u of %u bytes", (unsigned) bw, (unsigned) silence_bytes);
+          ESP_LOGV(TAG, "Partial silence write: %u of %u bytes", (unsigned)bw, (unsigned)silence_bytes);
           xEventGroupSetBits(this->event_group_, SpeakerEventGroupBits::ERR_PARTIAL_WRITE);
           break;
         }
@@ -302,7 +302,7 @@ esp_err_t I2SAudioSpeaker::start_i2s_driver(audio::AudioStreamInfo &audio_stream
   }
 
   if (this->slot_bit_width_ != I2S_SLOT_BIT_WIDTH_AUTO &&
-      (i2s_slot_bit_width_t) audio_stream_info.get_bits_per_sample() > this->slot_bit_width_) {
+      (i2s_slot_bit_width_t)audio_stream_info.get_bits_per_sample() > this->slot_bit_width_) {
     // Currently can't handle the case when the incoming audio has more bits per sample than the configured value
     ESP_LOGE(TAG, "Stream bits per sample must be less than or equal to the speaker's configuration");
     return ESP_ERR_NOT_SUPPORTED;
@@ -325,8 +325,8 @@ esp_err_t I2SAudioSpeaker::start_i2s_driver(audio::AudioStreamInfo &audio_stream
 #endif  // SOC_CLK_APLL_SUPPORTED
 
   // Log DMA configuration for debugging
-  ESP_LOGV(TAG, "I2S DMA config: %zu buffers x %lu frames", (size_t) DMA_BUFFERS_COUNT,
-           (unsigned long) dma_buffer_length);
+  ESP_LOGV(TAG, "I2S DMA config: %zu buffers x %lu frames", (size_t)DMA_BUFFERS_COUNT,
+           (unsigned long)dma_buffer_length);
 
   i2s_chan_config_t chan_cfg = {
       .id = this->parent_->get_port(),
@@ -357,15 +357,15 @@ esp_err_t I2SAudioSpeaker::start_i2s_driver(audio::AudioStreamInfo &audio_stream
   switch (this->i2s_comm_fmt_) {
     case I2SCommFmt::PCM:
       slot_cfg =
-          I2S_STD_PCM_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t) audio_stream_info.get_bits_per_sample(), slot_mode);
+          I2S_STD_PCM_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t)audio_stream_info.get_bits_per_sample(), slot_mode);
       break;
     case I2SCommFmt::MSB:
       slot_cfg =
-          I2S_STD_MSB_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t) audio_stream_info.get_bits_per_sample(), slot_mode);
+          I2S_STD_MSB_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t)audio_stream_info.get_bits_per_sample(), slot_mode);
       break;
     default:
-      slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t) audio_stream_info.get_bits_per_sample(),
-                                                     slot_mode);
+      slot_cfg =
+          I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t)audio_stream_info.get_bits_per_sample(), slot_mode);
       break;
   }
 

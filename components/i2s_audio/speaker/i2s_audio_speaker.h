@@ -23,8 +23,8 @@ static constexpr size_t TASK_STACK_SIZE = 4096;
 static constexpr ssize_t TASK_PRIORITY = 19;
 
 enum SpeakerEventGroupBits : uint32_t {
-  COMMAND_START = (1 << 0),            // indicates loop should start speaker task
-  COMMAND_STOP = (1 << 1),             // stops the speaker task
+  COMMAND_START = (1 << 0),  // indicates loop should start speaker task
+  COMMAND_STOP = (1 << 1),  // stops the speaker task
   COMMAND_STOP_GRACEFULLY = (1 << 2),  // Stops the speaker task once all data has been written
 
   TASK_STARTING = (1 << 10),
@@ -34,8 +34,8 @@ enum SpeakerEventGroupBits : uint32_t {
 
   ERR_ESP_NO_MEM = (1 << 19),
 
-  ERR_DROPPED_EVENT = (1 << 20),    // ISR overflowed the event queue, dropping a completion event
-  ERR_PARTIAL_WRITE = (1 << 21),    // i2s_channel_write returned fewer bytes than requested
+  ERR_DROPPED_EVENT = (1 << 20),  // ISR overflowed the event queue, dropping a completion event
+  ERR_PARTIAL_WRITE = (1 << 21),  // i2s_channel_write returned fewer bytes than requested
   ERR_LOCKSTEP_DESYNC = (1 << 22),  // i2s_event_queue_ and write_records_queue_ fell out of sync
 
   ALL_BITS = 0x00FFFFFF,  // All valid FreeRTOS event group bits
@@ -46,29 +46,43 @@ enum SpeakerEventGroupBits : uint32_t {
 /// for derived standard I2S and SPDIF speaker classes.
 class I2SAudioSpeakerBase : public I2SAudioOut, public speaker::Speaker, public Component {
  public:
-  float get_setup_priority() const override { return esphome::setup_priority::PROCESSOR; }
+  float get_setup_priority() const override {
+    return esphome::setup_priority::PROCESSOR;
+  }
 
   void setup() override;
   void dump_config() override;
   void loop() override;
 
-  void set_buffer_duration(uint32_t buffer_duration_ms) { this->buffer_duration_ms_ = buffer_duration_ms; }
-  void set_timeout(uint32_t ms) { this->timeout_ = ms; }
-  void set_dout_pin(uint8_t pin) { this->dout_pin_ = (gpio_num_t) pin; }
+  void set_buffer_duration(uint32_t buffer_duration_ms) {
+    this->buffer_duration_ms_ = buffer_duration_ms;
+  }
+  void set_timeout(uint32_t ms) {
+    this->timeout_ = ms;
+  }
+  void set_dout_pin(uint8_t pin) {
+    this->dout_pin_ = (gpio_num_t)pin;
+  }
   void set_volume_multiplier(float multiplier) {
     this->volume_multiplier_ = clamp(multiplier, 0.0f, 8.0f);
     this->set_volume(this->volume_);
   }
 
   /// @brief Get the I2S TX channel handle
-  i2s_chan_handle_t get_tx_handle() const { return this->tx_handle_; }
+  i2s_chan_handle_t get_tx_handle() const {
+    return this->tx_handle_;
+  }
 
   void start() override;
   void stop() override;
   void finish() override;
 
-  void set_pause_state(bool pause_state) override { this->pause_state_ = pause_state; }
-  bool get_pause_state() const override { return this->pause_state_; }
+  void set_pause_state(bool pause_state) override {
+    this->pause_state_ = pause_state;
+  }
+  bool get_pause_state() const override {
+    return this->pause_state_;
+  }
 
   /// @brief Plays the provided audio data.
   /// Starts the speaker task, if necessary. Writes the audio data to the ring buffer.
@@ -77,7 +91,9 @@ class I2SAudioSpeakerBase : public I2SAudioOut, public speaker::Speaker, public 
   /// @param ticks_to_wait The FreeRTOS ticks to wait before writing as much data as possible to the ring buffer.
   /// @return The number of bytes that were actually written to the ring buffer.
   size_t play(const uint8_t *data, size_t length, TickType_t ticks_to_wait) override;
-  size_t play(const uint8_t *data, size_t length) override { return play(data, length, 0); }
+  size_t play(const uint8_t *data, size_t length) override {
+    return play(data, length, 0);
+  }
 
   bool has_buffered_data() const override;
 

@@ -118,7 +118,7 @@ void I2SAudioSpeakerBase::loop() {
       }
 
       if (this->speaker_task_handle_ == nullptr) {
-        xTaskCreate(I2SAudioSpeakerBase::speaker_task, "speaker_task", TASK_STACK_SIZE, (void *) this, TASK_PRIORITY,
+        xTaskCreate(I2SAudioSpeakerBase::speaker_task, "speaker_task", TASK_STACK_SIZE, (void *)this, TASK_PRIORITY,
                     &this->speaker_task_handle_);
 
         if (this->speaker_task_handle_ == nullptr) {
@@ -128,7 +128,7 @@ void I2SAudioSpeakerBase::loop() {
         }
       }
       break;
-    case speaker::STATE_RUNNING:   // Intentional fallthrough
+    case speaker::STATE_RUNNING:  // Intentional fallthrough
     case speaker::STATE_STOPPING:  // Intentional fallthrough
     case speaker::STATE_STOPPED:
       break;
@@ -157,9 +157,8 @@ void I2SAudioSpeakerBase::set_volume(float volume) {
       this->q31_volume_factor_ = 0;
       this->software_gain_q16_ = 1UL << 16;
     } else {
-      this->q31_volume_factor_ =
-          esp_audio_libs::gain::db_to_q31(remap<float, float>(effective_volume, 0.0f, 1.0f, SOFTWARE_VOLUME_MIN_DB,
-                                                              0.0f));
+      this->q31_volume_factor_ = esp_audio_libs::gain::db_to_q31(
+          remap<float, float>(effective_volume, 0.0f, 1.0f, SOFTWARE_VOLUME_MIN_DB, 0.0f));
       this->software_gain_q16_ = 1UL << 16;
     }
   }
@@ -208,7 +207,7 @@ size_t I2SAudioSpeakerBase::play(const uint8_t *data, size_t length, TickType_t 
     std::shared_ptr<ring_buffer::RingBuffer> temp_ring_buffer = this->audio_ring_buffer_.lock();
     if (temp_ring_buffer != nullptr) {
       // The weak_ptr locks successfully only while the speaker task owns the ring buffer, so it is safe to write
-      bytes_written = temp_ring_buffer->write_without_replacement((void *) data, length, ticks_to_wait);
+      bytes_written = temp_ring_buffer->write_without_replacement((void *)data, length, ticks_to_wait);
     }
   }
 
@@ -224,7 +223,7 @@ bool I2SAudioSpeakerBase::has_buffered_data() const {
 }
 
 void I2SAudioSpeakerBase::speaker_task(void *params) {
-  I2SAudioSpeakerBase *this_speaker = (I2SAudioSpeakerBase *) params;
+  I2SAudioSpeakerBase *this_speaker = (I2SAudioSpeakerBase *)params;
   this_speaker->run_speaker_task();
 }
 
@@ -239,9 +238,13 @@ void I2SAudioSpeakerBase::start() {
   xEventGroupSetBits(this->event_group_, SpeakerEventGroupBits::COMMAND_START);
 }
 
-void I2SAudioSpeakerBase::stop() { this->stop_(false); }
+void I2SAudioSpeakerBase::stop() {
+  this->stop_(false);
+}
 
-void I2SAudioSpeakerBase::finish() { this->stop_(true); }
+void I2SAudioSpeakerBase::finish() {
+  this->stop_(true);
+}
 
 void I2SAudioSpeakerBase::stop_(bool wait_on_empty) {
   if (this->is_failed())
@@ -316,7 +319,7 @@ bool IRAM_ATTR I2SAudioSpeakerBase::i2s_on_sent_cb(i2s_chan_handle_t handle, i2s
   BaseType_t need_yield2 = pdFALSE;
   BaseType_t need_yield3 = pdFALSE;
 
-  I2SAudioSpeakerBase *this_speaker = (I2SAudioSpeakerBase *) user_ctx;
+  I2SAudioSpeakerBase *this_speaker = (I2SAudioSpeakerBase *)user_ctx;
 
   if (xQueueIsQueueFullFromISR(this_speaker->i2s_event_queue_)) {
     // Queue is full, so discard the oldest event. Once we drop a completion event, ``i2s_event_queue_``

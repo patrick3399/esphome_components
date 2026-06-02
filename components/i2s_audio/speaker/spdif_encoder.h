@@ -57,10 +57,14 @@ class SPDIFEncoder {
 
   /// @brief Enable or disable preload mode
   /// When in preload mode, completed blocks use the preload callback instead of write callback
-  void set_preload_mode(bool preload) { this->preload_mode_ = preload; }
+  void set_preload_mode(bool preload) {
+    this->preload_mode_ = preload;
+  }
 
   /// @brief Check if currently in preload mode
-  bool is_preload_mode() const { return this->preload_mode_; }
+  bool is_preload_mode() const {
+    return this->preload_mode_;
+  }
 
   /// @brief Set input PCM width: 2 = 16-bit, 3 = 24-bit, 4 = 32-bit (truncated to 24-bit on the wire).
   /// Must be called before write() if input width changes from the default (16-bit). Triggers a
@@ -68,7 +72,9 @@ class SPDIFEncoder {
   void set_bytes_per_sample(uint8_t bytes_per_sample);
 
   /// @brief Get the configured input PCM width in bytes per sample
-  uint8_t get_bytes_per_sample() const { return this->bytes_per_sample_; }
+  uint8_t get_bytes_per_sample() const {
+    return this->bytes_per_sample_;
+  }
 
   /// @brief Convert PCM audio data to SPDIF BMC encoded data
   /// @param src Source PCM audio data (stereo, width matches set_bytes_per_sample)
@@ -95,22 +101,26 @@ class SPDIFEncoder {
   void set_sample_rate(uint32_t sample_rate);
 
   /// @brief Get the currently configured sample rate
-  uint32_t get_sample_rate() const { return this->sample_rate_; }
+  uint32_t get_sample_rate() const {
+    return this->sample_rate_;
+  }
 
  protected:
   /// @brief Encode a single stereo silence frame at the current block position.
   /// @note Used only by flush_with_silence_typed_ to pad; the hot write path inlines the
   /// encoding body directly into write_typed_ to keep block_ptr / frame_in_block_ in registers.
-  template<uint8_t Bps> void encode_silence_frame_();
+  template <uint8_t Bps>
+  void encode_silence_frame_();
 
   /// @brief Templated write loop. Called from the public write() via runtime dispatch on bytes_per_sample_.
-  template<uint8_t Bps>
+  template <uint8_t Bps>
   HOT esp_err_t write_typed_(const uint8_t *src, size_t size, TickType_t ticks_to_wait, uint32_t *blocks_sent,
                              size_t *bytes_consumed);
 
   /// @brief Templated flush-with-silence. Pads the pending block with zeros at the configured width
   /// (or builds a full silence block when nothing is pending) and sends it. Always emits one block.
-  template<uint8_t Bps> esp_err_t flush_with_silence_typed_(TickType_t ticks_to_wait);
+  template <uint8_t Bps>
+  esp_err_t flush_with_silence_typed_(TickType_t ticks_to_wait);
 
   /// @brief Send the completed block via the appropriate callback
   esp_err_t send_block_(TickType_t ticks_to_wait);
@@ -126,13 +136,13 @@ class SPDIFEncoder {
   void *write_callback_ctx_{nullptr};
   void *preload_callback_ctx_{nullptr};
   std::unique_ptr<uint32_t[]> spdif_block_buf_;  // Working buffer for SPDIF block (heap allocated)
-  uint32_t *spdif_block_ptr_{nullptr};           // Current position in block buffer
-  uint32_t sample_rate_{48000};                  // Sample rate for Channel Status Block encoding
+  uint32_t *spdif_block_ptr_{nullptr};  // Current position in block buffer
+  uint32_t sample_rate_{48000};  // Sample rate for Channel Status Block encoding
 
   // 1-byte aligned members (grouped together to avoid internal padding)
   uint8_t bytes_per_sample_{2};  // Input PCM width: 2/3/4 (16/24/32-bit). 32-bit truncates to 24-bit on the wire.
-  uint8_t frame_in_block_{0};    // 0-191, tracks stereo frame position within block
-  bool preload_mode_{false};     // Whether to use preload callback vs write callback
+  uint8_t frame_in_block_{0};  // 0-191, tracks stereo frame position within block
+  bool preload_mode_{false};  // Whether to use preload callback vs write callback
   // True when spdif_block_buf_ currently holds a complete full-silence block valid for the active
   // channel status. A full silence block is deterministic for a given sample rate and word length,
   // so when this is set flush_with_silence() can re-send the buffer verbatim instead of re-encoding.

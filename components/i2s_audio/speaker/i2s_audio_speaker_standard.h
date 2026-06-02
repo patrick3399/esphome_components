@@ -8,8 +8,8 @@ namespace esphome::i2s_audio {
 
 enum class I2SCommFmt : uint8_t {
   STANDARD,  // Philips / I2S standard
-  PCM,       // PCM short
-  MSB,       // MSB / left-justified
+  PCM,  // PCM short
+  MSB,  // MSB / left-justified
 };
 
 /// @brief Standard I2S speaker implementation.
@@ -18,7 +18,9 @@ class I2SAudioSpeaker : public I2SAudioSpeakerBase {
  public:
   void dump_config() override;
 
-  void set_i2s_comm_fmt(I2SCommFmt fmt) { this->i2s_comm_fmt_ = fmt; }
+  void set_i2s_comm_fmt(I2SCommFmt fmt) {
+    this->i2s_comm_fmt_ = fmt;
+  }
 
  protected:
   void run_speaker_task() override;

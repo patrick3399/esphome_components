@@ -102,13 +102,13 @@ void SPDIFEncoder::set_sample_rate(uint32_t sample_rate) {
   if (this->sample_rate_ != sample_rate) {
     this->sample_rate_ = sample_rate;
     this->build_channel_status_();
-    ESP_LOGD(TAG, "Sample rate set to %lu Hz", (unsigned long) sample_rate);
+    ESP_LOGD(TAG, "Sample rate set to %lu Hz", (unsigned long)sample_rate);
   }
 }
 
 void SPDIFEncoder::set_bytes_per_sample(uint8_t bytes_per_sample) {
   if (bytes_per_sample != 2 && bytes_per_sample != 3 && bytes_per_sample != 4) {
-    ESP_LOGE(TAG, "Unsupported bytes per sample: %u", (unsigned) bytes_per_sample);
+    ESP_LOGE(TAG, "Unsupported bytes per sample: %u", (unsigned)bytes_per_sample);
     return;
   }
   if (this->bytes_per_sample_ != bytes_per_sample) {
@@ -116,7 +116,7 @@ void SPDIFEncoder::set_bytes_per_sample(uint8_t bytes_per_sample) {
     this->build_channel_status_();
     // Discard any partial block built at the previous width so we never mix widths on the wire.
     this->reset();
-    ESP_LOGD(TAG, "Input width set to %u-bit", (unsigned) bytes_per_sample * 8);
+    ESP_LOGD(TAG, "Input width set to %u-bit", (unsigned)bytes_per_sample * 8);
   }
 }
 
@@ -152,7 +152,7 @@ void SPDIFEncoder::build_channel_status_() {
       // Other values are possible but they're not supported by ESPHome
       freq_code = 0x1;  // 0001 = not indicated
       ESP_LOGW(TAG, "Unsupported sample rate %lu Hz, channel status will indicate 'not specified'",
-               (unsigned long) this->sample_rate_);
+               (unsigned long)this->sample_rate_);
       break;
   }
   // Byte 3: freq_code in bits 0-3, clock accuracy (00) in bits 4-5
@@ -203,7 +203,8 @@ ESPHOME_ALWAYS_INLINE static inline uint32_t c_bit_for_frame(const std::array<ui
 
 // Build a raw IEC 60958 subframe from PCM little-endian input of width Bps bytes.
 // Caller is responsible for OR-ing in the C bit and parity.
-template<uint8_t Bps> ESPHOME_ALWAYS_INLINE static inline uint32_t build_raw_subframe(const uint8_t *pcm_sample) {
+template <uint8_t Bps>
+ESPHOME_ALWAYS_INLINE static inline uint32_t build_raw_subframe(const uint8_t *pcm_sample) {
   static_assert(Bps == 2 || Bps == 3 || Bps == 4, "Unsupported bytes per sample");
   if constexpr (Bps == 2) {
     // 16-bit input: MSB-aligned in the 20-bit audio field, bits 12-27.
@@ -235,7 +236,7 @@ template<uint8_t Bps> ESPHOME_ALWAYS_INLINE static inline uint32_t build_raw_sub
 // for even total parity. The BMC of bit 31 lives in bit 0 of the high-byte BMC output
 // (i = 7 maps to position (8-1-7)*2 = 0); flipping the source bit flips only the lower
 // BMC bit (= phase XOR bit), so applying P is `bmc_24_31 ^= phase_mask & 1u`.
-template<uint8_t Bps>
+template <uint8_t Bps>
 ESPHOME_ALWAYS_INLINE static inline void bmc_encode_subframe(uint32_t raw_subframe, uint8_t preamble, uint32_t *dst) {
   if constexpr (Bps == 2) {
     // 16-bit path: bits 4-11 are zero, encoded inline as BMC_ZERO_NIBBLE constants.
@@ -290,7 +291,8 @@ ESPHOME_ALWAYS_INLINE static inline void bmc_encode_subframe(uint32_t raw_subfra
   }
 }
 
-template<uint8_t Bps> void SPDIFEncoder::encode_silence_frame_() {
+template <uint8_t Bps>
+void SPDIFEncoder::encode_silence_frame_() {
   static constexpr uint8_t SILENCE[4] = {0, 0, 0, 0};
   uint32_t raw = build_raw_subframe<Bps>(SILENCE) | c_bit_for_frame(this->channel_status_, this->frame_in_block_);
   uint8_t preamble_l = (this->frame_in_block_ == 0) ? PREAMBLE_B : PREAMBLE_M;
@@ -329,7 +331,7 @@ esp_err_t SPDIFEncoder::send_block_(TickType_t ticks_to_wait) {
   return err;
 }
 
-template<uint8_t Bps>
+template <uint8_t Bps>
 HOT esp_err_t SPDIFEncoder::write_typed_(const uint8_t *src, size_t size, TickType_t ticks_to_wait,
                                          uint32_t *blocks_sent, size_t *bytes_consumed) {
   const uint8_t *pcm_data = src;
@@ -452,7 +454,8 @@ HOT esp_err_t SPDIFEncoder::write(const uint8_t *src, size_t size, TickType_t ti
   }
 }
 
-template<uint8_t Bps> esp_err_t SPDIFEncoder::flush_with_silence_typed_(TickType_t ticks_to_wait) {
+template <uint8_t Bps>
+esp_err_t SPDIFEncoder::flush_with_silence_typed_(TickType_t ticks_to_wait) {
   // If a complete block is already pending (from a previous failed send), emit just that block.
   // Otherwise pad the partial block with silence (or generate a full silence block if empty) and
   // send. Always emits exactly one block on success.
