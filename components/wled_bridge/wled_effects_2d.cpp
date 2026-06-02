@@ -1007,5 +1007,402 @@ void fx_2d_zentangle(EffectContext &ctx) {
   }
 }
 
+// ============================================================
+// 26. 2D Akemi — cat face (simplified static)
+// ============================================================
+void fx_2d_akemi(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t spd = ctx.params->speed;
+  uint8_t hue_base = static_cast<uint8_t>(ctx.now * scale8(spd, 2) >> 5);
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      float nx = (static_cast<float>(x) / w - 0.5f) * 2.0f;
+      float ny = (static_cast<float>(y) / h - 0.5f) * 2.0f;
+      float r = sqrtf(nx * nx + ny * ny);
+      // Head outline
+      uint32_t c = 0;
+      if (r < 0.9f && r > 0.7f)
+        c = ctx.pal_color(hue_base, 200);
+      // Eyes
+      float el = sqrtf((nx + 0.3f) * (nx + 0.3f) + (ny + 0.2f) * (ny + 0.2f));
+      float er = sqrtf((nx - 0.3f) * (nx - 0.3f) + (ny + 0.2f) * (ny + 0.2f));
+      if (el < 0.15f || er < 0.15f)
+        c = ctx.pal_color(static_cast<uint8_t>(hue_base + 128), 255);
+      // Nose
+      if (sqrtf(nx * nx + (ny - 0.1f) * (ny - 0.1f)) < 0.07f)
+        c = ctx.color(1);
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), c);
+    }
+  }
+}
+
+// ============================================================
+// 27. 2D Hopalong — Hopalong attractor
+// ============================================================
+void fx_2d_hopalong(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(0);
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t spd = ctx.params->speed;
+  uint8_t ix = ctx.params->intensity;
+
+  ctx.fade_2d(200 - scale8(ix, 50));
+
+  float a = 0.4f + 0.1f * sinf(static_cast<float>(ctx.now) * 0.001f);
+  float b = 0.3f + 0.1f * cosf(static_cast<float>(ctx.now) * 0.00073f);
+  float c_val = 0.2f + 0.1f * sinf(static_cast<float>(ctx.now) * 0.0013f);
+
+  uint16_t iters = static_cast<uint16_t>(w * h / 2);
+  float scale_f = static_cast<float>(std::min(w, h)) * 0.2f;
+  float px = 0.0f, py = 0.0f;
+  uint32_t t_shift = ctx.now * scale8(spd, 3) >> 8;
+
+  for (uint16_t i = 0; i < iters; i++) {
+    float sign_py = py >= 0 ? 1.0f : -1.0f;
+    float nx = py - sign_py * sqrtf(fabsf(b * px - c_val));
+    float ny = a - px;
+    px = nx;
+    py = ny;
+    int16_t sx = static_cast<int16_t>(px * scale_f + w * 0.5f + 0.5f);
+    int16_t sy = static_cast<int16_t>(py * scale_f + h * 0.5f + 0.5f);
+    ctx.set_pixel_2d(sx, sy, ctx.pal_color(static_cast<uint8_t>(i + t_shift)));
+  }
+}
+
+// ============================================================
+// 28. 2D Magnetics — magnetic field lines
+// ============================================================
+void fx_2d_magnetics(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t spd = ctx.params->speed;
+  uint8_t ix = ctx.params->intensity;
+
+  // 2 magnetic poles drifting
+  uint32_t t = ctx.now * scale8(spd, 4) >> 5;
+  float p1x = (w - 1) * (0.3f + 0.2f * sinf(static_cast<float>(t) * 0.04f));
+  float p1y = (h - 1) * (0.5f + 0.2f * cosf(static_cast<float>(t) * 0.03f));
+  float p2x = (w - 1) * (0.7f + 0.2f * cosf(static_cast<float>(t) * 0.05f));
+  float p2y = (h - 1) * (0.5f + 0.2f * sinf(static_cast<float>(t) * 0.04f));
+
+  uint8_t num_lines = static_cast<uint8_t>(3 + scale8(ix, 9));
+
+  ctx.fill_black();
+  for (uint8_t li = 0; li < num_lines; li++) {
+    float angle = static_cast<float>(li) * 3.14159f / num_lines;
+    float fx = p1x + cosf(angle) * 2.0f;
+    float fy = p1y + sinf(angle) * 2.0f;
+    uint32_t c = ctx.pal_color(static_cast<uint8_t>(li * 255 / num_lines));
+
+    for (uint16_t s = 0; s < 60; s++) {
+      ctx.set_pixel_2d(static_cast<int16_t>(fx + 0.5f), static_cast<int16_t>(fy + 0.5f), c);
+      // Gradient follows field
+      float d1x = fx - p1x, d1y = fy - p1y;
+      float d2x = fx - p2x, d2y = fy - p2y;
+      float r12 = d1x * d1x + d1y * d1y + 0.01f;
+      float r22 = d2x * d2x + d2y * d2y + 0.01f;
+      float gx = d1x / r12 - d2x / r22;
+      float gy = d1y / r12 - d2y / r22;
+      float len = sqrtf(gx * gx + gy * gy) + 0.001f;
+      fx += gx / len * 0.8f;
+      fy += gy / len * 0.8f;
+      if (fx < 0 || fy < 0 || fx >= w || fy >= h)
+        break;
+    }
+  }
+}
+
+// ============================================================
+// 29. 2D Hypnotic — rotating spiral rings
+// ============================================================
+void fx_2d_hypnotic(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.pal_color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t spd = ctx.params->speed;
+  uint8_t ix = ctx.params->intensity;
+
+  float cx = (w - 1) * 0.5f, cy = (h - 1) * 0.5f;
+  uint32_t t = ctx.now * scale8(spd, 3) >> 4;
+  float freq = 1.0f + scale8(ix, 4);
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      float dx = static_cast<float>(x) - cx;
+      float dy = static_cast<float>(y) - cy;
+      float r = sqrtf(dx * dx + dy * dy);
+      float theta = atan2f(dy, dx);
+      // Archimedean spiral
+      float spiral = r - static_cast<float>(t) * 0.05f + theta * freq;
+      uint8_t v = sin8(static_cast<uint8_t>(static_cast<uint32_t>(spiral * 20.0f) & 0xFF));
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(v, v));
+    }
+  }
+}
+
+// ============================================================
+// 30. 2D Bubbles — rising bubbles
+// ============================================================
+// env->data: 8 bubbles × 4 bytes [x, y_fixed, radius, hue]
+static constexpr uint8_t BUBBLES_N = 8;
+
+void fx_2d_bubbles(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(0);
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  if (!ctx.env->allocate_data(BUBBLES_N * 4))
+    return;
+
+  uint8_t *bx = ctx.env->data;
+  uint8_t *by = ctx.env->data + BUBBLES_N;
+  uint8_t *brad = ctx.env->data + BUBBLES_N * 2;
+  uint8_t *bhue = ctx.env->data + BUBBLES_N * 3;
+  uint8_t spd = ctx.params->speed;
+  uint8_t ix = ctx.params->intensity;
+
+  // Init
+  if (ctx.env->call == 0) {
+    for (uint8_t i = 0; i < BUBBLES_N; i++) {
+      bx[i] = hw_random8(static_cast<uint8_t>(w));
+      by[i] = hw_random8(static_cast<uint8_t>(h));
+      brad[i] = static_cast<uint8_t>(1 + hw_random8(3));
+      bhue[i] = hw_random8();
+    }
+  }
+
+  if (!ctx.should_run(static_cast<uint32_t>(30 + (255 - spd) * 2)))
+    return;
+
+  ctx.fade_2d(230 - scale8(ix, 40));
+
+  for (uint8_t i = 0; i < BUBBLES_N; i++) {
+    // Rise
+    if (by[i] == 0) {
+      bx[i] = hw_random8(static_cast<uint8_t>(w));
+      by[i] = static_cast<uint8_t>(h - 1);
+      brad[i] = static_cast<uint8_t>(1 + hw_random8(3));
+      bhue[i] = hw_random8();
+    } else {
+      by[i]--;
+    }
+    // Draw circle
+    uint8_t r = brad[i];
+    uint32_t c = ctx.pal_color(bhue[i]);
+    for (int16_t dy = -static_cast<int16_t>(r); dy <= static_cast<int16_t>(r); dy++) {
+      for (int16_t dx = -static_cast<int16_t>(r); dx <= static_cast<int16_t>(r); dx++) {
+        if (dx * dx + dy * dy <= r * r) {
+          ctx.set_pixel_2d(static_cast<int16_t>(bx[i]) + dx, static_cast<int16_t>(by[i]) + dy, c);
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// 31. 2D Magnifying — magnifying glass panning
+// ============================================================
+void fx_2d_magnifying(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.pal_color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t spd = ctx.params->speed;
+  uint8_t ix = ctx.params->intensity;
+  uint32_t t = ctx.now * scale8(spd, 4) >> 5;
+
+  // Lens center drifts
+  float lcx = (w - 1) * (0.5f + 0.4f * sinf(static_cast<float>(t) * 0.03f));
+  float lcy = (h - 1) * (0.5f + 0.4f * cosf(static_cast<float>(t) * 0.04f));
+  float lens_r = static_cast<float>(std::min(w, h)) * 0.25f;
+  float zoom = 0.4f;
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      float dx = static_cast<float>(x) - lcx;
+      float dy = static_cast<float>(y) - lcy;
+      float r = sqrtf(dx * dx + dy * dy);
+      float sx, sy;
+      if (r < lens_r && r > 0) {
+        float scale = zoom + (1.0f - zoom) * (r / lens_r);
+        sx = lcx + dx / scale;
+        sy = lcy + dy / scale;
+      } else {
+        sx = static_cast<float>(x);
+        sy = static_cast<float>(y);
+      }
+      uint16_t xi = static_cast<uint16_t>(static_cast<int16_t>(sx + 0.5f) & (w - 1));
+      uint16_t yi = static_cast<uint16_t>(static_cast<int16_t>(sy + 0.5f) & (h - 1));
+      uint8_t nc = inoise8(static_cast<uint16_t>(xi * 40 + t * 2), static_cast<uint16_t>(yi * 40));
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(nc, 200));
+    }
+  }
+}
+
+// ============================================================
+// 32. 2D Popcorn2D — 2D popcorn bursts
+// ============================================================
+static constexpr uint8_t POPN2D_KERNELS = 10;
+void fx_2d_popcorn2d(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(0);
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  if (!ctx.env->allocate_data(POPN2D_KERNELS * 5))
+    return;
+
+  uint8_t *kx = ctx.env->data;
+  uint8_t *ky = ctx.env->data + POPN2D_KERNELS;
+  uint8_t *vx = ctx.env->data + POPN2D_KERNELS * 2;  // +128 offset
+  uint8_t *vy_d = ctx.env->data + POPN2D_KERNELS * 3;
+  uint8_t *khue = ctx.env->data + POPN2D_KERNELS * 4;
+  uint8_t spd = ctx.params->speed;
+  uint8_t ix = ctx.params->intensity;
+
+  ctx.fade_2d(220 - scale8(ix, 50));
+
+  if (!ctx.should_run(static_cast<uint32_t>(20 + (255 - spd) * 2)))
+    return;
+
+  for (uint8_t i = 0; i < POPN2D_KERNELS; i++) {
+    // Spawn if at bottom
+    if (ky[i] >= h - 1 || (kx[i] == 0 && ky[i] == 0)) {
+      kx[i] = hw_random8(static_cast<uint8_t>(w));
+      ky[i] = static_cast<uint8_t>(h - 1);
+      vx[i] = static_cast<uint8_t>(hw_random8(220, 255));  // upward
+      vy_d[i] = hw_random8();
+      khue[i] = hw_random8();
+    }
+    // Apply gravity (decelerate upward = increase vy toward gravity)
+    int16_t vel = static_cast<int16_t>(vx[i]) - 128 - 2;
+    if (vel < -100)
+      vel = -100;
+    vx[i] = static_cast<uint8_t>(vel + 128);
+    int16_t nx = static_cast<int16_t>(ky[i]) + vel / 8;
+    if (nx >= h)
+      nx = h - 1;
+    if (nx < 0)
+      nx = 0;
+    ky[i] = static_cast<uint8_t>(nx);
+    int16_t hx = static_cast<int16_t>(kx[i]) + (static_cast<int16_t>(vy_d[i]) - 128) / 16;
+    kx[i] = static_cast<uint8_t>(hx & 0xFF);
+    ctx.set_pixel_2d(static_cast<int16_t>(scale8(kx[i], static_cast<uint8_t>(w - 1))), static_cast<int16_t>(ky[i]),
+                     ctx.pal_color(khue[i]));
+  }
+}
+
+// ============================================================
+// 33. 2D Sparkle2D — random sparkles on canvas
+// ============================================================
+void fx_2d_sparkle2d(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(0);
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t spd = ctx.params->speed;
+  uint8_t ix = ctx.params->intensity;
+
+  ctx.fade_2d(200 - scale8(spd, 60));
+
+  uint8_t num_sparks = static_cast<uint8_t>(1 + scale8(ix, 12));
+  for (uint8_t i = 0; i < num_sparks; i++) {
+    int16_t x = static_cast<int16_t>(hw_random8(static_cast<uint8_t>(w)));
+    int16_t y = static_cast<int16_t>(hw_random8(static_cast<uint8_t>(h)));
+    ctx.set_pixel_2d(x, y, ctx.pal_color(hw_random8(), 255));
+    // Soft glow
+    if (x > 0)
+      ctx.set_pixel_2d(static_cast<int16_t>(x - 1), y, color_fade(ctx.pal_color(hw_random8()), 120));
+    if (y > 0)
+      ctx.set_pixel_2d(x, static_cast<int16_t>(y - 1), color_fade(ctx.pal_color(hw_random8()), 120));
+  }
+}
+
+// ============================================================
+// 34. 2D Pendulum — oscillating pendulum sweep
+// ============================================================
+void fx_2d_pendulum(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(0);
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t spd = ctx.params->speed;
+  uint8_t ix = ctx.params->intensity;
+
+  ctx.fade_2d(200 - scale8(ix, 80));
+
+  // Pendulum angle
+  float ang = 1.2f * sinf(static_cast<float>(ctx.now) * scale8(spd, 3) * 0.0003f);
+  float cx = (w - 1) * 0.5f;
+  float arm_len = h * 0.8f;
+
+  // Draw pendulum path (several points along the sweep trail)
+  uint8_t trail = static_cast<uint8_t>(3 + scale8(ix, 6));
+  for (uint8_t t = 0; t <= trail; t++) {
+    float a = ang * (1.0f - static_cast<float>(t) / trail * 0.5f);
+    float bx = cx + arm_len * sinf(a);
+    float by = static_cast<float>(t > 0 ? t - 1 : 0) * h / trail;
+    uint8_t bri = static_cast<uint8_t>(255u - t * 255u / (trail + 1));
+    ctx.set_pixel_2d(static_cast<int16_t>(bx + 0.5f), static_cast<int16_t>(by),
+                     ctx.pal_color(static_cast<uint8_t>(t * 40), bri));
+  }
+  // Bob at end of arm
+  int16_t bx = static_cast<int16_t>(cx + arm_len * sinf(ang) + 0.5f);
+  int16_t by = static_cast<int16_t>(h * 0.8f + 0.5f);
+  ctx.set_pixel_2d(bx, by, ctx.color(0));
+  if (bx > 0)
+    ctx.set_pixel_2d(static_cast<int16_t>(bx - 1), by, ctx.color(0));
+  if (bx < static_cast<int16_t>(w - 1))
+    ctx.set_pixel_2d(static_cast<int16_t>(bx + 1), by, ctx.color(0));
+}
+
+// ============================================================
+// 35. 2D Heatmap — animated heat flow
+// ============================================================
+void fx_2d_heatmap(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.pal_color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t spd = ctx.params->speed;
+
+  uint32_t t = ctx.now * scale8(spd, 3);
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      // Combine multiple noise octaves for heat-like appearance
+      uint8_t v = inoise8(static_cast<uint16_t>(x * 50 + t), static_cast<uint16_t>(y * 50));
+      uint8_t v2 = inoise8(static_cast<uint16_t>(x * 100 + t * 2), static_cast<uint16_t>(y * 100 + t));
+      uint8_t heat = static_cast<uint8_t>((static_cast<uint16_t>(v) + v2) >> 1);
+      // Map to heat colors (cold=blue, warm=red/yellow)
+      uint32_t c;
+      if (heat < 85)
+        c = RGBW32(0, 0, scale8(heat * 3, 255));
+      else if (heat < 170)
+        c = RGBW32(scale8((heat - 85) * 3, 255), 0, scale8(255 - (heat - 85) * 3, 255));
+      else
+        c = RGBW32(255, scale8((heat - 170) * 3, 255), 0);
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), c);
+    }
+  }
+}
+
 }  // namespace wled_bridge
 }  // namespace esphome

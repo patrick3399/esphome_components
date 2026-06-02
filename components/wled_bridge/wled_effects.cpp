@@ -4328,6 +4328,16 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 144 */ {"2D Fireworks", "2D Fireworks@!,Trails;!;!;;m12=2", fx_2d_fireworks2d},
     /* 145 */ {"2D Sprouts", "2D Sprouts@!,Spread;!;!;;m12=2", fx_2d_sprouts},
     /* 146 */ {"2D Zentangle", "2D Zentangle@!,Tile;!;!;;m12=2", fx_2d_zentangle},
+    /* 147 */ {"2D Akemi", "2D Akemi@!,;!,!;!;;m12=2", fx_2d_akemi},
+    /* 148 */ {"2D Hopalong", "2D Hopalong@!,;!;!;;m12=2", fx_2d_hopalong},
+    /* 149 */ {"2D Magnetics", "2D Magnetics@!,# lines;!;!;;m12=2", fx_2d_magnetics},
+    /* 150 */ {"2D Hypnotic", "2D Hypnotic@!,Spirals;!;!;;m12=2", fx_2d_hypnotic},
+    /* 151 */ {"2D Bubbles", "2D Bubbles@!,;!;!;;m12=2", fx_2d_bubbles},
+    /* 152 */ {"2D Magnifying", "2D Magnifying@!,Zoom;!;!;;m12=2", fx_2d_magnifying},
+    /* 153 */ {"2D PopCorn", "2D PopCorn@!,!,,,,,Overlay;!,!,!;!;;m12=2", fx_2d_popcorn2d},
+    /* 154 */ {"2D Sparkle", "2D Sparkle@!,!,,,,,Overlay;!;!;;m12=2", fx_2d_sparkle2d},
+    /* 155 */ {"2D Pendulum", "2D Pendulum@!,Trail;!;!;;m12=2", fx_2d_pendulum},
+    /* 156 */ {"2D Heatmap", "2D Heatmap@!,;!;!;;m12=2", fx_2d_heatmap},
 };
 
 }  // namespace wled_bridge
