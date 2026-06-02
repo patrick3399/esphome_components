@@ -423,7 +423,8 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
       "%s"
       "}",
       c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(), WLEDBridgeComponent::get_max_segments(),
-      c->get_udp_port(), (c->is_ddp_receiving() || c->is_e131_receiving() || c->is_artnet_receiving()) ? "true" : "false",
+      c->get_udp_port(),
+      (c->is_ddp_receiving() || c->is_e131_receiving() || c->is_artnet_receiving()) ? "true" : "false",
       c->is_ddp_receiving() ? "DDP" : (c->is_e131_receiving() ? "E1.31" : (c->is_artnet_receiving() ? "Art-Net" : "")),
 #ifdef USE_ESP32
       c->get_ws_client_count(),
@@ -1658,22 +1659,89 @@ void WLEDSseHandler::broadcast_state() {
 // ============================================================
 // WLEDUiHandler
 // ============================================================
+
+namespace {
+// Map a request URL to a gzip blob and its Content-Type.
+// Returns false if the URL is not a static UI asset.
+bool ui_asset_for_url(const char *url, const uint8_t **data_out, size_t *size_out, const char **ctype_out) {
+  struct Asset {
+    const char *path;
+    const uint8_t *data;
+    const size_t *size;
+    const char *ctype;
+  };
+  static const Asset ASSETS[] = {
+      {"/index.js", WLED_INDEX_JS_GZ, &WLED_INDEX_JS_GZ_SIZE, "application/javascript"},
+      {"/index.css", WLED_INDEX_CSS_GZ, &WLED_INDEX_CSS_GZ_SIZE, "text/css"},
+      {"/rangetouch.js", WLED_RANGETOUCH_GZ, &WLED_RANGETOUCH_GZ_SIZE, "application/javascript"},
+      {"/iro.js", WLED_IRO_GZ, &WLED_IRO_GZ_SIZE, "application/javascript"},
+  };
+  for (auto &a : ASSETS) {
+    if (strcmp(url, a.path) == 0) {
+      *data_out = a.data;
+      *size_out = *a.size;
+      *ctype_out = a.ctype;
+      return true;
+    }
+  }
+  return false;
+}
+}  // namespace
+
 bool WLEDUiHandler::canHandle(web_server_idf::AsyncWebServerRequest *request) const {
   if (request->method() != HTTP_GET)
     return false;
   char url_buf[web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
-  return (strcmp(url.c_str(), "/") == 0 || strcmp(url.c_str(), "/index.htm") == 0 ||
-          strcmp(url.c_str(), "/index.html") == 0);
+  const char *u = url.c_str();
+  return strcmp(u, "/") == 0 || strcmp(u, "/index.htm") == 0 || strcmp(u, "/index.html") == 0 ||
+         strcmp(u, "/index.js") == 0 || strcmp(u, "/index.css") == 0 || strcmp(u, "/rangetouch.js") == 0 ||
+         strcmp(u, "/iro.js") == 0 || strncmp(u, "/settings", 9) == 0;
 }
 
 void WLEDUiHandler::handleRequest(web_server_idf::AsyncWebServerRequest *request) {
+  char url_buf[web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
+  auto url = request->url_to(url_buf);
+  const char *u = url.c_str();
+
+  // Settings paths → ESPHome redirect stub
+  if (strncmp(u, "/settings", 9) == 0) {
+    if (WLED_SETTINGS_GZ_SIZE > 0) {
+      auto *resp = request->beginResponse(200, "text/html", WLED_SETTINGS_GZ, WLED_SETTINGS_GZ_SIZE);
+      resp->addHeader("Content-Encoding", "gzip");
+      resp->addHeader("Cache-Control", "no-cache");
+      request->send(resp);
+    } else {
+      request->send(200, "text/html",
+                    "<html><body><h1>Settings managed by ESPHome</h1>"
+                    "<p><a href='/'>Back</a></p></body></html>");
+    }
+    return;
+  }
+
+  // Static JS/CSS assets with long-lived cache
+  const uint8_t *data;
+  size_t size;
+  const char *ctype;
+  if (ui_asset_for_url(u, &data, &size, &ctype)) {
+    if (size > 0) {
+      auto *resp = request->beginResponse(200, ctype, data, size);
+      resp->addHeader("Content-Encoding", "gzip");
+      resp->addHeader("Cache-Control", "public, max-age=86400");
+      request->send(resp);
+    } else {
+      request->send(404, "text/plain", "Not found");
+    }
+    return;
+  }
+
+  // Default: serve index.htm (/, /index.htm, /index.html)
   if (WLED_INDEX_GZ_SIZE > 0) {
     auto *resp = request->beginResponse(200, "text/html", WLED_INDEX_GZ, WLED_INDEX_GZ_SIZE);
     resp->addHeader("Content-Encoding", "gzip");
+    resp->addHeader("Cache-Control", "no-cache");
     request->send(resp);
   } else {
-    // Minimal fallback page
     request->send(200, "text/html",
                   "<html><head><title>WLED Bridge</title></head><body>"
                   "<h1>WLED Bridge</h1>"

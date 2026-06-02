@@ -20,3 +20,6 @@ venv/
 
 # macOS
 .DS_Store
+
+# WLED UI download cache (rebuilt by tools/gen_wled_ui.py)
+tools/wled_ui_cache/
