@@ -1743,5 +1743,398 @@ void fx_2d_soap(EffectContext &ctx) {
   }
 }
 
+// ============================================================
+// 46. 2D Spaceships — bright pixels moving with trails
+// ============================================================
+void fx_2d_spaceships(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  uint8_t n_ships = static_cast<uint8_t>(3 + scale8(intensity, 10));
+  size_t data_size = static_cast<size_t>(n_ships) * 4;
+  if (!ctx.env->allocate_data(data_size))
+    return;
+
+  uint8_t *data = ctx.env->data;
+
+  // Initialise on first call
+  if (ctx.env->call == 0) {
+    for (uint8_t i = 0; i < n_ships; i++) {
+      data[i * 4 + 0] = hw_random8(static_cast<uint8_t>(w));
+      data[i * 4 + 1] = hw_random8(static_cast<uint8_t>(h));
+      data[i * 4 + 2] = hw_random8();
+      data[i * 4 + 3] = 0;
+    }
+  }
+
+  ctx.fade_2d(230);
+
+  for (uint8_t i = 0; i < n_ships; i++) {
+    uint8_t x = data[i * 4 + 0];
+    uint8_t y = data[i * 4 + 1];
+    uint8_t angle = data[i * 4 + 2];
+    uint8_t phase = data[i * 4 + 3];
+
+    // Slightly wobble angle
+    if (hw_random8() > 200)
+      angle = static_cast<uint8_t>(angle + 1);
+    if (hw_random8() > 200)
+      angle = static_cast<uint8_t>(angle - 1);
+
+    // Move in current direction once per speed phase cycle
+    if (phase == 0) {
+      int8_t dx = static_cast<int8_t>((static_cast<int16_t>(cos8(angle)) - 128) >> 6);
+      int8_t dy = static_cast<int8_t>((static_cast<int16_t>(sin8(angle)) - 128) >> 6);
+      int16_t nx = static_cast<int16_t>(static_cast<int16_t>(x) + dx);
+      int16_t ny = static_cast<int16_t>(static_cast<int16_t>(y) + dy);
+      nx = static_cast<int16_t>((nx + static_cast<int16_t>(w)) % static_cast<int16_t>(w));
+      ny = static_cast<int16_t>((ny + static_cast<int16_t>(h)) % static_cast<int16_t>(h));
+      x = static_cast<uint8_t>(nx);
+      y = static_cast<uint8_t>(ny);
+    }
+    phase = static_cast<uint8_t>((static_cast<uint16_t>(phase) + scale8(speed, 5)) % 32);
+
+    data[i * 4 + 0] = x;
+    data[i * 4 + 1] = y;
+    data[i * 4 + 2] = angle;
+    data[i * 4 + 3] = phase;
+
+    uint8_t hue = static_cast<uint8_t>(static_cast<uint8_t>(i * (255 / n_ships)) + static_cast<uint8_t>(ctx.now >> 5));
+    ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(hue, 255));
+  }
+}
+
+// ============================================================
+// 47. 2D CrazyBees — randomly walking particles with color trails
+// ============================================================
+void fx_2d_crazybees(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  uint8_t n_bees = static_cast<uint8_t>(4 + scale8(intensity, 12));
+  size_t data_size = static_cast<size_t>(n_bees) * 4;
+  if (!ctx.env->allocate_data(data_size))
+    return;
+
+  uint8_t *data = ctx.env->data;
+
+  // Initialise on first call
+  if (ctx.env->call == 0) {
+    for (uint8_t i = 0; i < n_bees; i++) {
+      data[i * 4 + 0] = hw_random8(static_cast<uint8_t>(w));
+      data[i * 4 + 1] = hw_random8(static_cast<uint8_t>(h));
+      data[i * 4 + 2] = hw_random8();
+      data[i * 4 + 3] = 0;
+    }
+  }
+
+  ctx.fade_2d(220);
+
+  if (!ctx.should_run(static_cast<uint16_t>(20 + (255 - speed) / 4)))
+    return;
+
+  for (uint8_t i = 0; i < n_bees; i++) {
+    uint8_t x = data[i * 4 + 0];
+    uint8_t y = data[i * 4 + 1];
+    uint8_t hue = data[i * 4 + 2];
+
+    // Random walk: step -1, 0, or +1
+    int8_t dx = static_cast<int8_t>(static_cast<int8_t>(hw_random8(3)) - 1);
+    int8_t dy = static_cast<int8_t>(static_cast<int8_t>(hw_random8(3)) - 1);
+    int16_t nx = static_cast<int16_t>(static_cast<int16_t>(x) + dx);
+    int16_t ny = static_cast<int16_t>(static_cast<int16_t>(y) + dy);
+    nx = static_cast<int16_t>((nx + static_cast<int16_t>(w)) % static_cast<int16_t>(w));
+    ny = static_cast<int16_t>((ny + static_cast<int16_t>(h)) % static_cast<int16_t>(h));
+    x = static_cast<uint8_t>(nx);
+    y = static_cast<uint8_t>(ny);
+    hue = static_cast<uint8_t>(hue + 3);
+
+    data[i * 4 + 0] = x;
+    data[i * 4 + 1] = y;
+    data[i * 4 + 2] = hue;
+
+    ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(hue, 255));
+  }
+}
+
+// ============================================================
+// 48. 2D GhostRider — moving ghost source drawing jagged lightning arcs
+// ============================================================
+void fx_2d_ghostrider(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  // data layout: [ghost_x, ghost_y, target_x, target_y, phase, tick, angle_frac, _pad]
+  if (!ctx.env->allocate_data(8))
+    return;
+
+  uint8_t *data = ctx.env->data;
+
+  if (ctx.env->call == 0) {
+    data[0] = hw_random8(static_cast<uint8_t>(w));
+    data[1] = hw_random8(static_cast<uint8_t>(h));
+    data[2] = hw_random8(static_cast<uint8_t>(w));
+    data[3] = hw_random8(static_cast<uint8_t>(h));
+    data[4] = 0;
+    data[5] = 10;
+    data[6] = 0;
+    data[7] = 0;
+  }
+
+  ctx.fade_2d(180);
+
+  uint8_t ghost_x = data[0];
+  uint8_t ghost_y = data[1];
+  uint8_t target_x = data[2];
+  uint8_t target_y = data[3];
+  uint8_t tick = data[5];
+
+  if (tick == 0) {
+    target_x = hw_random8(static_cast<uint8_t>(w));
+    target_y = hw_random8(static_cast<uint8_t>(h));
+    tick = static_cast<uint8_t>(10 + scale8(static_cast<uint8_t>(255 - speed), 20));
+  } else {
+    tick = static_cast<uint8_t>(tick - 1);
+    if (ghost_x < target_x)
+      ghost_x = static_cast<uint8_t>(ghost_x + 1);
+    else if (ghost_x > target_x)
+      ghost_x = static_cast<uint8_t>(ghost_x - 1);
+    if (ghost_y < target_y)
+      ghost_y = static_cast<uint8_t>(ghost_y + 1);
+    else if (ghost_y > target_y)
+      ghost_y = static_cast<uint8_t>(ghost_y - 1);
+  }
+  data[0] = ghost_x;
+  data[1] = ghost_y;
+  data[2] = target_x;
+  data[3] = target_y;
+  data[5] = tick;
+
+  // Draw lightning arc from ghost position
+  uint8_t lx = ghost_x, ly = ghost_y;
+  uint8_t branch_len = static_cast<uint8_t>(3 + scale8(intensity, 8));
+  uint8_t hue = static_cast<uint8_t>(ctx.now >> 3);
+  for (uint8_t step = 0; step < branch_len; step++) {
+    uint8_t bri = static_cast<uint8_t>(255 - static_cast<uint16_t>(step) * 255 / branch_len);
+    ctx.set_pixel_2d(static_cast<int16_t>(lx), static_cast<int16_t>(ly), ctx.pal_color(hue, bri));
+    int8_t sx = static_cast<int8_t>(static_cast<int8_t>(hw_random8(3)) - 1);
+    int8_t sy = static_cast<int8_t>(static_cast<int8_t>(hw_random8(3)) - 1);
+    lx = static_cast<uint8_t>((static_cast<int16_t>(lx) + sx + static_cast<int16_t>(w)) % static_cast<int16_t>(w));
+    ly = static_cast<uint8_t>((static_cast<int16_t>(ly) + sy + static_cast<int16_t>(h)) % static_cast<int16_t>(h));
+    hue = static_cast<uint8_t>(hue + 8);
+    // Occasionally add a branch pixel
+    if (hw_random8() > 200 && step < static_cast<uint8_t>(branch_len - 2)) {
+      uint8_t bx = static_cast<uint8_t>((static_cast<uint16_t>(lx) + 1) % w);
+      ctx.set_pixel_2d(static_cast<int16_t>(bx), static_cast<int16_t>(ly),
+                       ctx.pal_color(static_cast<uint8_t>(hue + 64), 128));
+    }
+  }
+}
+
+// ============================================================
+// 49. 2D Blobs — moving colored blobs with radial falloff
+// ============================================================
+void fx_2d_blobs(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  uint8_t n_blobs = static_cast<uint8_t>(3 + scale8(intensity, 6));
+  // Each blob: [x, y, vx_biased, vy_biased, hue, _pad]  (vx/vy biased by 128: 128=0, 129=+1, 127=-1)
+  size_t data_size = static_cast<size_t>(n_blobs) * 6;
+  if (!ctx.env->allocate_data(data_size))
+    return;
+
+  uint8_t *data = ctx.env->data;
+
+  if (ctx.env->call == 0) {
+    for (uint8_t i = 0; i < n_blobs; i++) {
+      data[i * 6 + 0] = hw_random8(static_cast<uint8_t>(w));
+      data[i * 6 + 1] = hw_random8(static_cast<uint8_t>(h));
+      // random velocity: -1, 0, or +1 encoded as 127, 128, 129
+      data[i * 6 + 2] = static_cast<uint8_t>(128 + static_cast<int8_t>(hw_random8(3)) - 1);
+      data[i * 6 + 3] = static_cast<uint8_t>(128 + static_cast<int8_t>(hw_random8(3)) - 1);
+      data[i * 6 + 4] = hw_random8();
+      data[i * 6 + 5] = 0;
+    }
+  }
+
+  uint8_t radius = static_cast<uint8_t>(2 + scale8(intensity, 4));
+
+  ctx.fade_2d(210);
+
+  if (!ctx.should_run(static_cast<uint16_t>(30 + (255 - speed) / 3)))
+    return;
+
+  for (uint8_t i = 0; i < n_blobs; i++) {
+    int16_t bx = static_cast<int16_t>(data[i * 6 + 0]);
+    int16_t by = static_cast<int16_t>(data[i * 6 + 1]);
+    int8_t vx = static_cast<int8_t>(static_cast<int16_t>(data[i * 6 + 2]) - 128);
+    int8_t vy = static_cast<int8_t>(static_cast<int16_t>(data[i * 6 + 3]) - 128);
+    uint8_t hue = data[i * 6 + 4];
+
+    bx = static_cast<int16_t>(bx + vx);
+    by = static_cast<int16_t>(by + vy);
+
+    // Bounce off edges
+    if (bx >= static_cast<int16_t>(w) - 1 || bx <= 0) {
+      vx = static_cast<int8_t>(-vx);
+      bx = static_cast<int16_t>(bx + vx);
+    }
+    if (by >= static_cast<int16_t>(h) - 1 || by <= 0) {
+      vy = static_cast<int8_t>(-vy);
+      by = static_cast<int16_t>(by + vy);
+    }
+
+    data[i * 6 + 0] = static_cast<uint8_t>(bx);
+    data[i * 6 + 1] = static_cast<uint8_t>(by);
+    data[i * 6 + 2] = static_cast<uint8_t>(static_cast<int16_t>(vx) + 128);
+    data[i * 6 + 3] = static_cast<uint8_t>(static_cast<int16_t>(vy) + 128);
+
+    // Draw radial falloff
+    for (int16_t dy = -static_cast<int16_t>(radius); dy <= static_cast<int16_t>(radius); dy++) {
+      for (int16_t dx = -static_cast<int16_t>(radius); dx <= static_cast<int16_t>(radius); dx++) {
+        uint8_t dist =
+            static_cast<uint8_t>((dx < 0 ? static_cast<int16_t>(-dx) : dx) + (dy < 0 ? static_cast<int16_t>(-dy) : dy));
+        if (dist > radius)
+          continue;
+        int16_t px = static_cast<int16_t>(bx + dx);
+        int16_t py = static_cast<int16_t>(by + dy);
+        if (px < 0 || px >= static_cast<int16_t>(w) || py < 0 || py >= static_cast<int16_t>(h))
+          continue;
+        uint8_t bri = static_cast<uint8_t>(dist == 0 ? 255 : 255 / (dist + 1));
+        uint32_t nc = ctx.pal_color(hue, bri);
+        uint32_t existing = ctx.get_pixel_2d(px, py);
+        uint32_t blended = RGBW32(qadd8(R(existing), R(nc)), qadd8(G(existing), G(nc)), qadd8(B(existing), B(nc)), 0);
+        ctx.set_pixel_2d(px, py, blended);
+      }
+    }
+  }
+}
+
+// ============================================================
+// 50. 2D DriftRose — animated rose curve pattern
+// ============================================================
+void fx_2d_driftrose(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+
+  ctx.fade_2d(220);
+
+  uint8_t k = static_cast<uint8_t>(2 + scale8(intensity, 5));
+  int16_t cx = static_cast<int16_t>(w / 2);
+  int16_t cy = static_cast<int16_t>(h / 2);
+  uint8_t max_r = static_cast<uint8_t>((w < h ? w : h) / 2);
+  uint8_t t_offset = static_cast<uint8_t>((ctx.now * scale8(speed, 3)) >> 4);
+
+  for (uint16_t theta_idx = 0; theta_idx < 256; theta_idx++) {
+    uint8_t t8 = static_cast<uint8_t>(theta_idx);
+    // r = cos(k * theta): use cos8 mapping 0..255 → 0..2pi
+    uint8_t r8 = cos8(static_cast<uint8_t>(static_cast<uint8_t>(k * t8) + t_offset));
+    uint8_t r = scale8(r8, max_r);
+    // Polar to cartesian
+    int16_t px = static_cast<int16_t>(cx + (static_cast<int16_t>(cos8(t8)) - 128) * static_cast<int16_t>(r) / 128);
+    int16_t py = static_cast<int16_t>(cy + (static_cast<int16_t>(sin8(t8)) - 128) * static_cast<int16_t>(r) / 128);
+    uint8_t hue = static_cast<uint8_t>(t8 + t_offset);
+    ctx.set_pixel_2d(px, py, ctx.pal_color(hue, r8));
+  }
+}
+
+// ============================================================
+// 51. 2D Octopus — circular body with 8 animated tentacles
+// ============================================================
+void fx_2d_octopus(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+
+  ctx.fade_2d(200);
+
+  int16_t cx = static_cast<int16_t>(w / 2);
+  int16_t cy = static_cast<int16_t>(h / 2);
+  uint8_t body_r = static_cast<uint8_t>((w < h ? w : h) / 6 + 1);
+  uint8_t t = static_cast<uint8_t>((ctx.now * scale8(speed, 3)) >> 4);
+
+  // Draw body
+  for (uint8_t ai = 0; ai < 32; ai++) {
+    uint8_t a = static_cast<uint8_t>(ai * 8);
+    int16_t px = static_cast<int16_t>(cx + (static_cast<int16_t>(cos8(a)) - 128) * static_cast<int16_t>(body_r) / 128);
+    int16_t py = static_cast<int16_t>(cy + (static_cast<int16_t>(sin8(a)) - 128) * static_cast<int16_t>(body_r) / 128);
+    ctx.set_pixel_2d(px, py, ctx.pal_color(a, 220));
+  }
+
+  // Draw 8 tentacles
+  uint8_t tentacle_len = static_cast<uint8_t>((w < h ? w : h) / 2 > body_r ? (w < h ? w : h) / 2 - body_r : 1);
+  for (uint8_t tentacle = 0; tentacle < 8; tentacle++) {
+    uint8_t base_angle = static_cast<uint8_t>(tentacle * 32 + t / 4);
+    for (uint8_t step = 1; step <= tentacle_len; step++) {
+      uint8_t wave = sin8(static_cast<uint8_t>(step * 20 + t + tentacle * 30));
+      uint8_t a = static_cast<uint8_t>(base_angle + static_cast<int8_t>((static_cast<int16_t>(wave) - 128) / 8));
+      int16_t r = static_cast<int16_t>(static_cast<int16_t>(body_r) + static_cast<int16_t>(step));
+      int16_t px = static_cast<int16_t>(cx + (static_cast<int16_t>(cos8(a)) - 128) * r / 128);
+      int16_t py = static_cast<int16_t>(cy + (static_cast<int16_t>(sin8(a)) - 128) * r / 128);
+      uint8_t bri = static_cast<uint8_t>(200 - static_cast<uint16_t>(step) * 150 / tentacle_len);
+      uint8_t hue = static_cast<uint8_t>(tentacle * 32 + t / 2);
+      ctx.set_pixel_2d(px, py, ctx.pal_color(hue, bri));
+    }
+  }
+}
+
+// ============================================================
+// 52. 2D WavingCell — dual-layer Perlin noise iridescent wave
+// ============================================================
+void fx_2d_wavingcell(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+
+  uint32_t t1 = ctx.now * static_cast<uint32_t>(scale8(speed, 2));
+  uint32_t t2 = ctx.now * static_cast<uint32_t>(scale8(speed, 6));
+  uint16_t nscale1 = static_cast<uint16_t>(30 + scale8(intensity, 60));
+  uint16_t nscale2 = static_cast<uint16_t>(10 + scale8(intensity, 20));
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      uint16_t nx1 = static_cast<uint16_t>(x * nscale1 + (t1 >> 4));
+      uint16_t ny1 = static_cast<uint16_t>(y * nscale1 + (t1 >> 5) + (t1 / 20));
+      uint16_t nx2 = static_cast<uint16_t>(x * nscale2 + (t2 >> 3));
+      uint16_t ny2 = static_cast<uint16_t>(y * nscale2 + 0u - (t2 / 10));
+      uint8_t n1 = inoise8(nx1, ny1);
+      uint8_t n2 = inoise8(nx2, ny2);
+      uint8_t combined = static_cast<uint8_t>((static_cast<uint16_t>(n1) * 3 + n2) / 4);
+      uint8_t bri = combined < 50 ? static_cast<uint8_t>(0) : combined;
+      uint8_t hue = static_cast<uint8_t>(combined + static_cast<uint8_t>(ctx.now >> 5));
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(hue, bri));
+    }
+  }
+}
+
 }  // namespace wled_bridge
 }  // namespace esphome

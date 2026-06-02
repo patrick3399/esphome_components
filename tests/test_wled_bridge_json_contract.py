@@ -1139,7 +1139,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         table_block = effects_cpp.split("const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT]", 1)[1]
         two_d_entries = re.findall(r'\{\s*"2D [^"]+"\s*,\s*"[^"]*m12=2[^"]*"\s*,\s*fx_2d_', table_block)
 
-        self.assertEqual(len(two_d_entries), 45)
+        self.assertEqual(len(two_d_entries), 52)
         self.assertEqual(declared - len(two_d_entries), 122)
 
     def test_palette_count_matches_declared_constant(self) -> None:

@@ -4348,6 +4348,13 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 164 */ {"2D PlasmaRotozoom", "2D PlasmaRotozoom@!,Scale;!;!;;m12=2", fx_2d_plasmarotozoom},
     /* 165 */ {"2D Distortion Waves", "2D Distortion Waves@!,Offset;!;!;;m12=2", fx_2d_distortionwaves},
     /* 166 */ {"2D Soap", "2D Soap@!,Scale;!;!;;m12=2", fx_2d_soap},
+    /* 167 */ {"2D Spaceships", "2D Spaceships@!,# ships;!;!;;m12=2", fx_2d_spaceships},
+    /* 168 */ {"2D CrazyBees", "2D CrazyBees@!,# bees;!;!;;m12=2", fx_2d_crazybees},
+    /* 169 */ {"2D GhostRider", "2D GhostRider@!,# lightning;!;!;;m12=2", fx_2d_ghostrider},
+    /* 170 */ {"2D Blobs", "2D Blobs@!,Radius;!;!;;m12=2", fx_2d_blobs},
+    /* 171 */ {"2D Drift Rose", "2D Drift Rose@!,# petals;!;!;;m12=2", fx_2d_driftrose},
+    /* 172 */ {"2D Octopus", "2D Octopus@!,;!;!;;m12=2", fx_2d_octopus},
+    /* 173 */ {"2D Waving Cell", "2D Waving Cell@!,Scale;!;!;;m12=2", fx_2d_wavingcell},
 };
 
 }  // namespace wled_bridge
