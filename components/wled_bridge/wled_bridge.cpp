@@ -10,6 +10,7 @@
 #include "esphome/components/web_server_base/web_server_base.h"
 #ifdef USE_ESP32
 #include <esp_http_server.h>
+#include <mdns.h>
 #endif
 #include <algorithm>
 #include <stdio.h>
@@ -219,6 +220,21 @@ void WLEDBridgeComponent::setup() {
   } else {
     ESP_LOGW(TAG, "web_server_base not available — JSON API disabled");
   }
+
+  // Register _wled._tcp mDNS service so HA WLED integration auto-discovers this device.
+#ifdef USE_ESP32
+  {
+    char mac[13];
+    get_mac_address_into_buffer(mac);
+    mdns_txt_item_t txt[] = {{"mac", mac}};
+    esp_err_t err = mdns_service_add(nullptr, "_wled", "_tcp", 80, txt, 1);
+    if (err == ESP_OK) {
+      ESP_LOGD(TAG, "mDNS _wled._tcp registered (mac=%s)", mac);
+    } else {
+      ESP_LOGW(TAG, "mDNS _wled._tcp registration failed: %d", err);
+    }
+  }
+#endif
 
   // UDP sync. Set up even when disabled so runtime /json/state.udpn updates
   // can open sockets later.

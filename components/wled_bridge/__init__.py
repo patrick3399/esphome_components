@@ -1,7 +1,16 @@
+from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import light, web_server_base
-from esphome.const import CONF_ID
+from esphome.const import (
+    CONF_BLUE,
+    CONF_BRIGHTNESS,
+    CONF_GREEN,
+    CONF_ID,
+    CONF_RED,
+    CONF_STATE,
+    CONF_WHITE,
+)
 from esphome.core import CORE
 
 try:
@@ -15,6 +24,16 @@ AUTO_LOAD = ["web_server_base", "json"]
 
 wled_bridge_ns = cg.esphome_ns.namespace("wled_bridge")
 WLEDBridgeComponent = wled_bridge_ns.class_("WLEDBridgeComponent", cg.Component)
+
+# Automation action classes
+LoadPresetAction = wled_bridge_ns.class_("LoadPresetAction", automation.Action)
+SavePresetAction = wled_bridge_ns.class_("SavePresetAction", automation.Action)
+SetEffectAction = wled_bridge_ns.class_("SetEffectAction", automation.Action)
+SetPaletteAction = wled_bridge_ns.class_("SetPaletteAction", automation.Action)
+SetBrightnessAction = wled_bridge_ns.class_("SetBrightnessAction", automation.Action)
+SetColorAction = wled_bridge_ns.class_("SetColorAction", automation.Action)
+PowerAction = wled_bridge_ns.class_("PowerAction", automation.Action)
+StopPlaylistAction = wled_bridge_ns.class_("StopPlaylistAction", automation.Action)
 
 CONF_LIGHT_ID = "light_id"
 CONF_BUSES = "buses"
@@ -120,3 +139,182 @@ async def to_code(config):
                 light_state, config.get(CONF_MAX_MA, 5000), config.get(CONF_LED_MA, 55)
             )
         )
+
+
+CONF_PRESET = "preset"
+CONF_EFFECT = "effect"
+CONF_PALETTE = "palette"
+
+
+@automation.register_action(
+    "wled_bridge.load_preset",
+    LoadPresetAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_PRESET): cv.templatable(cv.int_range(min=1, max=16)),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_load_preset_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_PRESET], args, cg.uint8)
+    cg.add(var.set_preset(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.save_preset",
+    SavePresetAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_PRESET): cv.templatable(cv.int_range(min=1, max=16)),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_save_preset_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_PRESET], args, cg.uint8)
+    cg.add(var.set_preset(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_effect",
+    SetEffectAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_EFFECT): cv.templatable(cv.int_range(min=0, max=255)),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_effect_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_EFFECT], args, cg.uint8)
+    cg.add(var.set_effect(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_palette",
+    SetPaletteAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_PALETTE): cv.templatable(cv.int_range(min=0, max=255)),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_palette_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_PALETTE], args, cg.uint8)
+    cg.add(var.set_palette(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_brightness",
+    SetBrightnessAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_BRIGHTNESS): cv.templatable(
+                cv.int_range(min=0, max=255)
+            ),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_brightness_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_BRIGHTNESS], args, cg.uint8)
+    cg.add(var.set_brightness(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_color",
+    SetColorAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_RED): cv.templatable(cv.int_range(min=0, max=255)),
+            cv.Required(CONF_GREEN): cv.templatable(cv.int_range(min=0, max=255)),
+            cv.Required(CONF_BLUE): cv.templatable(cv.int_range(min=0, max=255)),
+            cv.Optional(CONF_WHITE, default=0): cv.templatable(
+                cv.int_range(min=0, max=255)
+            ),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_color_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_red(await cg.templatable(config[CONF_RED], args, cg.uint8)))
+    cg.add(var.set_green(await cg.templatable(config[CONF_GREEN], args, cg.uint8)))
+    cg.add(var.set_blue(await cg.templatable(config[CONF_BLUE], args, cg.uint8)))
+    cg.add(var.set_white(await cg.templatable(config[CONF_WHITE], args, cg.uint8)))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.power_on",
+    PowerAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(WLEDBridgeComponent)}),
+    synchronous=True,
+)
+async def wled_bridge_power_on_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_state(True))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.power_off",
+    PowerAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(WLEDBridgeComponent)}),
+    synchronous=True,
+)
+async def wled_bridge_power_off_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_state(False))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.power_toggle",
+    PowerAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(WLEDBridgeComponent)}),
+    synchronous=True,
+)
+async def wled_bridge_power_toggle_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_toggle(True))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.stop_playlist",
+    StopPlaylistAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(WLEDBridgeComponent)}),
+    synchronous=True,
+)
+async def wled_bridge_stop_playlist_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var

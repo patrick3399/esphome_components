@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <vector>
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
 #include "esphome/components/light/addressable_light.h"
@@ -717,6 +718,103 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool udp_notify_alexa_{false};
   bool udp_notify_hue_{false};
   uint8_t udp_retries_{0};
+};
+
+// ---- ESPHome automation actions ----
+
+template <typename... Ts>
+class LoadPresetAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, preset)
+  void play(const Ts &...x) override {
+    this->parent_->load_preset(this->preset_.value(x...));
+  }
+};
+
+template <typename... Ts>
+class SavePresetAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, preset)
+  void play(const Ts &...x) override {
+    this->parent_->save_preset(this->preset_.value(x...));
+  }
+};
+
+template <typename... Ts>
+class SetEffectAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, effect)
+  void play(const Ts &...x) override {
+    this->parent_->set_effect(this->effect_.value(x...));
+    this->parent_->publish_light_state();
+  }
+};
+
+template <typename... Ts>
+class SetPaletteAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, palette)
+  void play(const Ts &...x) override {
+    this->parent_->set_palette(this->palette_.value(x...));
+    this->parent_->publish_light_state();
+  }
+};
+
+template <typename... Ts>
+class SetBrightnessAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, brightness)
+  void play(const Ts &...x) override {
+    this->parent_->set_brightness(this->brightness_.value(x...));
+    this->parent_->publish_light_state();
+  }
+};
+
+template <typename... Ts>
+class SetColorAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, red)
+  TEMPLATABLE_VALUE(uint8_t, green)
+  TEMPLATABLE_VALUE(uint8_t, blue)
+  TEMPLATABLE_VALUE(uint8_t, white)
+  void play(const Ts &...x) override {
+    uint8_t r = this->red_.value(x...);
+    uint8_t g = this->green_.value(x...);
+    uint8_t b = this->blue_.value(x...);
+    uint8_t w = this->white_.value(x...);
+    this->parent_->set_color(0, RGBW32(r, g, b, w));
+    this->parent_->publish_light_state();
+  }
+};
+
+template <typename... Ts>
+class PowerAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  void set_state(bool state) {
+    this->state_ = state;
+  }
+  void set_toggle(bool toggle) {
+    this->toggle_ = toggle;
+  }
+  void play(const Ts &...x) override {
+    if (this->toggle_)
+      this->parent_->set_on(!this->parent_->is_on());
+    else
+      this->parent_->set_on(this->state_);
+    this->parent_->publish_light_state();
+  }
+
+ protected:
+  bool state_{true};
+  bool toggle_{false};
+};
+
+template <typename... Ts>
+class StopPlaylistAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  void play(const Ts &...x) override {
+    this->parent_->stop_playlist();
+  }
 };
 
 }  // namespace wled_bridge
