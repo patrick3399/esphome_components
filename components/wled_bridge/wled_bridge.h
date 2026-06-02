@@ -320,6 +320,14 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   }
 #endif
 
+  // Boot preset (0 = use NVS last state, 1-16 = load specific preset on boot)
+  void set_boot_preset(uint8_t preset) {
+    this->boot_preset_ = preset;
+  }
+  uint8_t get_boot_preset() const {
+    return this->boot_preset_;
+  }
+
   // DDP realtime receiver
   void set_ddp_enabled(bool v) {
     this->ddp_enabled_ = v;
@@ -327,12 +335,39 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool get_ddp_enabled() const {
     return this->ddp_enabled_;
   }
+
+  // E1.31 (sACN) realtime receiver
+  void set_e131_enabled(bool v) {
+    this->e131_enabled_ = v;
+  }
+  void set_e131_universe(uint16_t uni) {
+    this->e131_universe_ = uni;
+  }
+  void set_e131_universe_count(uint8_t count) {
+    this->e131_universe_count_ = count;
+  }
+  bool get_e131_enabled() const {
+    return this->e131_enabled_;
+  }
+  uint16_t get_e131_universe() const {
+    return this->e131_universe_;
+  }
+  uint8_t get_e131_universe_count() const {
+    return this->e131_universe_count_;
+  }
+
 #ifdef USE_ESP32
   bool is_ddp_receiving() const {
     return this->ddp_receiver_.is_receiving();
   }
+  bool is_e131_receiving() const {
+    return this->e131_receiver_.is_receiving();
+  }
 #else
   bool is_ddp_receiving() const {
+    return false;
+  }
+  bool is_e131_receiving() const {
     return false;
   }
 #endif
@@ -713,6 +748,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   WLEDUdpSync udp_sync_{};
 #ifdef USE_ESP32
   WLEDDdpReceiver ddp_receiver_{};
+  WLEDE131Receiver e131_receiver_{};
 #endif
 
   // 2D matrix geometry (0 = no 2D)
@@ -739,8 +775,16 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool udp_notify_hue_{false};
   uint8_t udp_retries_{0};
 
+  // Boot preset
+  uint8_t boot_preset_{0};
+
   // DDP realtime receiver
   bool ddp_enabled_{false};
+
+  // E1.31 (sACN) realtime receiver
+  bool e131_enabled_{false};
+  uint16_t e131_universe_{1};
+  uint8_t e131_universe_count_{1};
 };
 
 // ---- ESPHome automation actions ----

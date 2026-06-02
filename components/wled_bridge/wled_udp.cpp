@@ -521,6 +521,162 @@ void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len) {
   }
 }
 
+// ============================================================
+// E1.31 (sACN) receiver — UDP port 5568
+// ============================================================
+
+static constexpr uint16_t E131_PORT = 5568;
+static constexpr size_t E131_MIN_PACKET = 126;
+static constexpr size_t E131_UNIVERSE_OFFSET = 113;
+static constexpr size_t E131_SEQUENCE_OFFSET = 111;
+static constexpr size_t E131_OPTIONS_OFFSET = 112;
+static constexpr size_t E131_DMX_START_CODE_OFFSET = 125;
+static constexpr size_t E131_DMX_DATA_OFFSET = 126;
+static constexpr uint16_t E131_CHANNELS_PER_UNIVERSE = 512;
+static constexpr uint16_t E131_PIXELS_PER_UNIVERSE = 170;
+static constexpr uint32_t E131_TIMEOUT_MS = 2500;
+// ACN packet identifier (bytes 4-15)
+static constexpr uint8_t E131_ACN_ID[] = {0x41, 0x53, 0x43, 0x2d, 0x45, 0x31, 0x2e, 0x31, 0x37, 0x00, 0x00, 0x00};
+
+void WLEDE131Receiver::setup(WLEDBridgeComponent *comp, bool enabled, uint16_t start_universe, uint8_t universe_count) {
+  this->comp_ = comp;
+  this->enabled_ = enabled;
+  this->start_universe_ = start_universe;
+  this->universe_count_ = universe_count;
+  if (enabled)
+    this->open_socket_();
+  ESP_LOGCONFIG(TAG, "E1.31 receiver on port %u: %s (universe %u-%u)", E131_PORT, enabled ? "enabled" : "disabled",
+                start_universe, start_universe + universe_count - 1);
+}
+
+void WLEDE131Receiver::set_enabled(bool enabled) {
+  this->enabled_ = enabled;
+  if (enabled)
+    this->open_socket_();
+  else
+    this->close_socket_();
+}
+
+void WLEDE131Receiver::open_socket_() {
+  if (this->fd_ >= 0)
+    return;
+  int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (fd < 0) {
+    ESP_LOGW(TAG, "E1.31: could not create socket: %d", errno);
+    return;
+  }
+  int enable = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+  int flags = fcntl(fd, F_GETFL, 0);
+  fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+  struct sockaddr_in addr = {};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  addr.sin_port = htons(E131_PORT);
+  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
+    ESP_LOGW(TAG, "E1.31: bind failed on port %u: %d", E131_PORT, errno);
+    close(fd);
+    return;
+  }
+
+  // Join multicast groups for configured universes
+  for (uint8_t i = 0; i < this->universe_count_; i++) {
+    uint16_t uni = this->start_universe_ + i;
+    struct ip_mreq mreq = {};
+    uint16_t uni_minus_1 = uni - 1;
+    mreq.imr_multiaddr.s_addr = htonl(0xEFFF0000u | uni_minus_1);  // 239.255.x.y
+    mreq.imr_interface.s_addr = htonl(INADDR_ANY);
+    setsockopt(fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
+  }
+
+  this->fd_ = fd;
+}
+
+void WLEDE131Receiver::close_socket_() {
+  if (this->fd_ >= 0) {
+    close(this->fd_);
+    this->fd_ = -1;
+  }
+  this->receiving_ = false;
+}
+
+void WLEDE131Receiver::loop() {
+  if (!this->enabled_ || this->fd_ < 0)
+    return;
+
+  uint8_t buf[638];
+  struct sockaddr_in src = {};
+  socklen_t src_len = sizeof(src);
+
+  for (int i = 0; i < 8; i++) {
+    ssize_t len = recvfrom(this->fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&src), &src_len);
+    if (len <= 0)
+      break;
+    if (static_cast<size_t>(len) >= E131_MIN_PACKET)
+      this->process_packet_(buf, static_cast<size_t>(len));
+  }
+
+  if (this->receiving_ && (millis() - this->last_receive_ms_ > E131_TIMEOUT_MS)) {
+    this->receiving_ = false;
+    this->comp_->clear_pixel_overrides();
+    ESP_LOGD(TAG, "E1.31: stream timeout, returning to effects");
+  }
+}
+
+void WLEDE131Receiver::process_packet_(const uint8_t *buf, size_t len) {
+  // Verify ACN packet identifier
+  if (memcmp(buf + 4, E131_ACN_ID, sizeof(E131_ACN_ID)) != 0)
+    return;
+
+  // Check options — bit 7 = preview (skip), bit 6 = stream terminated (skip)
+  uint8_t options = buf[E131_OPTIONS_OFFSET];
+  if (options & 0xC0)
+    return;
+
+  // Check DMX start code (must be 0x00 for standard DMX512)
+  if (buf[E131_DMX_START_CODE_OFFSET] != 0x00)
+    return;
+
+  uint16_t universe = (static_cast<uint16_t>(buf[E131_UNIVERSE_OFFSET]) << 8) | buf[E131_UNIVERSE_OFFSET + 1];
+  if (universe < this->start_universe_ || universe >= this->start_universe_ + this->universe_count_)
+    return;
+
+  uint8_t uni_index = static_cast<uint8_t>(universe - this->start_universe_);
+
+  // Sequence check (wrapping 1-255, 0 = no sequence)
+  uint8_t seq = buf[E131_SEQUENCE_OFFSET];
+  if (seq != 0 && uni_index < 8) {
+    uint8_t last = this->last_seq_[uni_index];
+    if (last != 0) {
+      int8_t diff = static_cast<int8_t>(seq - last);
+      if (diff < 0 && diff > -20)
+        return;  // out of order
+    }
+    this->last_seq_[uni_index] = seq;
+  }
+
+  // Extract DMX channel data
+  size_t avail_channels = len - E131_DMX_DATA_OFFSET;
+  if (avail_channels > E131_CHANNELS_PER_UNIVERSE)
+    avail_channels = E131_CHANNELS_PER_UNIVERSE;
+  const uint8_t *dmx = buf + E131_DMX_DATA_OFFSET;
+
+  uint32_t led_count = this->comp_->get_led_count();
+  uint32_t start_led = static_cast<uint32_t>(uni_index) * E131_PIXELS_PER_UNIVERSE;
+  uint32_t pixel_count = static_cast<uint32_t>(avail_channels / 3);
+
+  for (uint32_t i = 0; i < pixel_count && (start_led + i) < led_count; i++) {
+    uint8_t r = dmx[i * 3];
+    uint8_t g = dmx[i * 3 + 1];
+    uint8_t b = dmx[i * 3 + 2];
+    this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0));
+  }
+
+  this->last_receive_ms_ = millis();
+  this->receiving_ = true;
+}
+
 }  // namespace wled_bridge
 }  // namespace esphome
 #endif  // USE_ESP32

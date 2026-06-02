@@ -50,6 +50,10 @@ CONF_UDP_PORT2 = "udp_port2"
 CONF_UDP_SEND = "udp_send"
 CONF_UDP_RECEIVE = "udp_receive"
 CONF_DDP_RECEIVE = "ddp_receive"
+CONF_BOOT_PRESET = "boot_preset"
+CONF_E131_RECEIVE = "e131_receive"
+CONF_E131_UNIVERSE = "e131_universe"
+CONF_E131_UNIVERSE_COUNT = "e131_universe_count"
 
 # Auto-white modes for RGBW strips (derive W channel from RGB).
 AUTO_WHITE_MODES = {
@@ -93,6 +97,12 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_UDP_RECEIVE, default=False): cv.boolean,
         # DDP realtime pixel receiver (Hyperion / Prismatik / xLights)
         cv.Optional(CONF_DDP_RECEIVE, default=False): cv.boolean,
+        # Boot preset (0 = restore last NVS state, 1-16 = load specific preset)
+        cv.Optional(CONF_BOOT_PRESET, default=0): cv.int_range(min=0, max=16),
+        # E1.31 (sACN) realtime pixel receiver (xLights / QLC+)
+        cv.Optional(CONF_E131_RECEIVE, default=False): cv.boolean,
+        cv.Optional(CONF_E131_UNIVERSE, default=1): cv.int_range(min=1, max=63999),
+        cv.Optional(CONF_E131_UNIVERSE_COUNT, default=1): cv.int_range(min=1, max=8),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -121,7 +131,7 @@ def _count_udp_sockets(config):
 CONFIG_SCHEMA = cv.All(
     CONFIG_SCHEMA,
     _validate,
-    consume_sockets(4, "wled_bridge", SocketType.UDP),
+    consume_sockets(5, "wled_bridge", SocketType.UDP),
 )
 
 
@@ -145,6 +155,15 @@ async def to_code(config):
 
     # DDP realtime receiver
     cg.add(var.set_ddp_enabled(config[CONF_DDP_RECEIVE]))
+
+    # Boot preset
+    if config[CONF_BOOT_PRESET] > 0:
+        cg.add(var.set_boot_preset(config[CONF_BOOT_PRESET]))
+
+    # E1.31 (sACN) realtime receiver
+    cg.add(var.set_e131_enabled(config[CONF_E131_RECEIVE]))
+    cg.add(var.set_e131_universe(config[CONF_E131_UNIVERSE]))
+    cg.add(var.set_e131_universe_count(config[CONF_E131_UNIVERSE_COUNT]))
 
     # Enable IDF WebSocket support so /ws endpoint works
     if _HAS_SDKCONFIG and CORE.is_esp32:

@@ -70,6 +70,37 @@ class WLEDDdpReceiver {
   bool push_seen_{false};
 };
 
+// E1.31 (sACN / Streaming ACN) realtime pixel receiver.
+// Listens on UDP 5568 for multi-universe DMX data from xLights / QLC+ / sACN sources.
+// Each universe carries 512 channels (170 RGB pixels). Multiple universes are
+// mapped sequentially to the LED strip starting from a configurable start universe.
+class WLEDE131Receiver {
+ public:
+  void setup(WLEDBridgeComponent *comp, bool enabled, uint16_t start_universe, uint8_t universe_count);
+  void set_enabled(bool enabled);
+  bool is_enabled() const {
+    return this->enabled_;
+  }
+  bool is_receiving() const {
+    return this->receiving_;
+  }
+  void loop();
+
+ protected:
+  void open_socket_();
+  void close_socket_();
+  void process_packet_(const uint8_t *buf, size_t len);
+
+  WLEDBridgeComponent *comp_{nullptr};
+  bool enabled_{false};
+  bool receiving_{false};
+  int fd_{-1};
+  uint16_t start_universe_{1};
+  uint8_t universe_count_{1};
+  uint32_t last_receive_ms_{0};
+  uint8_t last_seq_[8]{};
+};
+
 }  // namespace wled_bridge
 }  // namespace esphome
 

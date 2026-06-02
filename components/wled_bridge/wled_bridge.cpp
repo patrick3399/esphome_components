@@ -139,6 +139,13 @@ void WLEDBridgeComponent::setup() {
   this->load_presets_();
   this->load_state_();
 
+  // Boot preset overrides NVS-restored state if configured and valid.
+  if (this->boot_preset_ > 0 && this->is_preset_valid(this->boot_preset_)) {
+    this->load_preset(this->boot_preset_);
+    this->state_loaded_ = true;
+    ESP_LOGD(TAG, "Boot preset %u applied", this->boot_preset_);
+  }
+
   this->light_state_->add_remote_values_listener(this);
   if (this->state_loaded_) {
     this->publish_light_state();
@@ -243,6 +250,7 @@ void WLEDBridgeComponent::setup() {
   // DDP realtime pixel receiver (Hyperion / Prismatik / xLights)
 #ifdef USE_ESP32
   this->ddp_receiver_.setup(this, this->ddp_enabled_);
+  this->e131_receiver_.setup(this, this->e131_enabled_, this->e131_universe_, this->e131_universe_count_);
 #endif
 
   if (this->use_task_) {
@@ -567,6 +575,7 @@ void WLEDBridgeComponent::loop() {
   this->udp_sync_.loop();
 #ifdef USE_ESP32
   this->ddp_receiver_.loop();
+  this->e131_receiver_.loop();
 #endif
 
   // Broadcast state change via SSE, WebSocket, and UDP
@@ -1618,6 +1627,13 @@ void WLEDBridgeComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  UDP sync: send=%s recv=%s ports=%u/%u", YESNO(this->udp_send_), YESNO(this->udp_receive_),
                 this->udp_port_, this->udp_port2_);
   ESP_LOGCONFIG(TAG, "  DDP receiver: %s", YESNO(this->ddp_enabled_));
+  if (this->e131_enabled_)
+    ESP_LOGCONFIG(TAG, "  E1.31 receiver: universe %u-%u", this->e131_universe_,
+                  this->e131_universe_ + this->e131_universe_count_ - 1);
+  else
+    ESP_LOGCONFIG(TAG, "  E1.31 receiver: disabled");
+  if (this->boot_preset_ > 0)
+    ESP_LOGCONFIG(TAG, "  Boot preset: %u", this->boot_preset_);
 }
 
 // ============================================================

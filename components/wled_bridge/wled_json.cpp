@@ -423,7 +423,8 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
       "%s"
       "}",
       c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(), WLEDBridgeComponent::get_max_segments(),
-      c->get_udp_port(), c->is_ddp_receiving() ? "true" : "false", c->is_ddp_receiving() ? "DDP" : "",
+      c->get_udp_port(), (c->is_ddp_receiving() || c->is_e131_receiving()) ? "true" : "false",
+      c->is_ddp_receiving() ? "DDP" : (c->is_e131_receiving() ? "E1.31" : ""),
 #ifdef USE_ESP32
       c->get_ws_client_count(),
 #else
