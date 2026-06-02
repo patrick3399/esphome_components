@@ -4318,6 +4318,16 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 134 */ {"2D Metaballs", "2D Metaballs@!,;!;!;;m12=2", fx_2d_metaballs},
     /* 135 */ {"2D Fire", "2D Fire@Cooling,Sparking;,!;!;;m12=2", fx_2d_fire},
     /* 136 */ {"2D Gravity", "2D Gravity@!,Spawn;!;!;;m12=2", fx_2d_gravity},
+    /* 137 */ {"2D DNA", "2D DNA@!,;!;!;;m12=2", fx_2d_dna},
+    /* 138 */ {"2D Pulser", "2D Pulser@!,Rings;!;!;;m12=2", fx_2d_pulser},
+    /* 139 */ {"2D Drift", "2D Drift@!,Scale;!;!;;m12=2", fx_2d_drift},
+    /* 140 */ {"2D NoiseFire", "2D NoiseFire@Cooling,Sparking;!;!;;m12=2", fx_2d_noisefire},
+    /* 141 */ {"2D NoiseMove", "2D NoiseMove@!,Scale;!;!;;m12=2", fx_2d_noisemove},
+    /* 142 */ {"2D ColoredBursts", "2D ColoredBursts@!,# rays;!;!;;m12=2", fx_2d_colored_bursts},
+    /* 143 */ {"2D YinYang", "2D YinYang@!,;!,!;!;;m12=2", fx_2d_yinyang},
+    /* 144 */ {"2D Fireworks", "2D Fireworks@!,Trails;!;!;;m12=2", fx_2d_fireworks2d},
+    /* 145 */ {"2D Sprouts", "2D Sprouts@!,Spread;!;!;;m12=2", fx_2d_sprouts},
+    /* 146 */ {"2D Zentangle", "2D Zentangle@!,Tile;!;!;;m12=2", fx_2d_zentangle},
 };
 
 }  // namespace wled_bridge
