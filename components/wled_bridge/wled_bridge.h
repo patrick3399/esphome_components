@@ -364,6 +364,26 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     return this->e131_universe_count_;
   }
 
+  // Art-Net realtime receiver
+  void set_artnet_enabled(bool v) {
+    this->artnet_enabled_ = v;
+  }
+  void set_artnet_universe(uint16_t uni) {
+    this->artnet_universe_ = uni;
+  }
+  void set_artnet_universe_count(uint8_t count) {
+    this->artnet_universe_count_ = count;
+  }
+  bool get_artnet_enabled() const {
+    return this->artnet_enabled_;
+  }
+  uint16_t get_artnet_universe() const {
+    return this->artnet_universe_;
+  }
+  uint8_t get_artnet_universe_count() const {
+    return this->artnet_universe_count_;
+  }
+
 #ifdef USE_ESP32
   bool is_ddp_receiving() const {
     return this->ddp_receiver_.is_receiving();
@@ -371,11 +391,17 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool is_e131_receiving() const {
     return this->e131_receiver_.is_receiving();
   }
+  bool is_artnet_receiving() const {
+    return this->artnet_receiver_.is_receiving();
+  }
 #else
   bool is_ddp_receiving() const {
     return false;
   }
   bool is_e131_receiving() const {
+    return false;
+  }
+  bool is_artnet_receiving() const {
     return false;
   }
 #endif
@@ -757,6 +783,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
 #ifdef USE_ESP32
   WLEDDdpReceiver ddp_receiver_{};
   WLEDE131Receiver e131_receiver_{};
+  WLEDArtNetReceiver artnet_receiver_{};
 #endif
 
   // 2D matrix geometry (0 = no 2D)
@@ -794,6 +821,11 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool e131_enabled_{false};
   uint16_t e131_universe_{1};
   uint8_t e131_universe_count_{1};
+
+  // Art-Net realtime receiver
+  bool artnet_enabled_{false};
+  uint16_t artnet_universe_{0};
+  uint8_t artnet_universe_count_{1};
 };
 
 // ---- ESPHome automation actions ----

@@ -37,6 +37,7 @@ Demo YAMLs live under [devices/](devices/).
 | Waveshare ESP32-S3 GEEK | [devices/waveshare/esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ST7789 display, backlight control, WiFi info, Bluetooth proxy, diagnostics. | None. |
 | WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED UI + 122 effects + multi-segment + presets/playlists + nightlight. | `wled_bridge` |
 | WLED Bridge Multi-Bus PoC | [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) | ESP32-S3, two ESPHome RMT LED strips exposed as one WLED virtual LED space with per-bus current limits. | `wled_bridge` |
+| WLED Bridge Realtime PoC | [devices/test/wled_bridge_realtime_poc.yaml](devices/test/wled_bridge_realtime_poc.yaml) | ESP32-S3 realtime receiver coverage for WLED notifier, DDP, E1.31, and Art-Net with boot preset and brightness factor. | `wled_bridge` |
 | YS-IRTM UART Bridge | [devices/generic/ys-irtm-demo.yaml](devices/generic/ys-irtm-demo.yaml) | NEC IR transmit/receive, HA IR/RF Proxy bridge service, raw hex send. | `ys_irtm_uart` |
 | Guition ESP32-S3-4848S040 | TBD | Display, touch, relays. | TBD |
 | Guition JC3636K518 | TBD | QSPI display, touch, audio, encoder. | TBD |

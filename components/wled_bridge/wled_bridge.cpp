@@ -251,6 +251,7 @@ void WLEDBridgeComponent::setup() {
 #ifdef USE_ESP32
   this->ddp_receiver_.setup(this, this->ddp_enabled_);
   this->e131_receiver_.setup(this, this->e131_enabled_, this->e131_universe_, this->e131_universe_count_);
+  this->artnet_receiver_.setup(this, this->artnet_enabled_, this->artnet_universe_, this->artnet_universe_count_);
 #endif
 
   if (this->use_task_) {
@@ -576,6 +577,7 @@ void WLEDBridgeComponent::loop() {
 #ifdef USE_ESP32
   this->ddp_receiver_.loop();
   this->e131_receiver_.loop();
+  this->artnet_receiver_.loop();
 #endif
 
   // Broadcast state change via SSE, WebSocket, and UDP
@@ -1636,6 +1638,11 @@ void WLEDBridgeComponent::dump_config() {
                   this->e131_universe_ + this->e131_universe_count_ - 1);
   else
     ESP_LOGCONFIG(TAG, "  E1.31 receiver: disabled");
+  if (this->artnet_enabled_)
+    ESP_LOGCONFIG(TAG, "  Art-Net receiver: universe %u-%u", this->artnet_universe_,
+                  this->artnet_universe_ + this->artnet_universe_count_ - 1);
+  else
+    ESP_LOGCONFIG(TAG, "  Art-Net receiver: disabled");
   if (this->boot_preset_ > 0)
     ESP_LOGCONFIG(TAG, "  Boot preset: %u", this->boot_preset_);
 }

@@ -677,6 +677,144 @@ void WLEDE131Receiver::process_packet_(const uint8_t *buf, size_t len) {
   this->receiving_ = true;
 }
 
+// ============================================================
+// Art-Net receiver — UDP port 6454
+// ============================================================
+
+static constexpr uint16_t ARTNET_PORT = 6454;
+static constexpr size_t ARTNET_MIN_PACKET = 18;
+static constexpr size_t ARTNET_DMX_DATA_OFFSET = 18;
+static constexpr uint16_t ARTNET_OPCODE_DMX = 0x5000;  // little-endian on wire: 00 50
+static constexpr uint16_t ARTNET_PIXELS_PER_UNIVERSE = 170;
+static constexpr uint32_t ARTNET_TIMEOUT_MS = 2500;
+static constexpr uint8_t ARTNET_ID[] = {'A', 'r', 't', '-', 'N', 'e', 't', 0x00};
+
+void WLEDArtNetReceiver::setup(WLEDBridgeComponent *comp, bool enabled, uint16_t start_universe,
+                               uint8_t universe_count) {
+  this->comp_ = comp;
+  this->enabled_ = enabled;
+  this->start_universe_ = start_universe;
+  this->universe_count_ = universe_count;
+  if (enabled)
+    this->open_socket_();
+  ESP_LOGCONFIG(TAG, "Art-Net receiver on port %u: %s (universe %u-%u)", ARTNET_PORT,
+                enabled ? "enabled" : "disabled", start_universe, start_universe + universe_count - 1);
+}
+
+void WLEDArtNetReceiver::set_enabled(bool enabled) {
+  this->enabled_ = enabled;
+  if (enabled)
+    this->open_socket_();
+  else
+    this->close_socket_();
+}
+
+void WLEDArtNetReceiver::open_socket_() {
+  if (this->fd_ >= 0)
+    return;
+  int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (fd < 0) {
+    ESP_LOGW(TAG, "Art-Net: could not create socket: %d", errno);
+    return;
+  }
+  int enable = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+  int flags = fcntl(fd, F_GETFL, 0);
+  fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+  struct sockaddr_in addr = {};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  addr.sin_port = htons(ARTNET_PORT);
+  if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
+    ESP_LOGW(TAG, "Art-Net: bind failed on port %u: %d", ARTNET_PORT, errno);
+    close(fd);
+    return;
+  }
+  this->fd_ = fd;
+}
+
+void WLEDArtNetReceiver::close_socket_() {
+  if (this->fd_ >= 0) {
+    close(this->fd_);
+    this->fd_ = -1;
+  }
+  this->receiving_ = false;
+}
+
+void WLEDArtNetReceiver::loop() {
+  if (!this->enabled_ || this->fd_ < 0)
+    return;
+
+  uint8_t buf[600];
+  struct sockaddr_in src = {};
+  socklen_t src_len = sizeof(src);
+
+  for (int i = 0; i < 8; i++) {
+    ssize_t len = recvfrom(this->fd_, buf, sizeof(buf), 0, reinterpret_cast<struct sockaddr *>(&src), &src_len);
+    if (len <= 0)
+      break;
+    if (static_cast<size_t>(len) >= ARTNET_MIN_PACKET)
+      this->process_packet_(buf, static_cast<size_t>(len));
+  }
+
+  if (this->receiving_ && (millis() - this->last_receive_ms_ > ARTNET_TIMEOUT_MS)) {
+    this->receiving_ = false;
+    this->comp_->clear_pixel_overrides();
+    ESP_LOGD(TAG, "Art-Net: stream timeout, returning to effects");
+  }
+}
+
+void WLEDArtNetReceiver::process_packet_(const uint8_t *buf, size_t len) {
+  if (memcmp(buf, ARTNET_ID, sizeof(ARTNET_ID)) != 0)
+    return;
+
+  uint16_t opcode = static_cast<uint16_t>(buf[8]) | (static_cast<uint16_t>(buf[9]) << 8);
+  if (opcode != ARTNET_OPCODE_DMX)
+    return;
+
+  uint16_t protocol_version = (static_cast<uint16_t>(buf[10]) << 8) | buf[11];
+  if (protocol_version < 14)
+    return;
+
+  uint16_t universe = static_cast<uint16_t>(buf[14]) | (static_cast<uint16_t>(buf[15]) << 8);
+  if (universe < this->start_universe_ || universe >= this->start_universe_ + this->universe_count_)
+    return;
+
+  uint8_t uni_index = static_cast<uint8_t>(universe - this->start_universe_);
+  uint8_t seq = buf[12];
+  if (seq != 0 && uni_index < 8) {
+    uint8_t last = this->last_seq_[uni_index];
+    if (last != 0) {
+      int8_t diff = static_cast<int8_t>(seq - last);
+      if (diff < 0 && diff > -20)
+        return;
+    }
+    this->last_seq_[uni_index] = seq;
+  }
+
+  uint16_t data_len = (static_cast<uint16_t>(buf[16]) << 8) | buf[17];
+  if (data_len > 512)
+    data_len = 512;
+  if (ARTNET_DMX_DATA_OFFSET + data_len > len)
+    data_len = static_cast<uint16_t>(len - ARTNET_DMX_DATA_OFFSET);
+
+  const uint8_t *dmx = buf + ARTNET_DMX_DATA_OFFSET;
+  uint32_t led_count = this->comp_->get_led_count();
+  uint32_t start_led = static_cast<uint32_t>(uni_index) * ARTNET_PIXELS_PER_UNIVERSE;
+  uint32_t pixel_count = static_cast<uint32_t>(data_len / 3);
+
+  for (uint32_t i = 0; i < pixel_count && (start_led + i) < led_count; i++) {
+    uint8_t r = dmx[i * 3];
+    uint8_t g = dmx[i * 3 + 1];
+    uint8_t b = dmx[i * 3 + 2];
+    this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0));
+  }
+
+  this->last_receive_ms_ = millis();
+  this->receiving_ = true;
+}
+
 }  // namespace wled_bridge
 }  // namespace esphome
 #endif  // USE_ESP32

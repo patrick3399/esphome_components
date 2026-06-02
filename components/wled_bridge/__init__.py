@@ -54,6 +54,9 @@ CONF_BOOT_PRESET = "boot_preset"
 CONF_E131_RECEIVE = "e131_receive"
 CONF_E131_UNIVERSE = "e131_universe"
 CONF_E131_UNIVERSE_COUNT = "e131_universe_count"
+CONF_ARTNET_RECEIVE = "artnet_receive"
+CONF_ARTNET_UNIVERSE = "artnet_universe"
+CONF_ARTNET_UNIVERSE_COUNT = "artnet_universe_count"
 CONF_BRIGHTNESS_FACTOR = "brightness_factor"
 
 # Auto-white modes for RGBW strips (derive W channel from RGB).
@@ -104,6 +107,10 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_E131_RECEIVE, default=False): cv.boolean,
         cv.Optional(CONF_E131_UNIVERSE, default=1): cv.int_range(min=1, max=63999),
         cv.Optional(CONF_E131_UNIVERSE_COUNT, default=1): cv.int_range(min=1, max=8),
+        # Art-Net realtime pixel receiver (xLights / Madrix / QLC+)
+        cv.Optional(CONF_ARTNET_RECEIVE, default=False): cv.boolean,
+        cv.Optional(CONF_ARTNET_UNIVERSE, default=0): cv.int_range(min=0, max=32767),
+        cv.Optional(CONF_ARTNET_UNIVERSE_COUNT, default=1): cv.int_range(min=1, max=8),
         # Brightness factor (0-100%, caps maximum brightness like WLED BF setting)
         cv.Optional(CONF_BRIGHTNESS_FACTOR, default=100): cv.int_range(min=1, max=100),
     }
@@ -128,13 +135,17 @@ def _count_udp_sockets(config):
             count += 1  # recv port2
     if config.get(CONF_DDP_RECEIVE, False):
         count += 1  # DDP port 4048
+    if config.get(CONF_E131_RECEIVE, False):
+        count += 1  # E1.31/sACN port 5568
+    if config.get(CONF_ARTNET_RECEIVE, False):
+        count += 1  # Art-Net port 6454
     return count
 
 
 CONFIG_SCHEMA = cv.All(
     CONFIG_SCHEMA,
     _validate,
-    consume_sockets(5, "wled_bridge", SocketType.UDP),
+    consume_sockets(6, "wled_bridge", SocketType.UDP),
 )
 
 
@@ -167,6 +178,11 @@ async def to_code(config):
     cg.add(var.set_e131_enabled(config[CONF_E131_RECEIVE]))
     cg.add(var.set_e131_universe(config[CONF_E131_UNIVERSE]))
     cg.add(var.set_e131_universe_count(config[CONF_E131_UNIVERSE_COUNT]))
+
+    # Art-Net realtime receiver
+    cg.add(var.set_artnet_enabled(config[CONF_ARTNET_RECEIVE]))
+    cg.add(var.set_artnet_universe(config[CONF_ARTNET_UNIVERSE]))
+    cg.add(var.set_artnet_universe_count(config[CONF_ARTNET_UNIVERSE_COUNT]))
 
     # Brightness factor
     if config[CONF_BRIGHTNESS_FACTOR] < 100:
