@@ -220,10 +220,9 @@ void WLEDBridgeComponent::setup() {
     ESP_LOGW(TAG, "web_server_base not available — JSON API disabled");
   }
 
-  // UDP sync
-  if (this->udp_send_ || this->udp_receive_) {
-    this->udp_sync_.setup(this, this->udp_port_, this->udp_send_, this->udp_receive_);
-  }
+  // UDP sync. Set up even when disabled so runtime /json/state.udpn updates
+  // can open sockets later.
+  this->udp_sync_.setup(this, this->udp_port_, this->udp_port2_, this->udp_send_, this->udp_receive_);
 
   if (this->use_task_) {
     xTaskCreatePinnedToCore(render_task_fn_, "wled_render", 8192, this, 5, &this->render_task_, APP_CPU_NUM);

@@ -180,6 +180,15 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   // UDP sync
   void set_udp_port(uint16_t port) {
     this->udp_port_ = port;
+#ifdef USE_ESP32
+    this->udp_sync_.set_ports(this->udp_port_, this->udp_port2_);
+#endif
+  }
+  void set_udp_port2(uint16_t port) {
+    this->udp_port2_ = port;
+#ifdef USE_ESP32
+    this->udp_sync_.set_ports(this->udp_port_, this->udp_port2_);
+#endif
   }
   void set_udp_send(bool v) {
     this->udp_send_ = v;
@@ -187,8 +196,122 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void set_udp_receive(bool v) {
     this->udp_receive_ = v;
   }
+  void set_udp_send_enabled(bool v) {
+    this->udp_send_ = v;
+#ifdef USE_ESP32
+    this->udp_sync_.set_send_enabled(v);
+#endif
+    this->mark_dirty_(false);
+  }
+  void set_udp_receive_enabled(bool v) {
+    this->udp_receive_ = v;
+#ifdef USE_ESP32
+    this->udp_sync_.set_receive_enabled(v);
+#endif
+    this->mark_dirty_(false);
+  }
   uint16_t get_udp_port() const {
     return this->udp_port_;
+  }
+  uint16_t get_udp_port2() const {
+    return this->udp_port2_;
+  }
+  bool get_udp_send() const {
+    return this->udp_send_;
+  }
+  bool get_udp_receive() const {
+    return this->udp_receive_;
+  }
+  void set_udp_sync_groups(uint8_t groups) {
+    this->udp_sync_groups_ = groups;
+    this->mark_dirty_(false);
+  }
+  void set_udp_receive_groups(uint8_t groups) {
+    this->udp_receive_groups_ = groups;
+    this->mark_dirty_(false);
+  }
+  void set_udp_receive_brightness(bool v) {
+    this->udp_receive_brightness_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_receive_color(bool v) {
+    this->udp_receive_color_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_receive_effects(bool v) {
+    this->udp_receive_effects_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_receive_palette(bool v) {
+    this->udp_receive_palette_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_receive_segments(bool v) {
+    this->udp_receive_segments_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_receive_segment_options(bool v) {
+    this->udp_receive_segment_options_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_notify_direct(bool v) {
+    this->udp_notify_direct_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_notify_button(bool v) {
+    this->udp_notify_button_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_notify_alexa(bool v) {
+    this->udp_notify_alexa_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_notify_hue(bool v) {
+    this->udp_notify_hue_ = v;
+    this->mark_dirty_(false);
+  }
+  void set_udp_retries(uint8_t retries) {
+    this->udp_retries_ = retries;
+    this->mark_dirty_(false);
+  }
+  uint8_t get_udp_sync_groups() const {
+    return this->udp_sync_groups_;
+  }
+  uint8_t get_udp_receive_groups() const {
+    return this->udp_receive_groups_;
+  }
+  bool get_udp_receive_brightness() const {
+    return this->udp_receive_brightness_;
+  }
+  bool get_udp_receive_color() const {
+    return this->udp_receive_color_;
+  }
+  bool get_udp_receive_effects() const {
+    return this->udp_receive_effects_;
+  }
+  bool get_udp_receive_palette() const {
+    return this->udp_receive_palette_;
+  }
+  bool get_udp_receive_segments() const {
+    return this->udp_receive_segments_;
+  }
+  bool get_udp_receive_segment_options() const {
+    return this->udp_receive_segment_options_;
+  }
+  bool get_udp_notify_direct() const {
+    return this->udp_notify_direct_;
+  }
+  bool get_udp_notify_button() const {
+    return this->udp_notify_button_;
+  }
+  bool get_udp_notify_alexa() const {
+    return this->udp_notify_alexa_;
+  }
+  bool get_udp_notify_hue() const {
+    return this->udp_notify_hue_;
+  }
+  uint8_t get_udp_retries() const {
+    return this->udp_retries_;
   }
 #ifdef USE_ESP32
   int get_ws_client_count() const {
@@ -578,8 +701,22 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
 
   // UDP sync config
   uint16_t udp_port_{21324};
+  uint16_t udp_port2_{65506};
   bool udp_send_{false};
   bool udp_receive_{false};
+  uint8_t udp_sync_groups_{0x01};
+  uint8_t udp_receive_groups_{0x01};
+  bool udp_receive_brightness_{true};
+  bool udp_receive_color_{true};
+  bool udp_receive_effects_{true};
+  bool udp_receive_palette_{true};
+  bool udp_receive_segments_{true};
+  bool udp_receive_segment_options_{true};
+  bool udp_notify_direct_{true};
+  bool udp_notify_button_{true};
+  bool udp_notify_alexa_{false};
+  bool udp_notify_hue_{false};
+  uint8_t udp_retries_{0};
 };
 
 }  // namespace wled_bridge

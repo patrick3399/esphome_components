@@ -74,6 +74,17 @@ static bool legacy_path_arg_u16(const std::string &url, const char *name, uint16
   return parse_u16(url.substr(pos, end == std::string::npos ? std::string::npos : end - pos), out);
 }
 
+static bool legacy_path_arg_string(const std::string &url, const char *name, std::string *out) {
+  std::string token = std::string("&") + name + "=";
+  size_t pos = url.find(token);
+  if (pos == std::string::npos)
+    return false;
+  pos += token.size();
+  size_t end = url.find('&', pos);
+  *out = url.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+  return true;
+}
+
 static uint8_t clamp_segment_id(size_t id) {
   if (id >= WLED_MAX_SEGMENTS)
     return WLED_MAX_SEGMENTS - 1;
@@ -170,6 +181,28 @@ static bool legacy_path_has_arg(const std::string &url, const char *name) {
 
 static bool win_has_arg(web_server_idf::AsyncWebServerRequest *request, const std::string &url, const char *name) {
   return (request != nullptr && request->hasArg(name)) || legacy_path_has_arg(url, name);
+}
+
+static bool parse_bool_text(const std::string &value) {
+  return value.empty() || value == "1" || value == "true" || value == "on" || value == "yes" || value == "checked";
+}
+
+static bool win_arg_bool(web_server_idf::AsyncWebServerRequest *request, const std::string &url, const char *name,
+                         bool *out) {
+  if (request != nullptr && request->hasArg(name)) {
+    *out = parse_bool_text(request->arg(name));
+    return true;
+  }
+  std::string value;
+  if (legacy_path_arg_string(url, name, &value)) {
+    *out = parse_bool_text(value);
+    return true;
+  }
+  if (legacy_path_has_arg(url, name)) {
+    *out = true;
+    return true;
+  }
+  return false;
 }
 
 static bool json_on_is_toggle(JsonVariant value) {
@@ -309,26 +342,34 @@ std::string build_state_json(const WLEDBridgeComponent *c) {
   }
   playlist += "]}";
 
-  return string_sprintf("{"
-                        "\"on\":%s,"
-                        "\"bri\":%u,"
-                        "\"transition\":%u,"
-                        "\"tt\":%u,"
-                        "\"ps\":%u,"
-                        "\"pl\":%d,"
-                        "\"playlist\":%s,"
-                        "\"presets\":%s,"
-                        "\"nl\":{\"on\":%s,\"dur\":%u,\"mode\":%u,\"tbri\":%u,\"rem\":%d},"
-                        "\"udpn\":{\"send\":false,\"recv\":false,\"sgrp\":1,\"rgrp\":1},"
-                        "\"time\":0,"
-                        "\"lor\":0,"
-                        "\"mainseg\":%u,"
-                        "\"seg\":%s}",
-                        c->is_on() ? "true" : "false", c->get_brightness(), transition_tenths, transition_tenths,
-                        c->get_active_preset(), c->get_active_playlist(), playlist.c_str(), presets.c_str(),
-                        c->is_nightlight_active() ? "true" : "false", c->get_nightlight_duration_min(),
-                        c->get_nightlight_mode(), c->get_nightlight_target_brightness(),
-                        c->get_nightlight_remaining_s(), c->get_main_segment(), seg_array.c_str());
+  return string_sprintf(
+      "{"
+      "\"on\":%s,"
+      "\"bri\":%u,"
+      "\"transition\":%u,"
+      "\"tt\":%u,"
+      "\"ps\":%u,"
+      "\"pl\":%d,"
+      "\"playlist\":%s,"
+      "\"presets\":%s,"
+      "\"nl\":{\"on\":%s,\"dur\":%u,\"mode\":%u,\"tbri\":%u,\"rem\":%d},"
+      "\"udpn\":{\"send\":%s,\"recv\":%s,\"sgrp\":%u,\"rgrp\":%u,"
+      "\"rb\":%s,\"rc\":%s,\"rx\":%s,\"rp\":%s,\"so\":%s,\"sg\":%s,"
+      "\"dir\":%s,\"btn\":%s,\"va\":%s,\"hue\":%s,\"ret\":%u},"
+      "\"time\":0,"
+      "\"lor\":0,"
+      "\"mainseg\":%u,"
+      "\"seg\":%s}",
+      c->is_on() ? "true" : "false", c->get_brightness(), transition_tenths, transition_tenths, c->get_active_preset(),
+      c->get_active_playlist(), playlist.c_str(), presets.c_str(), c->is_nightlight_active() ? "true" : "false",
+      c->get_nightlight_duration_min(), c->get_nightlight_mode(), c->get_nightlight_target_brightness(),
+      c->get_nightlight_remaining_s(), c->get_udp_send() ? "true" : "false", c->get_udp_receive() ? "true" : "false",
+      c->get_udp_sync_groups(), c->get_udp_receive_groups(), c->get_udp_receive_brightness() ? "true" : "false",
+      c->get_udp_receive_color() ? "true" : "false", c->get_udp_receive_effects() ? "true" : "false",
+      c->get_udp_receive_palette() ? "true" : "false", c->get_udp_receive_segment_options() ? "true" : "false",
+      c->get_udp_receive_segments() ? "true" : "false", c->get_udp_notify_direct() ? "true" : "false",
+      c->get_udp_notify_button() ? "true" : "false", c->get_udp_notify_alexa() ? "true" : "false",
+      c->get_udp_notify_hue() ? "true" : "false", c->get_udp_retries(), c->get_main_segment(), seg_array.c_str());
 }
 
 std::string build_info_json(const WLEDBridgeComponent *c) {
@@ -484,8 +525,9 @@ std::string build_config_json(const WLEDBridgeComponent *c) {
       "},"
       "\"def\":{\"ps\":%u,\"on\":%s,\"bri\":%u,\"fx\":%u,\"sx\":%u,\"ix\":%u,\"pal\":%u},"
       "\"if\":{"
-      "\"sync\":{\"port0\":21324,\"port1\":65506,\"recv\":{\"bri\":true,\"col\":true,\"fx\":true},\"send\":{\"dir\":"
-      "false}},"
+      "\"sync\":{\"port0\":%u,\"port1\":%u,"
+      "\"recv\":{\"en\":%s,\"grp\":%u,\"bri\":%s,\"col\":%s,\"fx\":%s,\"pal\":%s,\"opt\":%s,\"seg\":%s},"
+      "\"send\":{\"en\":%s,\"dir\":%s,\"btn\":%s,\"va\":%s,\"hue\":%s,\"grp\":%u,\"ret\":%u}},"
       "\"live\":{\"en\":false,\"mso\":false,\"port\":5568},"
       "\"va\":{\"alexa\":false,\"macros\":[0,0]},"
       "\"mqtt\":{\"en\":false}"
@@ -496,7 +538,14 @@ std::string build_config_json(const WLEDBridgeComponent *c) {
       c->get_led_count(), c->get_max_ma(), bus_count == 0 ? 0 : c->get_bus_led_ma(0), c->get_auto_white_mode(),
       bus_ins.c_str(), c->get_transition_ms() / 100u, c->get_active_preset(), c->is_on() ? "true" : "false",
       c->get_brightness(), c->get_effect_index(), c->get_params().speed, c->get_params().intensity,
-      c->get_params().palette_id);
+      c->get_params().palette_id, c->get_udp_port(), c->get_udp_port2(), c->get_udp_receive() ? "true" : "false",
+      c->get_udp_receive_groups(), c->get_udp_receive_brightness() ? "true" : "false",
+      c->get_udp_receive_color() ? "true" : "false", c->get_udp_receive_effects() ? "true" : "false",
+      c->get_udp_receive_palette() ? "true" : "false", c->get_udp_receive_segment_options() ? "true" : "false",
+      c->get_udp_receive_segments() ? "true" : "false", c->get_udp_send() ? "true" : "false",
+      c->get_udp_notify_direct() ? "true" : "false", c->get_udp_notify_button() ? "true" : "false",
+      c->get_udp_notify_alexa() ? "true" : "false", c->get_udp_notify_hue() ? "true" : "false",
+      c->get_udp_sync_groups(), c->get_udp_retries());
 }
 
 std::string build_network_json(const WLEDBridgeComponent *c) {
@@ -915,6 +964,84 @@ static bool parse_nightlight_json(WLEDBridgeComponent *comp, JsonVariant value) 
   return true;
 }
 
+static bool parse_udpn_json(WLEDBridgeComponent *comp, JsonVariant value) {
+  if (comp == nullptr || value.isNull() || !value.is<JsonObject>())
+    return false;
+
+  if (!value["send"].isNull())
+    comp->set_udp_send_enabled(json_bool(value["send"]));
+  else if (!value["en"].isNull())
+    comp->set_udp_send_enabled(json_bool(value["en"]));
+
+  if (!value["recv"].isNull())
+    comp->set_udp_receive_enabled(json_bool(value["recv"]));
+
+  if (!value["sgrp"].isNull())
+    comp->set_udp_sync_groups(json_u8(value["sgrp"], comp->get_udp_sync_groups()));
+  else if (!value["grp"].isNull())
+    comp->set_udp_sync_groups(json_u8(value["grp"], comp->get_udp_sync_groups()));
+
+  if (!value["rgrp"].isNull())
+    comp->set_udp_receive_groups(json_u8(value["rgrp"], comp->get_udp_receive_groups()));
+
+  if (!value["rb"].isNull())
+    comp->set_udp_receive_brightness(json_bool(value["rb"]));
+  else if (!value["bri"].isNull())
+    comp->set_udp_receive_brightness(json_bool(value["bri"]));
+
+  if (!value["rc"].isNull())
+    comp->set_udp_receive_color(json_bool(value["rc"]));
+  else if (!value["col"].isNull())
+    comp->set_udp_receive_color(json_bool(value["col"]));
+
+  if (!value["rx"].isNull())
+    comp->set_udp_receive_effects(json_bool(value["rx"]));
+  else if (!value["fx"].isNull())
+    comp->set_udp_receive_effects(json_bool(value["fx"]));
+
+  if (!value["rp"].isNull())
+    comp->set_udp_receive_palette(json_bool(value["rp"]));
+  else if (!value["pal"].isNull())
+    comp->set_udp_receive_palette(json_bool(value["pal"]));
+
+  if (!value["so"].isNull())
+    comp->set_udp_receive_segment_options(json_bool(value["so"]));
+  else if (!value["opt"].isNull())
+    comp->set_udp_receive_segment_options(json_bool(value["opt"]));
+
+  if (!value["sg"].isNull())
+    comp->set_udp_receive_segments(json_bool(value["sg"]));
+  else if (!value["seg"].isNull())
+    comp->set_udp_receive_segments(json_bool(value["seg"]));
+
+  if (!value["dir"].isNull())
+    comp->set_udp_notify_direct(json_bool(value["dir"]));
+  else if (!value["sd"].isNull())
+    comp->set_udp_notify_direct(json_bool(value["sd"]));
+
+  if (!value["btn"].isNull())
+    comp->set_udp_notify_button(json_bool(value["btn"]));
+  else if (!value["sb"].isNull())
+    comp->set_udp_notify_button(json_bool(value["sb"]));
+
+  if (!value["va"].isNull())
+    comp->set_udp_notify_alexa(json_bool(value["va"]));
+  else if (!value["sa"].isNull())
+    comp->set_udp_notify_alexa(json_bool(value["sa"]));
+
+  if (!value["hue"].isNull())
+    comp->set_udp_notify_hue(json_bool(value["hue"]));
+  else if (!value["sh"].isNull())
+    comp->set_udp_notify_hue(json_bool(value["sh"]));
+
+  if (!value["ret"].isNull())
+    comp->set_udp_retries(json_u8(value["ret"], comp->get_udp_retries()));
+  else if (!value["retries"].isNull())
+    comp->set_udp_retries(json_u8(value["retries"], comp->get_udp_retries()));
+
+  return true;
+}
+
 static bool apply_segment_pixels_json(WLEDBridgeComponent *comp, uint8_t id, JsonVariant value) {
   if (comp == nullptr || value.isNull() || !value.is<JsonArray>())
     return false;
@@ -1044,8 +1171,9 @@ bool WLEDJsonHandler::canHandle(web_server_idf::AsyncWebServerRequest *request) 
   char url_buf[web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
   return strncmp(url.c_str(), "/json", 5) == 0 || strcmp(url.c_str(), "/presets.json") == 0 ||
-         strcmp(url.c_str(), "/win") == 0 || strncmp(url.c_str(), "/win&", 5) == 0 ||
-         strcmp(url.c_str(), "/version") == 0 || strcmp(url.c_str(), "/freeheap") == 0;
+         strcmp(url.c_str(), "/cfg.json") == 0 || strcmp(url.c_str(), "/win") == 0 ||
+         strncmp(url.c_str(), "/win&", 5) == 0 || strcmp(url.c_str(), "/version") == 0 ||
+         strcmp(url.c_str(), "/freeheap") == 0;
 }
 
 void WLEDJsonHandler::handleBody(web_server_idf::AsyncWebServerRequest *request, uint8_t *data, size_t len,
@@ -1073,6 +1201,15 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
       this->post_body_.clear();
     } else {
       request->send(405, "application/json", "{\"error\":\"method not allowed\"}");
+    }
+    return;
+  }
+
+  if (strcmp(url.c_str(), "/cfg.json") == 0) {
+    if (request->method() == HTTP_GET) {
+      handle_get_config_(request);
+    } else {
+      request->send(405, "application/json", "{\"error\":\"cfg restore is managed by ESPHome\"}");
     }
     return;
   }
@@ -1112,7 +1249,7 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
   } else if (strcmp(url.c_str(), "/json/palettes") == 0 || strcmp(url.c_str(), "/json/pal") == 0 ||
              strcmp(url.c_str(), "/json/palx") == 0) {
     handle_get_palettes_(request);
-  } else if (strcmp(url.c_str(), "/json/cfg") == 0) {
+  } else if (strcmp(url.c_str(), "/json/cfg") == 0 || strcmp(url.c_str(), "/json/config") == 0) {
     handle_get_config_(request);
   } else if (strcmp(url.c_str(), "/json/net") == 0 || strcmp(url.c_str(), "/json/nodes") == 0) {
     handle_get_network_(request);
@@ -1281,6 +1418,48 @@ void WLEDJsonHandler::handle_win_(web_server_idf::AsyncWebServerRequest *request
     if (comp_->delete_preset(static_cast<uint8_t>(value > 255 ? 255 : value)))
       changed = true;
   }
+
+  // Sync settings form compatibility (settings_sync.htm / set.cpp names).
+  // These affect bridge runtime/API state; hardware/network ownership remains ESPHome.
+  if (win_arg_u16(request, url, "UP", &value) && value > 0) {
+    comp_->set_udp_port(value);
+  }
+  if (win_arg_u16(request, url, "U2", &value) && value > 0) {
+    comp_->set_udp_port2(value);
+  }
+  if (win_arg_u16(request, url, "GS", &value)) {
+    comp_->set_udp_sync_groups(static_cast<uint8_t>(value > 255 ? 255 : value));
+  }
+  if (win_arg_u16(request, url, "GR", &value)) {
+    comp_->set_udp_receive_groups(static_cast<uint8_t>(value > 255 ? 255 : value));
+  }
+  if (win_arg_u16(request, url, "UR", &value)) {
+    comp_->set_udp_retries(static_cast<uint8_t>(value > 29 ? 29 : value));
+  }
+  bool flag = false;
+  if (win_arg_bool(request, url, "RB", &flag))
+    comp_->set_udp_receive_brightness(flag);
+  if (win_arg_bool(request, url, "RC", &flag))
+    comp_->set_udp_receive_color(flag);
+  if (win_arg_bool(request, url, "RX", &flag))
+    comp_->set_udp_receive_effects(flag);
+  if (win_arg_bool(request, url, "RP", &flag))
+    comp_->set_udp_receive_palette(flag);
+  if (win_arg_bool(request, url, "SO", &flag))
+    comp_->set_udp_receive_segment_options(flag);
+  if (win_arg_bool(request, url, "SG", &flag))
+    comp_->set_udp_receive_segments(flag);
+  if (win_arg_bool(request, url, "SS", &flag))
+    comp_->set_udp_send_enabled(flag);
+  if (win_arg_bool(request, url, "SD", &flag))
+    comp_->set_udp_notify_direct(flag);
+  if (win_arg_bool(request, url, "SB", &flag))
+    comp_->set_udp_notify_button(flag);
+  if (win_arg_bool(request, url, "SA", &flag))
+    comp_->set_udp_notify_alexa(flag);
+  if (win_arg_bool(request, url, "SH", &flag))
+    comp_->set_udp_notify_hue(flag);
+
   bool use_default_nightlight_duration = win_has_arg(request, url, "ND");
   bool nightlight_changed = false;
   uint16_t nightlight_duration_min = comp_->get_nightlight_duration_min();
@@ -1407,6 +1586,8 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
     parse_playlist_json(comp_, doc["playlist"]);
   if (!doc["nl"].isNull())
     parse_nightlight_json(comp_, doc["nl"]);
+  if (!doc["udpn"].isNull())
+    parse_udpn_json(comp_, doc["udpn"]);
   bool has_mainseg = !doc["mainseg"].isNull();
   uint8_t requested_mainseg = has_mainseg ? json_u8(doc["mainseg"]) : 0;
 

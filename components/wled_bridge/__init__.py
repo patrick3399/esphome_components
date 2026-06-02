@@ -26,6 +26,7 @@ CONF_MATRIX_WIDTH = "matrix_width"
 CONF_MATRIX_HEIGHT = "matrix_height"
 CONF_MATRIX_SERPENTINE = "matrix_serpentine"
 CONF_UDP_PORT = "udp_port"
+CONF_UDP_PORT2 = "udp_port2"
 CONF_UDP_SEND = "udp_send"
 CONF_UDP_RECEIVE = "udp_receive"
 
@@ -66,6 +67,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_MATRIX_SERPENTINE, default=False): cv.boolean,
         # UDP WLED notifier sync
         cv.Optional(CONF_UDP_PORT, default=21324): cv.port,
+        cv.Optional(CONF_UDP_PORT2, default=65506): cv.port,
         cv.Optional(CONF_UDP_SEND, default=False): cv.boolean,
         cv.Optional(CONF_UDP_RECEIVE, default=False): cv.boolean,
     }
@@ -97,6 +99,7 @@ async def to_code(config):
 
     # UDP sync
     cg.add(var.set_udp_port(config[CONF_UDP_PORT]))
+    cg.add(var.set_udp_port2(config[CONF_UDP_PORT2]))
     cg.add(var.set_udp_send(config[CONF_UDP_SEND]))
     cg.add(var.set_udp_receive(config[CONF_UDP_RECEIVE]))
 

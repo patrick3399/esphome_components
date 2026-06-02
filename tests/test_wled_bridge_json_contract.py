@@ -18,6 +18,9 @@ WLED_BRIDGE_H = ROOT / "components" / "wled_bridge" / "wled_bridge.h"
 WLED_EFFECT_CONTEXT_H = ROOT / "components" / "wled_bridge" / "wled_effect_context.h"
 WLED_UI_CPP = ROOT / "components" / "wled_bridge" / "wled_ui_data.cpp"
 WLED_UI_GENERATOR = ROOT / "tools" / "gen_wled_ui.py"
+WLED_UDP_CPP = ROOT / "components" / "wled_bridge" / "wled_udp.cpp"
+WLED_UDP_H = ROOT / "components" / "wled_bridge" / "wled_udp.h"
+WLED_INIT_PY = ROOT / "components" / "wled_bridge" / "__init__.py"
 
 
 def read(path: Path) -> str:
@@ -64,6 +67,18 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "build_preset_validity_json",
                 '"nl"',
                 '"udpn"',
+                '"send":%s',
+                '"recv":%s',
+                '"rb":%s',
+                '"rc":%s',
+                '"rx":%s',
+                '"rp":%s',
+                '"sg":%s',
+                '"dir":%s',
+                '"btn":%s',
+                '"va":%s',
+                '"hue":%s',
+                '"ret":%u',
                 '"mainseg"',
                 '"seg"',
                 '"start"',
@@ -83,6 +98,100 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"sel"',
                 '"rev"',
                 '"mi"',
+            ],
+        )
+
+    def test_json_state_accepts_runtime_udp_notifier_controls(self) -> None:
+        header = read(WLED_BRIDGE_H)
+        source = read(WLED_JSON_CPP)
+        codegen = read(WLED_INIT_PY)
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "set_udp_port2",
+                "get_udp_port2",
+                "set_udp_send_enabled",
+                "set_udp_receive_enabled",
+                "set_udp_sync_groups",
+                "set_udp_receive_groups",
+                "set_udp_receive_brightness",
+                "set_udp_receive_color",
+                "set_udp_receive_effects",
+                "set_udp_receive_palette",
+                "set_udp_receive_segments",
+                "set_udp_receive_segment_options",
+                "set_udp_notify_direct",
+                "set_udp_notify_button",
+                "set_udp_notify_alexa",
+                "set_udp_notify_hue",
+                "set_udp_retries",
+                "get_udp_send",
+                "get_udp_receive",
+                "get_udp_sync_groups",
+                "get_udp_receive_groups",
+                "get_udp_receive_brightness",
+                "get_udp_receive_color",
+                "get_udp_receive_effects",
+                "get_udp_receive_palette",
+                "get_udp_receive_segments",
+                "get_udp_receive_segment_options",
+                "get_udp_notify_direct",
+                "get_udp_notify_button",
+                "get_udp_notify_alexa",
+                "get_udp_notify_hue",
+                "get_udp_retries",
+            ],
+        )
+        assert_contains_all(
+            self,
+            source,
+            [
+                "parse_udpn_json",
+                'doc["udpn"]',
+                'value["send"]',
+                'value["recv"]',
+                'value["sgrp"]',
+                'value["rgrp"]',
+                'value["rb"]',
+                'value["rc"]',
+                'value["rx"]',
+                'value["rp"]',
+                'value["so"]',
+                'value["opt"]',
+                'value["sg"]',
+                'value["dir"]',
+                'value["sd"]',
+                'value["btn"]',
+                'value["sb"]',
+                'value["va"]',
+                'value["sa"]',
+                'value["hue"]',
+                'value["sh"]',
+                'value["ret"]',
+                "set_udp_send_enabled",
+                "set_udp_receive_enabled",
+                "set_udp_receive_brightness",
+                "set_udp_receive_color",
+                "set_udp_receive_effects",
+                "set_udp_receive_palette",
+                "set_udp_receive_segments",
+                "set_udp_receive_segment_options",
+                "set_udp_notify_direct",
+                "set_udp_notify_button",
+                "set_udp_notify_alexa",
+                "set_udp_notify_hue",
+                "set_udp_retries",
+            ],
+        )
+        assert_contains_all(
+            self,
+            codegen,
+            [
+                'CONF_UDP_PORT2 = "udp_port2"',
+                "cv.Optional(CONF_UDP_PORT2, default=65506): cv.port",
+                "cg.add(var.set_udp_port2(config[CONF_UDP_PORT2]))",
             ],
         )
 
@@ -143,6 +252,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "build_config_json",
                 "build_network_json",
                 '"/json/cfg"',
+                '"/json/config"',
+                '"/cfg.json"',
+                '"cfg restore is managed by ESPHome"',
                 '"/json/net"',
                 '"/json/nodes"',
                 '"/json/pins"',
@@ -165,6 +277,17 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"pins"',
                 '"fxcount"',
                 '"palcount"',
+                '"sync"',
+                '"port0":%u',
+                '"port1":%u',
+                '"recv"',
+                '"send"',
+                '"opt":%s',
+                '"grp":%u',
+                '"ret":%u',
+                '"btn":%s',
+                '"va":%s',
+                '"hue":%s',
             ],
         )
 
@@ -186,6 +309,8 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"/json/pal"',
                 '"/json/palx"',
                 '"/json/cfg"',
+                '"/json/config"',
+                '"/cfg.json"',
                 '"/json/net"',
                 '"/json/nodes"',
                 '"/json/pins"',
@@ -275,7 +400,10 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             [
                 "request_arg_u16",
                 "legacy_path_arg_u16",
+                "legacy_path_arg_string",
                 "win_arg_u16",
+                "win_arg_bool",
+                "parse_bool_text",
                 "request == nullptr",
                 "transition_tenths_to_ms",
                 '"/win"',
@@ -290,6 +418,22 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"PL"',
                 '"PS"',
                 '"PD"',
+                '"UP"',
+                '"U2"',
+                '"GS"',
+                '"GR"',
+                '"RB"',
+                '"RC"',
+                '"RX"',
+                '"RP"',
+                '"SO"',
+                '"SG"',
+                '"SS"',
+                '"SD"',
+                '"SB"',
+                '"SA"',
+                '"SH"',
+                '"UR"',
                 '"R"',
                 '"G"',
                 '"B"',
@@ -303,6 +447,22 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "comp_->save_preset",
                 "comp_->delete_preset",
                 "comp_->set_color(0, RGBW32",
+                "comp_->set_udp_port(value)",
+                "comp_->set_udp_port2(value)",
+                "comp_->set_udp_sync_groups",
+                "comp_->set_udp_receive_groups",
+                "comp_->set_udp_receive_brightness(flag)",
+                "comp_->set_udp_receive_color(flag)",
+                "comp_->set_udp_receive_effects(flag)",
+                "comp_->set_udp_receive_palette(flag)",
+                "comp_->set_udp_receive_segment_options(flag)",
+                "comp_->set_udp_receive_segments(flag)",
+                "comp_->set_udp_send_enabled(flag)",
+                "comp_->set_udp_notify_direct(flag)",
+                "comp_->set_udp_notify_button(flag)",
+                "comp_->set_udp_notify_alexa(flag)",
+                "comp_->set_udp_notify_hue(flag)",
+                "comp_->set_udp_retries",
                 "comp_->publish_light_state();",
             ],
         )
@@ -777,6 +937,79 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"WLED Bridge',
                 "heap_caps_get_free_size",
                 "MALLOC_CAP_INTERNAL",
+            ],
+        )
+
+    def test_udp_notifier_uses_wled_protocol_v12_shape(self) -> None:
+        header = read(WLED_UDP_H)
+        source = read(WLED_UDP_CPP)
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "compatibility v12",
+                "uint16_t port2",
+                "set_ports",
+                "recv2_fd_",
+                "set_send_enabled",
+                "set_receive_enabled",
+                "close_send_socket_",
+                "close_recv_socket_",
+            ],
+        )
+        assert_contains_all(
+            self,
+            source,
+            [
+                "WLED_NOTIFIER_PROTOCOL = 0",
+                "WLED_NOTIFIER_COMPAT_VERSION = 12",
+                "UDP_SEG_SIZE = 36",
+                "SEG_OFFSET = 41",
+                "buf[0] = WLED_NOTIFIER_PROTOCOL",
+                "buf[11] = WLED_NOTIFIER_COMPAT_VERSION",
+                "buf[36] = this->comp_->get_udp_sync_groups()",
+                "buf[39] = sent_segments",
+                "buf[40] = UDP_SEG_SIZE",
+                "packet_size = SEG_OFFSET + static_cast<size_t>(sent_segments) * UDP_SEG_SIZE",
+                "uint8_t buf[1472]",
+                "get_udp_retries()",
+                "get_udp_notify_direct()",
+                "this->open_recv_socket_(&this->recv2_fd_, this->port2_)",
+                "this->close_recv_socket_(&this->recv2_fd_)",
+                "this->drain_socket_(this->recv2_fd_)",
+            ],
+        )
+
+    def test_udp_notifier_parses_wled_groups_and_segment_payload(self) -> None:
+        source = read(WLED_UDP_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "this->comp_->get_udp_receive_groups() & groups",
+                "get_udp_receive_brightness()",
+                "get_udp_receive_color()",
+                "get_udp_receive_effects()",
+                "get_udp_receive_palette()",
+                "get_udp_receive_segments()",
+                "get_udp_receive_segment_options()",
+                "receive_segment_payload",
+                "segment_set_bounds",
+                "segment_set_grouping",
+                "segment_set_reverse",
+                "segment_set_on",
+                "segment_set_mirror",
+                "segment_set_opacity",
+                "segment_set_effect",
+                "segment_set_speed",
+                "segment_set_intensity",
+                "segment_set_palette",
+                "segment_set_custom",
+                "segment_set_check",
+                "this->last_send_ms_ = millis();",
+                "this->comp_->publish_light_state();",
             ],
         )
 
