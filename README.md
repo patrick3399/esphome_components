@@ -35,7 +35,7 @@ Demo YAMLs live under [devices/](devices/).
 | Waveshare ESP32-S3 Touch LCD 1.85C | [devices/waveshare/esp32s3-touch-lcd-1.85c.yaml](devices/waveshare/esp32s3-touch-lcd-1.85c.yaml) | QSPI LCD, touch, RTC, microphone/speaker voice assistant, wake word selection, Bluetooth proxy, battery and audio diagnostics. | None currently. |
 | Waveshare ESP32-S3 ETH | [devices/waveshare/esp32s3-eth.yaml](devices/waveshare/esp32s3-eth.yaml) | W5500 Ethernet, camera, Ethernet info sensors, Bluetooth proxy, boot button, diagnostics. | None. |
 | Waveshare ESP32-S3 GEEK | [devices/waveshare/esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ST7789 display, backlight control, WiFi info, Bluetooth proxy, diagnostics. | None. |
-| WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED UI + 102 effects + multi-segment + presets/playlists + nightlight. | `wled_bridge` |
+| WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED UI + 122 effects + multi-segment + presets/playlists + nightlight. | `wled_bridge` |
 | WLED Bridge Multi-Bus PoC | [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) | ESP32-S3, two ESPHome RMT LED strips exposed as one WLED virtual LED space with per-bus current limits. | `wled_bridge` |
 | YS-IRTM UART Bridge | [devices/generic/ys-irtm-demo.yaml](devices/generic/ys-irtm-demo.yaml) | NEC IR transmit/receive, HA IR/RF Proxy bridge service, raw hex send. | `ys_irtm_uart` |
 | Guition ESP32-S3-4848S040 | TBD | Display, touch, relays. | TBD |
