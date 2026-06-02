@@ -1612,6 +1612,12 @@ void WLEDBridgeComponent::dump_config() {
   static const char *const AUTO_WHITE_NAMES[] = {"none", "brighter", "accurate", "?", "max"};
   ESP_LOGCONFIG(TAG, "  Auto-white: %s", this->auto_white_mode_ <= 4 ? AUTO_WHITE_NAMES[this->auto_white_mode_] : "?");
   ESP_LOGCONFIG(TAG, "  Use task: %s", YESNO(this->use_task_));
+  if (this->is_2d())
+    ESP_LOGCONFIG(TAG, "  Matrix: %ux%u serpentine=%s", this->matrix_width_, this->matrix_height_,
+                  YESNO(this->matrix_serpentine_));
+  ESP_LOGCONFIG(TAG, "  UDP sync: send=%s recv=%s ports=%u/%u", YESNO(this->udp_send_), YESNO(this->udp_receive_),
+                this->udp_port_, this->udp_port2_);
+  ESP_LOGCONFIG(TAG, "  DDP receiver: %s", YESNO(this->ddp_enabled_));
 }
 
 // ============================================================

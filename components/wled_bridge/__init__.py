@@ -2,6 +2,7 @@ from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import light, web_server_base
+from esphome.components.socket import SocketType, consume_sockets
 from esphome.const import (
     CONF_BLUE,
     CONF_BRIGHTNESS,
@@ -104,7 +105,24 @@ def _validate(config):
     return config
 
 
-CONFIG_SCHEMA = cv.All(CONFIG_SCHEMA, _validate)
+def _count_udp_sockets(config):
+    count = 0
+    if config.get(CONF_UDP_SEND, False):
+        count += 1  # send broadcast socket
+    if config.get(CONF_UDP_RECEIVE, False):
+        count += 1  # recv port1
+        if config.get(CONF_UDP_PORT2, 0) != config.get(CONF_UDP_PORT, 21324):
+            count += 1  # recv port2
+    if config.get(CONF_DDP_RECEIVE, False):
+        count += 1  # DDP port 4048
+    return count
+
+
+CONFIG_SCHEMA = cv.All(
+    CONFIG_SCHEMA,
+    _validate,
+    consume_sockets(4, "wled_bridge", SocketType.UDP),
+)
 
 
 async def to_code(config):
