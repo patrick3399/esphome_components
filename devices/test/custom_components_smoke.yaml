@@ -1,0 +1,199 @@
+esphome:
+  name: custom-components-smoke
+  friendly_name: Custom Components Smoke
+  on_boot:
+    priority: -100
+    then:
+      - ys_irtm_uart.send_raw:
+          id: ir_bridge
+          data: "A1F1"
+      - ys_irtm_uart.send_nec:
+          id: ir_bridge
+          user_code_hi: 0x00
+          user_code_lo: 0xBF
+          key_code: 0x10
+          repeats: 1
+      - ys_irtm_uart.send_proxy_packet:
+          id: ir_bridge
+          protocol: "nec"
+          address: 0x00BF
+          command: 0x10
+      - ys_irtm_uart.set_address:
+          id: ir_bridge
+          address: 1
+      - ys_irtm_uart.set_baudrate:
+          id: ir_bridge
+          baud_rate: 9600
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components:
+      - 74hc138_keypad
+      - aw9523
+      - bmi270
+      - pca9505
+      - qmi8658
+      - ys_irtm_uart
+
+i2c:
+  sda: GPIO41
+  scl: GPIO42
+  scan: false
+
+uart:
+  id: ir_uart
+  tx_pin: GPIO17
+  rx_pin: GPIO18
+  baud_rate: 9600
+
+aw9523:
+  id: aw9523_hub
+  address: 0x59
+  imax_divider: 1
+  latch_inputs: true
+
+pca9505:
+  id: pca9505_hub
+  address: 0x20
+
+ys_irtm_uart:
+  id: ir_bridge
+  uart_id: ir_uart
+  on_ir_receive:
+    - logger.log:
+        format: "IR packet %02X %02X %02X"
+        args: [user_code_hi, user_code_lo, key_code]
+
+74hc138_keypad:
+  id: keypad_smoke
+  address_pins:
+    - pin: GPIO1
+    - pin: GPIO2
+    - pin: GPIO11
+  input_pins:
+    - pin:
+        number: GPIO4
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO5
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO6
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO7
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO8
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO9
+        mode:
+          input: true
+          pullup: true
+    - pin:
+        number: GPIO10
+        mode:
+          input: true
+          pullup: true
+  debounce_time: 10ms
+  on_key:
+    - logger.log:
+        format: "Key index: %u"
+        args: [x]
+
+binary_sensor:
+  - platform: gpio
+    name: "AW9523 Smoke Input"
+    pin:
+      aw9523: aw9523_hub
+      number: 0
+      mode:
+        input: true
+      inverted: true
+  - platform: gpio
+    name: "PCA9505 Smoke Input"
+    pin:
+      pca9505: pca9505_hub
+      number: 0
+      mode:
+        input: true
+      inverted: true
+
+switch:
+  - platform: gpio
+    name: "AW9523 Smoke Output"
+    pin:
+      aw9523: aw9523_hub
+      number: 1
+      mode:
+        output: true
+  - platform: gpio
+    name: "PCA9505 Smoke Output"
+    pin:
+      pca9505: pca9505_hub
+      number: 1
+      mode:
+        output: true
+
+sensor:
+  - platform: bmi270
+    address: 0x68
+    power_save_mode: normal
+    acceleration_x:
+      name: "BMI270 Accel X"
+    acceleration_y:
+      name: "BMI270 Accel Y"
+    acceleration_z:
+      name: "BMI270 Accel Z"
+    gyroscope_x:
+      name: "BMI270 Gyro X"
+    gyroscope_y:
+      name: "BMI270 Gyro Y"
+    gyroscope_z:
+      name: "BMI270 Gyro Z"
+    temperature:
+      name: "BMI270 Temperature"
+    update_interval: 60s
+  - platform: qmi8658
+    address: 0x6B
+    accelerometer_range: 8g
+    gyroscope_range: 512dps
+    accelerometer_odr: 125hz
+    gyroscope_odr: 112hz
+    accelerometer_lpf_mode: 2
+    gyroscope_lpf_mode: 3
+    acceleration_x:
+      name: "QMI8658 Accel X"
+    acceleration_y:
+      name: "QMI8658 Accel Y"
+    acceleration_z:
+      name: "QMI8658 Accel Z"
+    gyroscope_x:
+      name: "QMI8658 Gyro X"
+    gyroscope_y:
+      name: "QMI8658 Gyro Y"
+    gyroscope_z:
+      name: "QMI8658 Gyro Z"
+    temperature:
+      name: "QMI8658 Temperature"
+    update_interval: 60s

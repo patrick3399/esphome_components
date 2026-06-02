@@ -56,15 +56,7 @@ esphome::i2c::ErrorCode PCA9505Component::read_pca_register(uint8_t reg, uint8_t
     command |= PCA9505_CMD_AUTO_INCREMENT;
   }
 
-  // PCA9505 read sequence: S | ADDR+W | ACK | CMD_BYTE | ACK | Sr | ADDR+R | ACK | DATA_BYTE | NACK | P
-  // Write command byte, but DO NOT send a STOP condition (send_stop = false)
-  i2c::ErrorCode err = this->write(&command, 1, false);
-  if (err != i2c::ERROR_OK) {
-    ESP_LOGW(TAG, "Failed to write command 0x%02X for read: error %d", command, err);
-    return err;
-  }
-  // Read 1 byte, and the bus will send a STOP condition after this.
-  return this->read(data, 1);
+  return this->write_read(&command, 1, data, 1);
 }
 
 // Helper to write a single register
@@ -75,8 +67,7 @@ esphome::i2c::ErrorCode PCA9505Component::write_pca_register(uint8_t reg, uint8_
   }
 
   uint8_t buffer[2] = {command, value};
-  // Write 2 bytes (command + data), and send a STOP condition (default for write)
-  return this->write(buffer, 2, true);
+  return this->write(buffer, 2);
 }
 
 // Helper to read multiple registers
@@ -87,14 +78,7 @@ esphome::i2c::ErrorCode PCA9505Component::read_pca_registers(uint8_t start_reg, 
     command |= PCA9505_CMD_AUTO_INCREMENT;
   }
 
-  // Write command byte, DO NOT send a STOP condition (send_stop = false)
-  i2c::ErrorCode err = this->write(&command, 1, false);
-  if (err != i2c::ERROR_OK) {
-    ESP_LOGW(TAG, "Failed to write command 0x%02X for multi-read: error %d", command, err);
-    return err;
-  }
-  // Read 'len' bytes, and the bus will send a STOP condition after this.
-  return this->read(data, len);
+  return this->write_read(&command, 1, data, len);
 }
 
 // Helper to write multiple registers
@@ -110,8 +94,7 @@ esphome::i2c::ErrorCode PCA9505Component::write_pca_registers(uint8_t start_reg,
   for (uint8_t i = 0; i < len; i++) {
     buffer.push_back(values[i]);
   }
-  // Write (1+len) bytes, and send a STOP condition (default for write)
-  return this->write(buffer.data(), buffer.size(), true);
+  return this->write(buffer.data(), buffer.size());
 }
 
 bool PCA9505Component::read_bank_input(uint8_t bank) {
