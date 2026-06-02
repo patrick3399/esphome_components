@@ -12,8 +12,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
-namespace esphome {
-namespace i2s_audio {
+namespace esphome::i2s_audio {
 
 class I2SAudioMicrophone : public I2SAudioIn, public microphone::Microphone, public Component {
  public:
@@ -24,17 +23,11 @@ class I2SAudioMicrophone : public I2SAudioIn, public microphone::Microphone, pub
 
   void loop() override;
 
-  void set_correct_dc_offset(bool correct_dc_offset) {
-    this->correct_dc_offset_ = correct_dc_offset;
-  }
+  void set_correct_dc_offset(bool correct_dc_offset) { this->correct_dc_offset_ = correct_dc_offset; }
 
-  void set_din_pin(int8_t pin) {
-    this->din_pin_ = (gpio_num_t)pin;
-  }
+  void set_din_pin(int8_t pin) { this->din_pin_ = (gpio_num_t) pin; }
 
-  void set_pdm(bool pdm) {
-    this->pdm_ = pdm;
-  }
+  void set_pdm(bool pdm) { this->pdm_ = pdm; }
 
  protected:
   /// @brief Starts the I2S driver. Updates the ``audio_stream_info_`` member variable with the current setttings.
@@ -71,7 +64,6 @@ class I2SAudioMicrophone : public I2SAudioIn, public microphone::Microphone, pub
   int32_t dc_offset_prev_output_{0};
 };
 
-}  // namespace i2s_audio
-}  // namespace esphome
+}  // namespace esphome::i2s_audio
 
 #endif  // USE_ESP32

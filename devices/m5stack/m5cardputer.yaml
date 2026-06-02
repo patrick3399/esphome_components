@@ -208,7 +208,7 @@ speaker:
     sample_rate: 16000
     bits_per_sample: 16bit
     channel: right
-    output_gain: 3.0
+    volume_multiplier: 3.0
     # buffer_duration × sample_rate × channels × bytes_per_sample = ring buffer bytes.
     # 100 ms × 16000 × 1 × 2 = 3200 B (vs 96 KB at 48 kHz stereo / 500 ms). Heap budget on this
     # PSRAM-less SoC is brutally tight, so we trade audio fidelity for headroom.

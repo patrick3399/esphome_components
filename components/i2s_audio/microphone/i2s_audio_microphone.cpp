@@ -10,8 +10,7 @@
 
 #include "esphome/components/audio/audio.h"
 
-namespace esphome {
-namespace i2s_audio {
+namespace esphome::i2s_audio {
 
 static const UBaseType_t MAX_LISTENERS = 16;
 
@@ -26,8 +25,8 @@ enum MicrophoneEventGroupBits : uint32_t {
   COMMAND_STOP = (1 << 0),  // stops the microphone task, set and cleared by ``loop``
 
   TASK_STARTING = (1 << 10),  // set by mic task, cleared by ``loop``
-  TASK_RUNNING = (1 << 11),  // set by mic task, cleared by ``loop``
-  TASK_STOPPED = (1 << 13),  // set by mic task, cleared by ``loop``
+  TASK_RUNNING = (1 << 11),   // set by mic task, cleared by ``loop``
+  TASK_STOPPED = (1 << 13),   // set by mic task, cleared by ``loop``
 
   ALL_BITS = 0x00FFFFFF,  // All valid FreeRTOS event group bits
 };
@@ -169,7 +168,7 @@ bool I2SAudioMicrophone::start_driver_() {
         .mclk_multiple = this->mclk_multiple_,
     };
     i2s_std_slot_config_t std_slot_cfg =
-        I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t)this->slot_bit_width_, this->slot_mode_);
+        I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t) this->slot_bit_width_, this->slot_mode_);
     std_slot_cfg.slot_bit_width = this->slot_bit_width_;
     std_slot_cfg.slot_mask = this->std_slot_mask_;
 
@@ -232,7 +231,7 @@ void I2SAudioMicrophone::stop_driver_() {
 }
 
 void I2SAudioMicrophone::mic_task(void *params) {
-  I2SAudioMicrophone *this_microphone = (I2SAudioMicrophone *)params;
+  I2SAudioMicrophone *this_microphone = (I2SAudioMicrophone *) params;
   xEventGroupSetBits(this_microphone->event_group_, MicrophoneEventGroupBits::TASK_STARTING);
 
   {  // Ensures the samples vector is freed when the task stops
@@ -405,7 +404,7 @@ void I2SAudioMicrophone::loop() {
       }
 
       if (this->task_handle_ == nullptr) {
-        xTaskCreate(I2SAudioMicrophone::mic_task, "mic_task", TASK_STACK_SIZE, (void *)this, TASK_PRIORITY,
+        xTaskCreate(I2SAudioMicrophone::mic_task, "mic_task", TASK_STACK_SIZE, (void *) this, TASK_PRIORITY,
                     &this->task_handle_);
 
         if (this->task_handle_ == nullptr) {
@@ -426,7 +425,6 @@ void I2SAudioMicrophone::loop() {
   }
 }
 
-}  // namespace i2s_audio
-}  // namespace esphome
+}  // namespace esphome::i2s_audio
 
 #endif  // USE_ESP32
