@@ -180,6 +180,7 @@ HTML = dedent(
         const st = { info: {}, state: {}, eff: [], fxdata: [], pal: [], presets: {} };
         let quiet = false, postTimer = null, liveVersion = -1;
         let activeSeg = 0, peekTimer = null;
+        let ws = null, wsReady = false;
 
         const rgbToHex = c => "#" + [c?.[0]??0, c?.[1]??0, c?.[2]??0]
           .map(v => v.toString(16).padStart(2,"0")).join("");
@@ -408,9 +409,12 @@ HTML = dedent(
           renderEffectAndColor();
           renderNightlight();
           const li = st.info.leds || {};
+          const mx = st.info.matrix;
+          const mxStr = mx ? `${mx.w}×${mx.h}${mx.s?" serpentine":""}` : "";
           $("device").textContent = [
             `${st.info.product||""} ${st.info.ver||""}`.trim(),
-            `${li.count??0} LEDs`, `${li.fps??0} FPS`, `${li.pwr??0}/${li.maxpwr??0} mA`
+            `${li.count??0} LEDs`, mxStr, `${li.fps??0} FPS`, `${li.pwr??0}/${li.maxpwr??0} mA`,
+            wsReady ? "WS ✓" : "REST"
           ].filter(Boolean).join(" / ");
           renderPresets(s);
           quiet = false;
@@ -454,11 +458,18 @@ HTML = dedent(
         async function postNow() {
           if (quiet) return;
           clearTimeout(postTimer);
+          postTimer = null;
+          const payload = collectPayload();
           try {
-            setStatus("Saving");
-            const updated = await api("/json/state", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(collectPayload()) });
-            st.state = updated; liveVersion = -1;
-            render(); updatePeek(); setStatus("Ready");
+            if (wsReady && ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify(payload));
+              setStatus("WS");
+            } else {
+              setStatus("Saving");
+              const updated = await api("/json/state", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+              st.state = updated; liveVersion = -1;
+              render(); updatePeek(); setStatus("Ready");
+            }
           } catch(e) { setStatus(e.message); }
         }
 
@@ -525,8 +536,37 @@ HTML = dedent(
           peekTimer = setTimeout(async () => { await updatePeek(); schedulePeek(); }, 500);
         }
 
+        function connectWs() {
+          if (ws) return;
+          try {
+            ws = new WebSocket(`ws://${location.host}/ws`);
+            ws.onopen  = () => { wsReady = true; setStatus("WS"); render(); };
+            ws.onclose = () => {
+              wsReady = false; ws = null; setStatus("REST");
+              render();
+              setTimeout(connectWs, 4000);
+            };
+            ws.onerror = () => { wsReady = false; };
+            ws.onmessage = e => {
+              try {
+                const d = JSON.parse(e.data);
+                // Bridge sends full state JSON on changes
+                if (d.seg !== undefined || d.on !== undefined || d.bri !== undefined) {
+                  Object.assign(st.state, d);
+                } else if (d.state) {
+                  st.state = d.state;
+                } else {
+                  Object.assign(st.state, d);
+                }
+                if (!quiet && !postTimer) { const n=(st.state.seg||[]).length; if(activeSeg>=n)activeSeg=0; render(); }
+              } catch(err) {}
+            };
+          } catch(err) { setTimeout(connectWs, 4000); }
+        }
+
+        // REST fallback: only poll when WebSocket isn't connected
         async function pollLive() {
-          if (postTimer || quiet) return;
+          if (wsReady || postTimer || quiet) return;
           try {
             const live = await api("/wled_events");
             if (live.version !== liveVersion) {
@@ -536,7 +576,7 @@ HTML = dedent(
               if (activeSeg >= n) activeSeg = 0;
               render();
             }
-          } catch(e) { setStatus(e.message); }
+          } catch(e) { /* silent fallback */ }
         }
 
         // Wire up static controls
@@ -568,7 +608,8 @@ HTML = dedent(
         $("nlTbri").addEventListener("input", () => { $("nlTbriV").textContent = $("nlTbri").value; });
 
         load();
-        setInterval(pollLive, 1500);
+        connectWs();
+        setInterval(pollLive, 2000);  // REST fallback when WS unavailable
       </script>
     </body>
     </html>
