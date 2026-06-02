@@ -4338,6 +4338,16 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 154 */ {"2D Sparkle", "2D Sparkle@!,!,,,,,Overlay;!;!;;m12=2", fx_2d_sparkle2d},
     /* 155 */ {"2D Pendulum", "2D Pendulum@!,Trail;!;!;;m12=2", fx_2d_pendulum},
     /* 156 */ {"2D Heatmap", "2D Heatmap@!,;!;!;;m12=2", fx_2d_heatmap},
+    /* 157 */ {"2D SquaredSwirl", "2D SquaredSwirl@!,Swirl;!;!;;m12=2", fx_2d_squaredswirl},
+    /* 158 */ {"2D SunRadiation", "2D SunRadiation@!,# rays;!;!;;m12=2", fx_2d_sunradiation},
+    /* 159 */ {"2D PolarLights", "2D PolarLights@!,Scale;!;!;;m12=2", fx_2d_polarlights},
+    /* 160 */ {"2D Swirl", "2D Swirl@!,Scale;!;!;;m12=2", fx_2d_swirl},
+    /* 161 */ {"2D DNA Spiral", "2D DNA Spiral@!,Wavelength;!;!;;m12=2", fx_2d_dnaspiral},
+    /* 162 */ {"2D Plasma Ball", "2D Plasma Ball@!,# arms;!;!;;m12=2", fx_2d_plasmaball},
+    /* 163 */ {"2D Funky Plank", "2D Funky Plank@!,# cols;!;!;;m12=2", fx_2d_funkyplank},
+    /* 164 */ {"2D PlasmaRotozoom", "2D PlasmaRotozoom@!,Scale;!;!;;m12=2", fx_2d_plasmarotozoom},
+    /* 165 */ {"2D Distortion Waves", "2D Distortion Waves@!,Offset;!;!;;m12=2", fx_2d_distortionwaves},
+    /* 166 */ {"2D Soap", "2D Soap@!,Scale;!;!;;m12=2", fx_2d_soap},
 };
 
 }  // namespace wled_bridge

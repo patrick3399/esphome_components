@@ -1404,5 +1404,344 @@ void fx_2d_heatmap(EffectContext &ctx) {
   }
 }
 
+// ============================================================
+// 36. 2D SquaredSwirl — concentric square rings with swirl phase
+// ============================================================
+void fx_2d_squaredswirl(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  int16_t cx = static_cast<int16_t>(w / 2);
+  int16_t cy = static_cast<int16_t>(h / 2);
+  uint8_t time_counter = static_cast<uint8_t>(ctx.now * scale8(speed, 4) >> 5);
+  uint8_t swirl = scale8(intensity, 8);
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      int16_t dx = static_cast<int16_t>(x) - cx;
+      int16_t dy = static_cast<int16_t>(y) - cy;
+      int16_t ax = dx < 0 ? static_cast<int16_t>(-dx) : dx;
+      int16_t ay = dy < 0 ? static_cast<int16_t>(-dy) : dy;
+      uint8_t dist = static_cast<uint8_t>(ax > ay ? ax : ay);
+      uint8_t phase = static_cast<uint8_t>(static_cast<uint16_t>(ax + ay) * swirl >> 2);
+      uint8_t v = sin8(static_cast<uint8_t>(dist * 20 - time_counter + phase));
+      uint32_t c = ctx.pal_color(v, qadd8(scale8(v, 200), 55));
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), c);
+    }
+  }
+}
+
+// ============================================================
+// 37. 2D SunRadiation — rays from center via octant angle approximation
+// ============================================================
+void fx_2d_sunradiation(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  int16_t cx = static_cast<int16_t>(w / 2);
+  int16_t cy = static_cast<int16_t>(h / 2);
+  uint8_t time_counter = static_cast<uint8_t>(ctx.now * scale8(speed, 5) >> 5);
+  uint8_t time_counter_slow = static_cast<uint8_t>(ctx.now >> 5);
+  uint8_t rf = static_cast<uint8_t>(3 + scale8(intensity, 20));
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      int16_t dx = static_cast<int16_t>(x) - cx;
+      int16_t dy = static_cast<int16_t>(y) - cy;
+      int16_t ax = dx < 0 ? static_cast<int16_t>(-dx) : dx;
+      int16_t ay = dy < 0 ? static_cast<int16_t>(-dy) : dy;
+      int16_t angle_num;
+      if (ax >= ay) {
+        angle_num = (dx >= 0 ? 0 : 128) + static_cast<int16_t>(dy * 64 / (ax + 1));
+      } else {
+        angle_num = (dy >= 0 ? 64 : 192) - static_cast<int16_t>(dx * 64 / (ay + 1));
+      }
+      uint8_t ray = sin8(static_cast<uint8_t>(static_cast<uint8_t>(angle_num) * rf) - time_counter);
+      uint8_t bri = static_cast<uint8_t>(scale8(ray, 200) + 55);
+      uint8_t hue = static_cast<uint8_t>(time_counter_slow + static_cast<uint8_t>(ax + ay));
+      uint32_t c = ctx.pal_color(hue, bri);
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), c);
+    }
+  }
+}
+
+// ============================================================
+// 38. 2D PolarLights — aurora borealis per-column noise
+// ============================================================
+void fx_2d_polarlights(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  uint16_t noise_scale = static_cast<uint16_t>(20 + scale8(intensity, 50));
+  uint32_t t = ctx.now * scale8(speed, 3) >> 4;
+  uint16_t t2 = static_cast<uint16_t>(t + 1000);
+  uint16_t t3 = static_cast<uint16_t>(t + 2000);
+
+  for (uint16_t x = 0; x < w; x++) {
+    uint16_t nx = static_cast<uint16_t>(x * noise_scale + static_cast<uint16_t>(t));
+    uint8_t noise_v = inoise8(nx, static_cast<uint16_t>(t2));
+    uint16_t col_height = static_cast<uint16_t>(scale8(noise_v, static_cast<uint8_t>(h)));
+    if (col_height == 0)
+      col_height = 1;
+    uint8_t hue_shift = inoise8(static_cast<uint16_t>(x * 40), static_cast<uint16_t>(t3));
+
+    for (uint16_t y = 0; y < h; y++) {
+      uint8_t bri;
+      if (y <= col_height) {
+        uint8_t fade = static_cast<uint8_t>(y * 255 / col_height);
+        bri = static_cast<uint8_t>(scale8(static_cast<uint8_t>(255 - fade), 220) + 25);
+      } else {
+        bri = 0;
+      }
+      uint8_t hue = static_cast<uint8_t>(hue_shift + y * 4);
+      uint32_t c = ctx.pal_color(hue, bri);
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), c);
+    }
+  }
+}
+
+// ============================================================
+// 39. 2D Swirl — logarithmic spiral via integer angle + Manhattan radius
+// ============================================================
+void fx_2d_swirl(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  int16_t cx = static_cast<int16_t>(w / 2);
+  int16_t cy = static_cast<int16_t>(h / 2);
+  uint8_t time_counter = static_cast<uint8_t>(ctx.now * scale8(speed, 3) >> 4);
+  uint8_t scale_ix = static_cast<uint8_t>(2 + scale8(intensity, 10));
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      int16_t dx = static_cast<int16_t>(x) - cx;
+      int16_t dy = static_cast<int16_t>(y) - cy;
+      int16_t ax = dx < 0 ? static_cast<int16_t>(-dx) : dx;
+      int16_t ay = dy < 0 ? static_cast<int16_t>(-dy) : dy;
+      int16_t angle_num;
+      if (ax >= ay) {
+        angle_num = (dx >= 0 ? 0 : 128) + static_cast<int16_t>(dy * 64 / (ax + 1));
+      } else {
+        angle_num = (dy >= 0 ? 64 : 192) - static_cast<int16_t>(dx * 64 / (ay + 1));
+      }
+      uint8_t angle_continuous = static_cast<uint8_t>(angle_num);
+      uint8_t r = static_cast<uint8_t>(ax + ay);
+      uint8_t v = sin8(static_cast<uint8_t>(angle_continuous + r * scale_ix - time_counter));
+      uint32_t c = ctx.pal_color(v, qadd8(v, 60));
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), c);
+    }
+  }
+}
+
+// ============================================================
+// 40. 2D DNA Spiral — double helix with connecting rungs
+// ============================================================
+void fx_2d_dnaspiral(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  uint8_t time_counter = static_cast<uint8_t>(ctx.now * scale8(speed, 4) >> 5);
+  uint8_t wave_scale = static_cast<uint8_t>(1 + scale8(intensity, 6));
+
+  ctx.fill_black();
+
+  for (uint16_t x = 0; x < w; x++) {
+    uint8_t phase1 =
+        static_cast<uint8_t>(static_cast<uint16_t>(x) * 255 / (w > 1 ? w - 1 : 1) * wave_scale - time_counter);
+    uint16_t y1_16 = static_cast<uint16_t>(sin8(phase1)) * (h - 1) / 255;
+    uint16_t y2_16 = static_cast<uint16_t>(sin8(static_cast<uint8_t>(phase1 + 128))) * (h - 1) / 255;
+    int16_t y1 = static_cast<int16_t>(y1_16);
+    int16_t y2 = static_cast<int16_t>(y2_16);
+    uint8_t hue1 = static_cast<uint8_t>(static_cast<uint16_t>(x) * 255 / (w > 1 ? w - 1 : 1) + time_counter / 2);
+
+    ctx.set_pixel_2d(static_cast<int16_t>(x), y1, ctx.pal_color(hue1, 255));
+    ctx.set_pixel_2d(static_cast<int16_t>(x), y2, ctx.pal_color(static_cast<uint8_t>(hue1 + 128), 200));
+
+    if ((x % 4) == 0) {
+      int16_t rung_min = static_cast<int16_t>(y1 < y2 ? y1 : y2);
+      int16_t rung_max = static_cast<int16_t>(y1 > y2 ? y1 : y2);
+      for (int16_t ry = static_cast<int16_t>(rung_min + 1); ry < rung_max; ry++) {
+        ctx.set_pixel_2d(static_cast<int16_t>(x), ry, ctx.pal_color(static_cast<uint8_t>(hue1 + 64), 80));
+      }
+    }
+  }
+}
+
+// ============================================================
+// 41. 2D Plasma Ball — electric plasma arms from center
+// ============================================================
+void fx_2d_plasmaball(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  int16_t cx = static_cast<int16_t>(w / 2);
+  int16_t cy = static_cast<int16_t>(h / 2);
+  uint8_t time_counter = static_cast<uint8_t>(ctx.now * scale8(speed, 3) >> 4);
+  uint8_t num_arms = static_cast<uint8_t>(3 + scale8(intensity, 5));
+  int16_t radius = static_cast<int16_t>((w < h ? w : h) / 2);
+
+  ctx.fade_2d(200);
+
+  for (uint8_t arm = 0; arm < num_arms; arm++) {
+    uint8_t base_angle = static_cast<uint8_t>(arm * (256 / num_arms) + time_counter);
+    for (int16_t s = 1; s <= radius; s++) {
+      uint8_t angle = static_cast<uint8_t>(base_angle + sin8(static_cast<uint8_t>(s * 12 + time_counter * 2)) / 8);
+      int16_t px = static_cast<int16_t>(cx + (static_cast<int16_t>(cos8(angle)) - 128) * s / 80);
+      int16_t py = static_cast<int16_t>(cy + (static_cast<int16_t>(sin8(angle)) - 128) * s / 80);
+      uint8_t bri = static_cast<uint8_t>(255 - static_cast<uint16_t>(s) * 240 / static_cast<uint16_t>(radius));
+      uint32_t c = ctx.pal_color(static_cast<uint8_t>(angle + time_counter / 2), bri);
+      ctx.set_pixel_2d(px, py, c);
+    }
+  }
+  // Bright center
+  ctx.set_pixel_2d(cx, cy, 0xFFFFFFu);
+}
+
+// ============================================================
+// 42. 2D Funky Plank — noise-driven scrolling EQ bars
+// ============================================================
+void fx_2d_funkyplank(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint32_t t = ctx.now * scale8(speed, 6) >> 6;
+
+  for (uint16_t x = 0; x < w; x++) {
+    uint8_t noise = inoise8(static_cast<uint16_t>(x * 50 + t), static_cast<uint16_t>(t * 2));
+    uint16_t col_height = static_cast<uint16_t>(scale8(noise, static_cast<uint8_t>(h)));
+    uint8_t hue =
+        static_cast<uint8_t>(static_cast<uint16_t>(x) * 255 / (w > 1 ? w - 1 : 1) + static_cast<uint8_t>(t >> 3));
+
+    for (uint16_t y = 0; y < h; y++) {
+      if (y >= h - col_height) {
+        uint8_t bri = static_cast<uint8_t>(200 + scale8(static_cast<uint8_t>(y * 255 / h), 55));
+        ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(hue, bri));
+      } else {
+        uint32_t c = ctx.get_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y));
+        uint8_t r = scale8(R(c), 210);
+        uint8_t g = scale8(G(c), 210);
+        uint8_t b = scale8(B(c), 210);
+        ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), RGBW32(r, g, b, 0));
+      }
+    }
+  }
+}
+
+// ============================================================
+// 43. 2D PlasmaRotozoom — rotating + zooming plasma
+// ============================================================
+void fx_2d_plasmarotozoom(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  uint8_t angle = static_cast<uint8_t>(ctx.now * scale8(speed, 4) >> 6);
+  uint8_t scale_ix = static_cast<uint8_t>(2 + scale8(intensity, 8));
+  int16_t cx = static_cast<int16_t>(w / 2);
+  int16_t cy = static_cast<int16_t>(h / 2);
+  int16_t ca = static_cast<int16_t>(cos8(angle)) - 128;
+  int16_t sa = static_cast<int16_t>(sin8(angle)) - 128;
+  uint8_t t1 = static_cast<uint8_t>(ctx.now >> 4);
+  uint8_t t2 = static_cast<uint8_t>(ctx.now >> 3);
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      int16_t dx = static_cast<int16_t>(x) - cx;
+      int16_t dy = static_cast<int16_t>(y) - cy;
+      int16_t xr = static_cast<int16_t>((dx * ca - dy * sa) >> 6);
+      int16_t yr = static_cast<int16_t>((dx * sa + dy * ca) >> 6);
+      uint8_t v = sin8(static_cast<uint8_t>(xr * scale_ix + t1));
+      v = qadd8(v, sin8(static_cast<uint8_t>(yr * scale_ix + t1 + 85)));
+      uint8_t v2 = sin8(static_cast<uint8_t>((xr + yr) * scale_ix + t2));
+      v = static_cast<uint8_t>((static_cast<uint16_t>(v) >> 1) + (static_cast<uint16_t>(v2) >> 1));
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(v));
+    }
+  }
+}
+
+// ============================================================
+// 44. 2D Distortion Waves — sine waves distorted by perpendicular axis
+// ============================================================
+void fx_2d_distortionwaves(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  uint8_t distort = static_cast<uint8_t>(scale8(intensity, 128) + 32);
+  uint32_t t_raw = ctx.now * scale8(speed, 4) >> 4;
+  uint8_t t = static_cast<uint8_t>(t_raw);
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      uint8_t dist_x = scale8(sin8(static_cast<uint8_t>(y * 16 + t)), distort);
+      uint8_t dist_y = scale8(sin8(static_cast<uint8_t>(x * 16 + t + 64)), distort);
+      uint8_t v = sin8(static_cast<uint8_t>(x * 12 + dist_x + static_cast<uint8_t>(t_raw * 2)));
+      uint8_t v2 = sin8(static_cast<uint8_t>(y * 12 + dist_y + t + 128));
+      uint8_t combined = qadd8(v >> 1, v2 >> 1);
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(combined));
+    }
+  }
+}
+
+// ============================================================
+// 45. 2D Soap — thin-film iridescence via two noise octaves
+// ============================================================
+void fx_2d_soap(EffectContext &ctx) {
+  if (!ctx.is_2d()) {
+    ctx.fill(ctx.color(0));
+    return;
+  }
+  uint16_t w = ctx.matrix_w, h = ctx.matrix_h;
+  uint8_t speed = ctx.params->speed;
+  uint8_t intensity = ctx.params->intensity;
+  uint16_t nscale = static_cast<uint16_t>(20 + scale8(intensity, 40));
+  uint32_t t = ctx.now * scale8(speed, 3) >> 4;
+
+  for (uint16_t y = 0; y < h; y++) {
+    for (uint16_t x = 0; x < w; x++) {
+      uint16_t nx = static_cast<uint16_t>(x * nscale + (t >> 2));
+      uint16_t ny = static_cast<uint16_t>(y * nscale + (t >> 3));
+      uint8_t n1 = inoise8(nx, ny);
+      uint8_t n2 = inoise8(static_cast<uint16_t>(nx + 200), static_cast<uint16_t>(ny + 200));
+      uint8_t thickness = static_cast<uint8_t>((static_cast<uint16_t>(n1) + n2) >> 1);
+      uint8_t bri = static_cast<uint8_t>(150 + scale8(n1, 105));
+      ctx.set_pixel_2d(static_cast<int16_t>(x), static_cast<int16_t>(y), ctx.pal_color(thickness, bri));
+    }
+  }
+}
+
 }  // namespace wled_bridge
 }  // namespace esphome
