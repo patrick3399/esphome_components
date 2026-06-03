@@ -1,7 +1,7 @@
 from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import light, number, select, web_server_base
+from esphome.components import light, number, select, sensor, switch, web_server_base
 from esphome.components.socket import SocketType, consume_sockets
 from esphome.const import (
     CONF_BLUE,
@@ -22,7 +22,7 @@ except ImportError:
     _HAS_SDKCONFIG = False
 
 DEPENDENCIES = ["light"]
-AUTO_LOAD = ["web_server_base", "json", "select", "number"]
+AUTO_LOAD = ["web_server_base", "json", "select", "number", "switch", "sensor"]
 
 wled_bridge_ns = cg.esphome_ns.namespace("wled_bridge")
 WLEDBridgeComponent = wled_bridge_ns.class_("WLEDBridgeComponent", cg.Component)
@@ -47,6 +47,23 @@ WLEDEffectSelect = wled_bridge_ns.class_(
 WLEDNumber = wled_bridge_ns.class_("WLEDNumber", number.Number, cg.Component)
 WLED_NUM_SPEED = wled_bridge_ns.enum("WLEDNumberProperty").WLED_NUM_SPEED
 WLED_NUM_INTENSITY = wled_bridge_ns.enum("WLEDNumberProperty").WLED_NUM_INTENSITY
+
+# New HA entity classes
+WLEDPresetSelect = wled_bridge_ns.class_(
+    "WLEDPresetSelect", select.Select, cg.Component
+)
+WLEDNightlightSwitch = wled_bridge_ns.class_(
+    "WLEDNightlightSwitch", switch.Switch, cg.Component
+)
+WLEDSyncSendSwitch = wled_bridge_ns.class_(
+    "WLEDSyncSendSwitch", switch.Switch, cg.Component
+)
+WLEDSyncReceiveSwitch = wled_bridge_ns.class_(
+    "WLEDSyncReceiveSwitch", switch.Switch, cg.Component
+)
+WLEDCurrentSensor = wled_bridge_ns.class_(
+    "WLEDCurrentSensor", sensor.Sensor, cg.Component
+)
 
 CONF_LIGHT_ID = "light_id"
 CONF_BUSES = "buses"
@@ -86,6 +103,11 @@ CONF_PALETTE_SELECT = "palette_select"
 CONF_EFFECT_SELECT = "effect_select"
 CONF_SPEED_NUMBER = "speed_number"
 CONF_INTENSITY_NUMBER = "intensity_number"
+CONF_PRESET_SELECT = "preset_select"
+CONF_NIGHTLIGHT_SWITCH = "nightlight_switch"
+CONF_SYNC_SEND_SWITCH = "sync_send_switch"
+CONF_SYNC_RECEIVE_SWITCH = "sync_receive_switch"
+CONF_ESTIMATED_CURRENT = "estimated_current"
 
 CONF_AUDIO = "audio"
 CONF_AUDIO_MICROPHONE = "microphone"
@@ -186,6 +208,30 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_INTENSITY_NUMBER): number.number_schema(
             WLEDNumber,
             icon="mdi:brightness-percent",
+        ),
+        cv.Optional(CONF_PRESET_SELECT): select.select_schema(
+            WLEDPresetSelect,
+            icon="mdi:bookmark",
+        ),
+        cv.Optional(CONF_NIGHTLIGHT_SWITCH): switch.switch_schema(
+            WLEDNightlightSwitch,
+            icon="mdi:weather-night",
+        ),
+        cv.Optional(CONF_SYNC_SEND_SWITCH): switch.switch_schema(
+            WLEDSyncSendSwitch,
+            icon="mdi:upload-network",
+        ),
+        cv.Optional(CONF_SYNC_RECEIVE_SWITCH): switch.switch_schema(
+            WLEDSyncReceiveSwitch,
+            icon="mdi:download-network",
+        ),
+        cv.Optional(CONF_ESTIMATED_CURRENT): sensor.sensor_schema(
+            WLEDCurrentSensor,
+            unit_of_measurement="mA",
+            accuracy_decimals=0,
+            device_class="current",
+            state_class="measurement",
+            icon="mdi:flash",
         ),
         # --- Backward-compat flat keys (deprecated, use realtime: section instead) ---
         cv.Optional(CONF_DDP_RECEIVE, default=False): cv.boolean,
@@ -317,7 +363,10 @@ def FILTER_SOURCE_FILES():
     has_ent = any(
         k in config
         for k in (CONF_PALETTE_SELECT, CONF_EFFECT_SELECT,
-                  CONF_SPEED_NUMBER, CONF_INTENSITY_NUMBER)
+                  CONF_SPEED_NUMBER, CONF_INTENSITY_NUMBER,
+                  CONF_PRESET_SELECT, CONF_NIGHTLIGHT_SWITCH,
+                  CONF_SYNC_SEND_SWITCH, CONF_SYNC_RECEIVE_SWITCH,
+                  CONF_ESTIMATED_CURRENT)
     )
     if not has_ent:
         filtered.append("wled_entities.cpp")
@@ -427,11 +476,14 @@ async def to_code(config):
             )
         )
 
-    # ---- HA entities: select / number ----
+    # ---- HA entities: select / number / switch / sensor ----
     has_entities = any(
         k in config
         for k in (CONF_PALETTE_SELECT, CONF_EFFECT_SELECT,
-                  CONF_SPEED_NUMBER, CONF_INTENSITY_NUMBER)
+                  CONF_SPEED_NUMBER, CONF_INTENSITY_NUMBER,
+                  CONF_PRESET_SELECT, CONF_NIGHTLIGHT_SWITCH,
+                  CONF_SYNC_SEND_SWITCH, CONF_SYNC_RECEIVE_SWITCH,
+                  CONF_ESTIMATED_CURRENT)
     )
     if has_entities:
         cg.add_define("WLED_BRIDGE_ENTITIES")
@@ -473,6 +525,33 @@ async def to_code(config):
         await cg.register_component(num, config[CONF_INTENSITY_NUMBER])
         cg.add(num.set_bridge(var))
         cg.add(num.set_property(WLED_NUM_INTENSITY))
+
+    if CONF_PRESET_SELECT in config:
+        sel = await select.new_select(
+            config[CONF_PRESET_SELECT], options=["_"]
+        )
+        await cg.register_component(sel, config[CONF_PRESET_SELECT])
+        cg.add(sel.set_bridge(var))
+
+    if CONF_NIGHTLIGHT_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_NIGHTLIGHT_SWITCH])
+        await cg.register_component(sw, config[CONF_NIGHTLIGHT_SWITCH])
+        cg.add(sw.set_bridge(var))
+
+    if CONF_SYNC_SEND_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_SYNC_SEND_SWITCH])
+        await cg.register_component(sw, config[CONF_SYNC_SEND_SWITCH])
+        cg.add(sw.set_bridge(var))
+
+    if CONF_SYNC_RECEIVE_SWITCH in config:
+        sw = await switch.new_switch(config[CONF_SYNC_RECEIVE_SWITCH])
+        await cg.register_component(sw, config[CONF_SYNC_RECEIVE_SWITCH])
+        cg.add(sw.set_bridge(var))
+
+    if CONF_ESTIMATED_CURRENT in config:
+        sens = await sensor.new_sensor(config[CONF_ESTIMATED_CURRENT])
+        await cg.register_component(sens, config[CONF_ESTIMATED_CURRENT])
+        cg.add(sens.set_bridge(var))
 
 
 CONF_PRESET = "preset"

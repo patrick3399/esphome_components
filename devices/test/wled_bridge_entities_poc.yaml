@@ -59,3 +59,13 @@ wled_bridge:
     name: "WLED Speed"
   intensity_number:
     name: "WLED Intensity"
+  preset_select:
+    name: "WLED Preset"
+  nightlight_switch:
+    name: "WLED Nightlight"
+  sync_send_switch:
+    name: "WLED Sync Send"
+  sync_receive_switch:
+    name: "WLED Sync Receive"
+  estimated_current:
+    name: "WLED Estimated Current"
