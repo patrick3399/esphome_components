@@ -2,6 +2,7 @@
 // Algorithms are derived from WLED's FX.cpp (EUPL-1.2 original).
 // This implementation is an independent rewrite under ESPHome's MIT license.
 // Reference: WLED/wled00/FX.cpp, FX_fcn.cpp (tag v16.0.0)
+#include "esphome/core/defines.h"
 #include "wled_effects.h"
 #include "wled_fx_math.h"
 #include <algorithm>
@@ -4303,6 +4304,7 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 119 */ {"Drip", "Drip@Gravity,# of drips,,,,,Overlay;!,!;!;;m12=1", fx_drip},
     /* 120 */ {"Dancing Shadows", "Dancing Shadows@!,# of shadows;!;!", fx_dancing_shadows},
     /* 121 */ {"TV Simulator", "TV Simulator@!,!;;!;01", fx_tv_simulator},
+#ifdef WLED_BRIDGE_2D
     /* 122 */ {"2D Matrix", "2D Matrix@!,Brightness;!,Spawn,Trail;!;;pal=11,m12=2", fx_2d_matrix},
     /* 123 */ {"2D Plasma", "2D Plasma@Phase,Scale;!;!;;m12=2", fx_2d_plasma},
     /* 124 */ {"2D Gameoflife", "2D Gameoflife@!;!;!;;m12=2", fx_2d_gameoflife},
@@ -4355,6 +4357,7 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 171 */ {"2D Drift Rose", "2D Drift Rose@!,# petals;!;!;;m12=2", fx_2d_driftrose},
     /* 172 */ {"2D Octopus", "2D Octopus@!,;!;!;;m12=2", fx_2d_octopus},
     /* 173 */ {"2D Waving Cell", "2D Waving Cell@!,Scale;!;!;;m12=2", fx_2d_wavingcell},
+#endif  // WLED_BRIDGE_2D
 };
 
 }  // namespace wled_bridge

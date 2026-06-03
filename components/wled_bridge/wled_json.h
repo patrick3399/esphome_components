@@ -67,6 +67,7 @@ class WLEDSseHandler : public web_server_idf::AsyncWebHandler {
   bool has_pending_{false};
 };
 
+#ifdef WLED_BRIDGE_WEB_UI
 // ---------- UI handler ----------
 // Serves the WLED web interface at / and /index.htm
 class WLEDUiHandler : public web_server_idf::AsyncWebHandler {
@@ -74,6 +75,7 @@ class WLEDUiHandler : public web_server_idf::AsyncWebHandler {
   bool canHandle(web_server_idf::AsyncWebServerRequest *request) const override;
   void handleRequest(web_server_idf::AsyncWebServerRequest *request) override;
 };
+#endif  // WLED_BRIDGE_WEB_UI
 
 // ---------- JSON builder helpers (non-member) ----------
 std::string build_state_json(const WLEDBridgeComponent *comp);

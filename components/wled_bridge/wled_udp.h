@@ -1,6 +1,7 @@
 #pragma once
 #ifdef USE_ESP32
 
+#include "esphome/core/defines.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -41,6 +42,7 @@ class WLEDUdpSync {
   uint32_t last_send_ms_{0};
 };
 
+#ifdef WLED_BRIDGE_REALTIME
 // DDP (Distributed Display Protocol) realtime pixel receiver.
 // Listens on UDP 4048 for pixel data from Hyperion / Prismatik / xLights.
 // Writes directly to the bridge's pixel override buffer; when the push flag
@@ -130,6 +132,7 @@ class WLEDArtNetReceiver {
   uint32_t last_receive_ms_{0};
   uint8_t last_seq_[8]{};
 };
+#endif  // WLED_BRIDGE_REALTIME
 
 }  // namespace wled_bridge
 }  // namespace esphome

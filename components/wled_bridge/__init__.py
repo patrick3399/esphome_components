@@ -13,6 +13,7 @@ from esphome.const import (
     CONF_WHITE,
 )
 from esphome.core import CORE
+from pathlib import Path
 
 try:
     from esphome.components.esp32 import add_idf_sdkconfig_option
@@ -49,15 +50,24 @@ CONF_UDP_PORT = "udp_port"
 CONF_UDP_PORT2 = "udp_port2"
 CONF_UDP_SEND = "udp_send"
 CONF_UDP_RECEIVE = "udp_receive"
-CONF_DDP_RECEIVE = "ddp_receive"
 CONF_BOOT_PRESET = "boot_preset"
-CONF_E131_RECEIVE = "e131_receive"
+CONF_BRIGHTNESS_FACTOR = "brightness_factor"
+CONF_WEB_UI = "web_ui"
+CONF_REALTIME = "realtime"
+CONF_DDP = "ddp"
+CONF_E131 = "e131"
 CONF_E131_UNIVERSE = "e131_universe"
+CONF_E131_UNIVERSES = "e131_universes"
+CONF_ARTNET = "artnet"
+CONF_ARTNET_UNIVERSE = "artnet_universe"
+CONF_ARTNET_UNIVERSES = "artnet_universes"
+
+# Kept for backward compatibility — flat keys still accepted alongside nested realtime:
+CONF_DDP_RECEIVE = "ddp_receive"
+CONF_E131_RECEIVE = "e131_receive"
 CONF_E131_UNIVERSE_COUNT = "e131_universe_count"
 CONF_ARTNET_RECEIVE = "artnet_receive"
-CONF_ARTNET_UNIVERSE = "artnet_universe"
 CONF_ARTNET_UNIVERSE_COUNT = "artnet_universe_count"
-CONF_BRIGHTNESS_FACTOR = "brightness_factor"
 
 # Auto-white modes for RGBW strips (derive W channel from RGB).
 AUTO_WHITE_MODES = {
@@ -76,6 +86,19 @@ BUS_SCHEMA = cv.Schema(
     }
 )
 
+# Nested realtime: section schema
+REALTIME_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_DDP, default=False): cv.boolean,
+        cv.Optional(CONF_E131, default=False): cv.boolean,
+        cv.Optional(CONF_E131_UNIVERSE, default=1): cv.int_range(min=1, max=63999),
+        cv.Optional(CONF_E131_UNIVERSES, default=1): cv.int_range(min=1, max=8),
+        cv.Optional(CONF_ARTNET, default=False): cv.boolean,
+        cv.Optional(CONF_ARTNET_UNIVERSE, default=0): cv.int_range(min=0, max=32767),
+        cv.Optional(CONF_ARTNET_UNIVERSES, default=1): cv.int_range(min=1, max=8),
+    }
+)
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(WLEDBridgeComponent),
@@ -83,7 +106,6 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_LIGHT_ID): cv.use_id(light.AddressableLightState),
         cv.Optional(CONF_BUSES): cv.All(cv.ensure_list(BUS_SCHEMA), cv.Length(min=1)),
         # Global defaults used when light_id (not buses:) is specified.
-        # Keep defaults in codegen so buses: configs don't show unused globals.
         cv.Optional(CONF_MAX_MA): cv.positive_int,
         cv.Optional(CONF_LED_MA): cv.positive_int,
         cv.Optional(CONF_USE_TASK, default=False): cv.boolean,
@@ -99,20 +121,22 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_UDP_PORT2, default=65506): cv.port,
         cv.Optional(CONF_UDP_SEND, default=False): cv.boolean,
         cv.Optional(CONF_UDP_RECEIVE, default=False): cv.boolean,
-        # DDP realtime pixel receiver (Hyperion / Prismatik / xLights)
-        cv.Optional(CONF_DDP_RECEIVE, default=False): cv.boolean,
         # Boot preset (0 = restore last NVS state, 1-16 = load specific preset)
         cv.Optional(CONF_BOOT_PRESET, default=0): cv.int_range(min=0, max=16),
-        # E1.31 (sACN) realtime pixel receiver (xLights / QLC+)
+        # Brightness factor (0-100%, caps maximum brightness like WLED BF setting)
+        cv.Optional(CONF_BRIGHTNESS_FACTOR, default=100): cv.int_range(min=1, max=100),
+        # Web UI (default enabled): set false to strip ~64 KB of gzip blobs from flash
+        cv.Optional(CONF_WEB_UI, default=True): cv.boolean,
+        # Nested realtime: section — enables DDP/E1.31/Art-Net receivers
+        cv.Optional(CONF_REALTIME): REALTIME_SCHEMA,
+        # --- Backward-compat flat keys (deprecated, use realtime: section instead) ---
+        cv.Optional(CONF_DDP_RECEIVE, default=False): cv.boolean,
         cv.Optional(CONF_E131_RECEIVE, default=False): cv.boolean,
         cv.Optional(CONF_E131_UNIVERSE, default=1): cv.int_range(min=1, max=63999),
         cv.Optional(CONF_E131_UNIVERSE_COUNT, default=1): cv.int_range(min=1, max=8),
-        # Art-Net realtime pixel receiver (xLights / Madrix / QLC+)
         cv.Optional(CONF_ARTNET_RECEIVE, default=False): cv.boolean,
         cv.Optional(CONF_ARTNET_UNIVERSE, default=0): cv.int_range(min=0, max=32767),
         cv.Optional(CONF_ARTNET_UNIVERSE_COUNT, default=1): cv.int_range(min=1, max=8),
-        # Brightness factor (0-100%, caps maximum brightness like WLED BF setting)
-        cv.Optional(CONF_BRIGHTNESS_FACTOR, default=100): cv.int_range(min=1, max=100),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -125,6 +149,21 @@ def _validate(config):
     return config
 
 
+def _has_realtime(config):
+    """Return True when any realtime receiver is enabled (nested or flat keys)."""
+    rt = config.get(CONF_REALTIME)
+    if rt is not None:
+        if rt.get(CONF_DDP, False) or rt.get(CONF_E131, False) or rt.get(CONF_ARTNET, False):
+            return True
+    if config.get(CONF_DDP_RECEIVE, False):
+        return True
+    if config.get(CONF_E131_RECEIVE, False):
+        return True
+    if config.get(CONF_ARTNET_RECEIVE, False):
+        return True
+    return False
+
+
 def _count_udp_sockets(config):
     count = 0
     if config.get(CONF_UDP_SEND, False):
@@ -133,11 +172,12 @@ def _count_udp_sockets(config):
         count += 1  # recv port1
         if config.get(CONF_UDP_PORT2, 0) != config.get(CONF_UDP_PORT, 21324):
             count += 1  # recv port2
-    if config.get(CONF_DDP_RECEIVE, False):
+    rt = config.get(CONF_REALTIME, {})
+    if rt.get(CONF_DDP, False) or config.get(CONF_DDP_RECEIVE, False):
         count += 1  # DDP port 4048
-    if config.get(CONF_E131_RECEIVE, False):
+    if rt.get(CONF_E131, False) or config.get(CONF_E131_RECEIVE, False):
         count += 1  # E1.31/sACN port 5568
-    if config.get(CONF_ARTNET_RECEIVE, False):
+    if rt.get(CONF_ARTNET, False) or config.get(CONF_ARTNET_RECEIVE, False):
         count += 1  # Art-Net port 6454
     return count
 
@@ -147,6 +187,75 @@ CONFIG_SCHEMA = cv.All(
     _validate,
     consume_sockets(6, "wled_bridge", SocketType.UDP),
 )
+
+# Path to pre-compressed UI asset blobs generated by tools/gen_wled_ui.py
+_UI_ASSETS_DIR = Path(__file__).parent / "ui_assets"
+
+# Maps symbol prefix → (gz filename, size symbol suffix)
+_UI_BLOBS = [
+    ("WLED_INDEX", "index.htm.gz"),
+    ("WLED_INDEX_JS", "index.js.gz"),
+    ("WLED_INDEX_CSS", "index.css.gz"),
+    ("WLED_RANGETOUCH", "rangetouch.js.gz"),
+    ("WLED_IRO", "iro.js.gz"),
+    ("WLED_SETTINGS", "settings.html.gz"),
+]
+
+
+def _inject_ui_blobs():
+    """Inject PROGMEM blob globals from pre-compressed .gz files.
+
+    Each blob becomes two global declarations in the generated C++ file:
+      const uint8_t SYMBOL_GZ[] PROGMEM = { 0xNN, ... };
+      const size_t SYMBOL_GZ_SIZE = NNN;
+
+    Using PROGMEM (= placed in flash) keeps the blobs out of RAM.
+    """
+    for symbol, gz_filename in _UI_BLOBS:
+        gz_path = _UI_ASSETS_DIR / gz_filename
+        if not gz_path.exists():
+            raise FileNotFoundError(
+                f"UI asset not found: {gz_path}. "
+                "Run tools/gen_wled_ui.py to regenerate."
+            )
+        gz_data = gz_path.read_bytes()
+        hex_bytes = ", ".join(f"0x{b:02x}" for b in gz_data)
+        array_decl = (
+            f"namespace esphome {{ namespace wled_bridge {{ "
+            f"const uint8_t {symbol}_GZ[] PROGMEM = {{ {hex_bytes} }}; "
+            f"const size_t {symbol}_GZ_SIZE = {len(gz_data)}u; "
+            f"}} }}"
+        )
+        cg.add_global(cg.RawExpression(array_decl))
+
+
+def FILTER_SOURCE_FILES():
+    """Exclude source files for disabled subsystems.
+
+    Called by ESPHome with no arguments; reads the component config from CORE.
+
+    - wled_udp.cpp: always excluded (replaced by wled_udp_sync.cpp + wled_udp_realtime.cpp)
+    - wled_effects_2d.cpp: excluded when no 2D matrix is configured
+    - wled_udp_realtime.cpp: excluded when realtime: section is absent / all disabled
+    """
+    domain = "wled_bridge"
+    raw = CORE.config.get(domain)
+    # ESPHome stores single-instance component config either as a dict directly,
+    # or as a list of dicts when MULTI_CONF is set.
+    if isinstance(raw, list):
+        config = raw[0] if raw else {}
+    elif isinstance(raw, dict):
+        config = raw
+    else:
+        config = {}
+    # wled_udp.cpp: always excluded — split into wled_udp_sync.cpp + wled_udp_realtime.cpp
+    # wled_ui_data.cpp: always excluded — replaced by Python-side PROGMEM injection in to_code()
+    filtered = ["wled_udp.cpp", "wled_ui_data.cpp"]
+    if config.get(CONF_MATRIX_WIDTH, 0) == 0 or config.get(CONF_MATRIX_HEIGHT, 0) == 0:
+        filtered.append("wled_effects_2d.cpp")
+    if not _has_realtime(config):
+        filtered.append("wled_udp_realtime.cpp")
+    return filtered
 
 
 async def to_code(config):
@@ -160,6 +269,8 @@ async def to_code(config):
     cg.add(var.set_matrix_width(config[CONF_MATRIX_WIDTH]))
     cg.add(var.set_matrix_height(config[CONF_MATRIX_HEIGHT]))
     cg.add(var.set_matrix_serpentine(config[CONF_MATRIX_SERPENTINE]))
+    if config[CONF_MATRIX_WIDTH] > 0 and config[CONF_MATRIX_HEIGHT] > 0:
+        cg.add_define("WLED_BRIDGE_2D")
 
     # UDP sync
     cg.add(var.set_udp_port(config[CONF_UDP_PORT]))
@@ -167,26 +278,48 @@ async def to_code(config):
     cg.add(var.set_udp_send(config[CONF_UDP_SEND]))
     cg.add(var.set_udp_receive(config[CONF_UDP_RECEIVE]))
 
-    # DDP realtime receiver
-    cg.add(var.set_ddp_enabled(config[CONF_DDP_RECEIVE]))
-
     # Boot preset
     if config[CONF_BOOT_PRESET] > 0:
         cg.add(var.set_boot_preset(config[CONF_BOOT_PRESET]))
 
-    # E1.31 (sACN) realtime receiver
-    cg.add(var.set_e131_enabled(config[CONF_E131_RECEIVE]))
-    cg.add(var.set_e131_universe(config[CONF_E131_UNIVERSE]))
-    cg.add(var.set_e131_universe_count(config[CONF_E131_UNIVERSE_COUNT]))
-
-    # Art-Net realtime receiver
-    cg.add(var.set_artnet_enabled(config[CONF_ARTNET_RECEIVE]))
-    cg.add(var.set_artnet_universe(config[CONF_ARTNET_UNIVERSE]))
-    cg.add(var.set_artnet_universe_count(config[CONF_ARTNET_UNIVERSE_COUNT]))
-
     # Brightness factor
     if config[CONF_BRIGHTNESS_FACTOR] < 100:
         cg.add(var.set_brightness_factor(config[CONF_BRIGHTNESS_FACTOR]))
+
+    # Web UI blobs (Layer B + D)
+    if config[CONF_WEB_UI]:
+        cg.add_define("WLED_BRIDGE_WEB_UI")
+        _inject_ui_blobs()
+
+    # Realtime receivers — nested realtime: section (Layer C)
+    rt = config.get(CONF_REALTIME)
+    if rt is not None:
+        ddp_en = rt.get(CONF_DDP, False)
+        e131_en = rt.get(CONF_E131, False)
+        artnet_en = rt.get(CONF_ARTNET, False)
+        if ddp_en or e131_en or artnet_en:
+            cg.add_define("WLED_BRIDGE_REALTIME")
+        cg.add(var.set_ddp_enabled(ddp_en))
+        cg.add(var.set_e131_enabled(e131_en))
+        cg.add(var.set_e131_universe(rt.get(CONF_E131_UNIVERSE, 1)))
+        cg.add(var.set_e131_universe_count(rt.get(CONF_E131_UNIVERSES, 1)))
+        cg.add(var.set_artnet_enabled(artnet_en))
+        cg.add(var.set_artnet_universe(rt.get(CONF_ARTNET_UNIVERSE, 0)))
+        cg.add(var.set_artnet_universe_count(rt.get(CONF_ARTNET_UNIVERSES, 1)))
+    else:
+        # Backward-compat flat keys
+        ddp_en = config.get(CONF_DDP_RECEIVE, False)
+        e131_en = config.get(CONF_E131_RECEIVE, False)
+        artnet_en = config.get(CONF_ARTNET_RECEIVE, False)
+        if ddp_en or e131_en or artnet_en:
+            cg.add_define("WLED_BRIDGE_REALTIME")
+        cg.add(var.set_ddp_enabled(ddp_en))
+        cg.add(var.set_e131_enabled(e131_en))
+        cg.add(var.set_e131_universe(config[CONF_E131_UNIVERSE]))
+        cg.add(var.set_e131_universe_count(config[CONF_E131_UNIVERSE_COUNT]))
+        cg.add(var.set_artnet_enabled(artnet_en))
+        cg.add(var.set_artnet_universe(config[CONF_ARTNET_UNIVERSE]))
+        cg.add(var.set_artnet_universe_count(config[CONF_ARTNET_UNIVERSE_COUNT]))
 
     # Enable IDF WebSocket support so /ws endpoint works
     if _HAS_SDKCONFIG and CORE.is_esp32:

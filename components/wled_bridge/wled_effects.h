@@ -1,4 +1,5 @@
 #pragma once
+#include "esphome/core/defines.h"
 #include <stddef.h>
 #include "wled_effect_context.h"
 
@@ -13,7 +14,13 @@ struct EffectDescriptor {
   EffectFn fn;
 };
 
-static constexpr size_t WLED_EFFECT_COUNT = 174;
+static constexpr size_t WLED_EFFECT_COUNT_1D = 122;
+static constexpr size_t WLED_EFFECT_COUNT_2D = 52;
+#ifdef WLED_BRIDGE_2D
+static constexpr size_t WLED_EFFECT_COUNT = WLED_EFFECT_COUNT_1D + WLED_EFFECT_COUNT_2D;
+#else
+static constexpr size_t WLED_EFFECT_COUNT = WLED_EFFECT_COUNT_1D;
+#endif
 extern const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT];
 
 // ---- forward declarations ----
@@ -150,6 +157,7 @@ void fx_drip(EffectContext &);
 void fx_dancing_shadows(EffectContext &);
 void fx_tv_simulator(EffectContext &);
 
+#ifdef WLED_BRIDGE_2D
 // --- 2D effects batch 1 ---
 void fx_2d_matrix(EffectContext &);
 void fx_2d_plasma(EffectContext &);
@@ -207,6 +215,7 @@ void fx_2d_blobs(EffectContext &);
 void fx_2d_driftrose(EffectContext &);
 void fx_2d_octopus(EffectContext &);
 void fx_2d_wavingcell(EffectContext &);
+#endif  // WLED_BRIDGE_2D
 
 }  // namespace wled_bridge
 }  // namespace esphome

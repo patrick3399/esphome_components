@@ -1,5 +1,8 @@
+#include "esphome/core/defines.h"
 #include "wled_json.h"
+#ifdef WLED_BRIDGE_WEB_UI
 #include "wled_ui_data.h"
+#endif
 #include "wled_bridge.h"
 #include "wled_color.h"
 #include "wled_effects.h"
@@ -1656,6 +1659,7 @@ void WLEDSseHandler::broadcast_state() {
   ESP_LOGV(TAG, "State broadcast v%u: %s", this->pending_version_, this->pending_state_.c_str());
 }
 
+#ifdef WLED_BRIDGE_WEB_UI
 // ============================================================
 // WLEDUiHandler
 // ============================================================
@@ -1749,6 +1753,7 @@ void WLEDUiHandler::handleRequest(web_server_idf::AsyncWebServerRequest *request
                   "</body></html>");
   }
 }
+#endif  // WLED_BRIDGE_WEB_UI
 
 }  // namespace wled_bridge
 }  // namespace esphome

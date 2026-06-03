@@ -66,12 +66,12 @@ wled_bridge:
   udp_port: 21324
   udp_port2: 65506
 
-  # Realtime receivers.
-  ddp_receive: true
-  e131_receive: true
-  e131_universe: 1
-  e131_universe_count: 2
-
-  artnet_receive: true
-  artnet_universe: 0
-  artnet_universe_count: 2
+  # Realtime receivers (nested schema, Layer C).
+  realtime:
+    ddp: true
+    e131: true
+    e131_universe: 1
+    e131_universes: 2
+    artnet: true
+    artnet_universe: 0
+    artnet_universes: 2

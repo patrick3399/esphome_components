@@ -1,0 +1,50 @@
+esphome:
+  name: wled-bridge-esp32
+  friendly_name: WLED Bridge ESP32 4MB
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# No PSRAM on standard ESP32 dev board
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+web_server:
+  port: 80
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [wled_bridge]
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: my_leds
+    name: "LED Strip"
+    pin: GPIO16
+    num_leds: 60
+    chipset: WS2812
+    rgb_order: GRB
+    gamma_correct: 0.0
+    color_correct: [1.0, 1.0, 1.0]
+
+wled_bridge:
+  light_id: my_leds
+  max_ma: 3000
+  led_ma: 55
+  # Minimum configuration: no 2D, no realtime, no Web UI blobs
+  web_ui: false

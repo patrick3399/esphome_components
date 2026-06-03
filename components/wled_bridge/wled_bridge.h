@@ -384,7 +384,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     return this->artnet_universe_count_;
   }
 
-#ifdef USE_ESP32
+#if defined(USE_ESP32) && defined(WLED_BRIDGE_REALTIME)
   bool is_ddp_receiving() const {
     return this->ddp_receiver_.is_receiving();
   }
@@ -775,12 +775,14 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
 
   WLEDJsonHandler *json_handler_{nullptr};
   WLEDSseHandler *sse_handler_{nullptr};
+#ifdef WLED_BRIDGE_WEB_UI
   WLEDUiHandler *ui_handler_{nullptr};
+#endif
 #ifdef USE_ESP32
   WLEDWsHandler *ws_handler_{nullptr};
 #endif
   WLEDUdpSync udp_sync_{};
-#ifdef USE_ESP32
+#if defined(USE_ESP32) && defined(WLED_BRIDGE_REALTIME)
   WLEDDdpReceiver ddp_receiver_{};
   WLEDE131Receiver e131_receiver_{};
   WLEDArtNetReceiver artnet_receiver_{};

@@ -1,3 +1,4 @@
+#include "esphome/core/defines.h"
 #include "wled_bridge.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -6,7 +7,9 @@
 #include "wled_color.h"
 
 #include "wled_json.h"
+#ifdef WLED_BRIDGE_WEB_UI
 #include "wled_ui_data.h"
+#endif
 #include "esphome/components/web_server_base/web_server_base.h"
 #ifdef USE_ESP32
 #include <esp_http_server.h>
@@ -211,8 +214,10 @@ void WLEDBridgeComponent::setup() {
   if (wsb != nullptr) {
     this->json_handler_ = new WLEDJsonHandler(this);  // NOLINT
     this->sse_handler_ = new WLEDSseHandler(this);  // NOLINT
+#ifdef WLED_BRIDGE_WEB_UI
     this->ui_handler_ = new WLEDUiHandler();  // NOLINT
     wsb->get_server()->addHandler(this->ui_handler_);
+#endif
     wsb->get_server()->addHandler(this->json_handler_);
     wsb->get_server()->addHandler(this->sse_handler_);
     ESP_LOGD(TAG, "WLED JSON API registered");
@@ -248,7 +253,7 @@ void WLEDBridgeComponent::setup() {
   this->udp_sync_.setup(this, this->udp_port_, this->udp_port2_, this->udp_send_, this->udp_receive_);
 
   // DDP realtime pixel receiver (Hyperion / Prismatik / xLights)
-#ifdef USE_ESP32
+#if defined(USE_ESP32) && defined(WLED_BRIDGE_REALTIME)
   this->ddp_receiver_.setup(this, this->ddp_enabled_);
   this->e131_receiver_.setup(this, this->e131_enabled_, this->e131_universe_, this->e131_universe_count_);
   this->artnet_receiver_.setup(this, this->artnet_enabled_, this->artnet_universe_, this->artnet_universe_count_);
@@ -574,7 +579,7 @@ void WLEDBridgeComponent::loop() {
 
   // UDP receive
   this->udp_sync_.loop();
-#ifdef USE_ESP32
+#if defined(USE_ESP32) && defined(WLED_BRIDGE_REALTIME)
   this->ddp_receiver_.loop();
   this->e131_receiver_.loop();
   this->artnet_receiver_.loop();
