@@ -64,18 +64,6 @@ jobs:
   config-validate:
     name: YAML Config Validation
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        yaml:
-          - devices/test/wled_bridge_poc.yaml
-          - devices/test/wled_bridge_multibus_poc.yaml
-          - devices/test/wled_bridge_matrix_poc.yaml
-          - devices/test/wled_bridge_esp32_4mb.yaml
-          - devices/test/wled_bridge_realtime_poc.yaml
-          - devices/test/wled_bridge_audio_poc.yaml
-          - devices/test/wled_bridge_entities_poc.yaml
-          - devices/test/wled_bridge_full_poc.yaml
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -97,23 +85,22 @@ jobs:
             'ota_password: "ci-dummy-ota"' \
             > devices/test/secrets.yaml
 
-      - name: Rewrite external_components to local
+      - name: Validate all test YAMLs
         run: |
-          python -c "
+          for yaml in devices/test/wled_bridge_*.yaml; do
+            python -c "
           import re, sys, os
-          yaml_path = sys.argv[1]
-          rel = os.path.relpath('components', os.path.dirname(yaml_path))
-          text = open(yaml_path).read()
-          text = re.sub(
-              r'source:\s*github://patrick3399/esphome_components',
-              'source:\\n      type: local\\n      path: ' + rel.replace(os.sep, '/'),
-              text,
-          )
-          open(yaml_path, 'w').write(text)
-          " ${{ matrix.yaml }}
-
-      - name: Validate config
-        run: esphome config ${{ matrix.yaml }}
+          p = sys.argv[1]
+          rel = os.path.relpath('components', os.path.dirname(p))
+          t = open(p).read()
+          t = re.sub(r'source:\s*github://patrick3399/esphome_components',
+                     'source:\n      type: local\n      path: ' + rel.replace(os.sep, '/'), t)
+          open(p, 'w').write(t)
+          " "$yaml"
+            echo "--- Validating $yaml ---"
+            esphome config "$yaml" > /dev/null
+          done
+          echo "All test YAMLs passed config validation."
 
   # CI intentionally avoids firmware builds.
   # Device YAMLs and firmware builds are verified locally while rewrites are in progress.
