@@ -1,0 +1,144 @@
+esphome:
+  name: wled-bridge-full-poc
+  friendly_name: WLED Bridge Full PoC
+  on_boot:
+    priority: -100
+    then:
+      # Exercise all automation action codegen paths
+      - wled_bridge.power_on:
+          id: wled
+      - wled_bridge.set_brightness:
+          id: wled
+          brightness: 200
+      - wled_bridge.set_effect:
+          id: wled
+          effect: 1
+      - wled_bridge.set_palette:
+          id: wled
+          palette: 5
+      - wled_bridge.set_color:
+          id: wled
+          red: 255
+          green: 128
+          blue: 0
+          white: 0
+      - wled_bridge.save_preset:
+          id: wled
+          preset: 1
+      - wled_bridge.load_preset:
+          id: wled
+          preset: 1
+      - wled_bridge.stop_playlist:
+          id: wled
+      - wled_bridge.power_toggle:
+          id: wled
+      - wled_bridge.power_off:
+          id: wled
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+  flash_size: 16MB
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+web_server:
+  port: 80
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [wled_bridge]
+
+i2s_audio:
+  i2s_lrclk_pin: GPIO3
+  i2s_bclk_pin: GPIO4
+
+microphone:
+  - platform: i2s_audio
+    id: my_mic
+    i2s_din_pin: GPIO5
+    adc_type: external
+    pdm: false
+    bits_per_sample: 16bit
+    sample_rate: 22050
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: my_matrix
+    name: "LED Matrix"
+    pin: GPIO38
+    num_leds: 256         # 16 x 16
+    chipset: WS2812
+    rgb_order: GRB
+    use_dma: true
+    use_psram: true
+    gamma_correct: 0.0
+    color_correct: [1.0, 1.0, 1.0]
+
+wled_bridge:
+  id: wled
+  light_id: my_matrix
+  max_ma: 10000
+  led_ma: 55
+  use_task: false
+  auto_white: none
+
+  # 2D matrix — enables WLED_BRIDGE_2D
+  matrix_width: 16
+  matrix_height: 16
+  matrix_serpentine: true
+
+  # UDP sync
+  udp_send: true
+  udp_receive: true
+  udp_port: 21324
+  udp_port2: 65506
+
+  # Boot preset + brightness factor
+  boot_preset: 1
+  brightness_factor: 80
+
+  # Realtime — enables WLED_BRIDGE_REALTIME
+  realtime:
+    ddp: true
+    e131: true
+    e131_universe: 1
+    e131_universes: 2
+    artnet: true
+    artnet_universe: 0
+    artnet_universes: 2
+
+  # Audio — enables WLED_BRIDGE_AUDIO + WLED_BRIDGE_FFT
+  audio:
+    microphone: my_mic
+    passive: true
+    fft: true
+    agc: true
+
+  # HA entities — enables WLED_BRIDGE_ENTITIES
+  palette_select:
+    name: "WLED Palette"
+  effect_select:
+    name: "WLED Effect"
+  speed_number:
+    name: "WLED Speed"
+  intensity_number:
+    name: "WLED Intensity"

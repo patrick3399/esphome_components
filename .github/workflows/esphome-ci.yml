@@ -61,5 +61,57 @@ jobs:
       - name: Run WLED bridge contract tests
         run: python -m unittest discover -s tests -p 'test_*.py'
 
+  config-validate:
+    name: YAML Config Validation
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        yaml:
+          - devices/test/wled_bridge_poc.yaml
+          - devices/test/wled_bridge_multibus_poc.yaml
+          - devices/test/wled_bridge_matrix_poc.yaml
+          - devices/test/wled_bridge_esp32_4mb.yaml
+          - devices/test/wled_bridge_realtime_poc.yaml
+          - devices/test/wled_bridge_audio_poc.yaml
+          - devices/test/wled_bridge_entities_poc.yaml
+          - devices/test/wled_bridge_full_poc.yaml
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install ESPHome
+        run: pip install esphome
+
+      - name: Generate dummy secrets
+        run: |
+          printf '%s\n' \
+            'wifi_ssid: "ci-dummy"' \
+            'wifi_password: "ci-dummy-password"' \
+            'api_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="' \
+            'ota_password: "ci-dummy-ota"' \
+            > devices/test/secrets.yaml
+
+      - name: Rewrite external_components to local
+        run: |
+          python -c "
+          import re, sys
+          text = open(sys.argv[1]).read()
+          text = re.sub(
+              r'source:\s*github://patrick3399/esphome_components',
+              'source:\\n      type: local\\n      path: components',
+              text,
+          )
+          open(sys.argv[1], 'w').write(text)
+          " ${{ matrix.yaml }}
+
+      - name: Validate config
+        run: esphome config ${{ matrix.yaml }}
+
   # CI intentionally avoids firmware builds.
   # Device YAMLs and firmware builds are verified locally while rewrites are in progress.
