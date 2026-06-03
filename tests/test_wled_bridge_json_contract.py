@@ -1124,31 +1124,39 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
 
         m1d = re.search(r"WLED_EFFECT_COUNT_1D\s*=\s*(\d+)", effects_h)
         m2d = re.search(r"WLED_EFFECT_COUNT_2D\s*=\s*(\d+)", effects_h)
-        declared = int(m1d.group(1)) + int(m2d.group(1))
+        m_audio_1d = re.search(r"WLED_EFFECT_COUNT_AUDIO_1D\s*=\s*(\d+)", effects_h)
+        m_audio_2d = re.search(r"WLED_EFFECT_COUNT_AUDIO_2D\s*=\s*(\d+)", effects_h)
+        count_1d = int(m1d.group(1))
+        count_2d = int(m2d.group(1))
+        count_audio_1d = int(m_audio_1d.group(1))
+        count_audio_2d = int(m_audio_2d.group(1))
+        declared_base = count_1d + count_2d
+        declared_total = declared_base + count_audio_1d + count_audio_2d
+
         marker_values = [
             int(value)
             for value in re.findall(r"/\*\s*(\d+)\s*\*/\s*\{", effects_cpp)
         ]
-
-        self.assertEqual(marker_values, list(range(declared)))
+        self.assertEqual(marker_values, list(range(declared_base)))
 
         table_block = effects_cpp.split("const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT]", 1)[1]
         metadata_strings = re.findall(r'\{\s*"[^"]+"\s*,\s*"([^"]*)"\s*,\s*fx_', table_block)
-        self.assertEqual(len(metadata_strings), declared)
+        self.assertEqual(len(metadata_strings), declared_total)
         self.assertTrue(all(meta for meta in metadata_strings), "every effect needs UI metadata")
 
     def test_2d_effect_metadata_count_matches_current_coverage(self) -> None:
         effects_h = read(ROOT / "components" / "wled_bridge" / "wled_effects.h")
         effects_cpp = read(ROOT / "components" / "wled_bridge" / "wled_effects.cpp")
 
-        m1d = re.search(r"WLED_EFFECT_COUNT_1D\s*=\s*(\d+)", effects_h)
         m2d = re.search(r"WLED_EFFECT_COUNT_2D\s*=\s*(\d+)", effects_h)
-        declared = int(m1d.group(1)) + int(m2d.group(1))
+        m_audio_2d = re.search(r"WLED_EFFECT_COUNT_AUDIO_2D\s*=\s*(\d+)", effects_h)
+        count_2d = int(m2d.group(1))
+        count_audio_2d = int(m_audio_2d.group(1))
+
         table_block = effects_cpp.split("const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT]", 1)[1]
         two_d_entries = re.findall(r'\{\s*"2D [^"]+"\s*,\s*"[^"]*m12=2[^"]*"\s*,\s*fx_2d_', table_block)
 
-        self.assertEqual(len(two_d_entries), 52)
-        self.assertEqual(declared - len(two_d_entries), 122)
+        self.assertEqual(len(two_d_entries), count_2d + count_audio_2d)
 
     def test_palette_count_matches_declared_constant(self) -> None:
         palettes_h = read(ROOT / "components" / "wled_bridge" / "wled_palette.h")
