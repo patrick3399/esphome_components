@@ -36,6 +36,15 @@ SetBrightnessAction = wled_bridge_ns.class_("SetBrightnessAction", automation.Ac
 SetColorAction = wled_bridge_ns.class_("SetColorAction", automation.Action)
 PowerAction = wled_bridge_ns.class_("PowerAction", automation.Action)
 StopPlaylistAction = wled_bridge_ns.class_("StopPlaylistAction", automation.Action)
+SetSpeedAction = wled_bridge_ns.class_("SetSpeedAction", automation.Action)
+SetIntensityAction = wled_bridge_ns.class_("SetIntensityAction", automation.Action)
+StartNightlightAction = wled_bridge_ns.class_("StartNightlightAction", automation.Action)
+StopNightlightAction = wled_bridge_ns.class_("StopNightlightAction", automation.Action)
+DeletePresetAction = wled_bridge_ns.class_("DeletePresetAction", automation.Action)
+SetSegmentBoundsAction = wled_bridge_ns.class_("SetSegmentBoundsAction", automation.Action)
+SetTransitionAction = wled_bridge_ns.class_("SetTransitionAction", automation.Action)
+SetSegmentReverseAction = wled_bridge_ns.class_("SetSegmentReverseAction", automation.Action)
+SetSegmentMirrorAction = wled_bridge_ns.class_("SetSegmentMirrorAction", automation.Action)
 
 # HA entity classes (select / number)
 WLEDPaletteSelect = wled_bridge_ns.class_(
@@ -557,6 +566,16 @@ async def to_code(config):
 CONF_PRESET = "preset"
 CONF_EFFECT = "effect"
 CONF_PALETTE = "palette"
+CONF_SPEED = "speed"
+CONF_INTENSITY = "intensity"
+CONF_DURATION = "duration"
+CONF_TARGET_BRIGHTNESS = "target_brightness"
+CONF_MODE = "mode"
+CONF_START = "start"
+CONF_STOP = "stop"
+CONF_TRANSITION = "transition"
+CONF_REVERSE = "reverse"
+CONF_MIRROR = "mirror"
 
 
 @automation.register_action(
@@ -730,4 +749,198 @@ async def wled_bridge_power_toggle_to_code(config, action_id, template_arg, args
 async def wled_bridge_stop_playlist_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_speed",
+    SetSpeedAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_SPEED): cv.templatable(cv.int_range(min=0, max=255)),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_speed_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_SPEED], args, cg.uint8)
+    cg.add(var.set_speed(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_intensity",
+    SetIntensityAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_INTENSITY): cv.templatable(
+                cv.int_range(min=0, max=255)
+            ),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_intensity_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_INTENSITY], args, cg.uint8)
+    cg.add(var.set_intensity(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.start_nightlight",
+    StartNightlightAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Optional(CONF_DURATION, default=60): cv.templatable(
+                cv.int_range(min=1, max=65535)
+            ),
+            cv.Optional(CONF_TARGET_BRIGHTNESS, default=0): cv.templatable(
+                cv.int_range(min=0, max=255)
+            ),
+            cv.Optional(CONF_MODE, default=1): cv.templatable(
+                cv.int_range(min=0, max=3)
+            ),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_start_nightlight_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_duration(
+        await cg.templatable(config[CONF_DURATION], args, cg.uint16)
+    ))
+    cg.add(var.set_target_brightness(
+        await cg.templatable(config[CONF_TARGET_BRIGHTNESS], args, cg.uint8)
+    ))
+    cg.add(var.set_mode(
+        await cg.templatable(config[CONF_MODE], args, cg.uint8)
+    ))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.stop_nightlight",
+    StopNightlightAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(WLEDBridgeComponent)}),
+    synchronous=True,
+)
+async def wled_bridge_stop_nightlight_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.delete_preset",
+    DeletePresetAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_PRESET): cv.templatable(cv.int_range(min=1, max=16)),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_delete_preset_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_PRESET], args, cg.uint8)
+    cg.add(var.set_preset(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_segment_bounds",
+    SetSegmentBoundsAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_START): cv.templatable(cv.positive_int),
+            cv.Required(CONF_STOP): cv.templatable(cv.positive_int),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_segment_bounds_to_code(
+    config, action_id, template_arg, args
+):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_start(
+        await cg.templatable(config[CONF_START], args, cg.uint32)
+    ))
+    cg.add(var.set_stop(
+        await cg.templatable(config[CONF_STOP], args, cg.uint32)
+    ))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_transition",
+    SetTransitionAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_TRANSITION): cv.templatable(
+                cv.int_range(min=0, max=65535)
+            ),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_transition_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_TRANSITION], args, cg.uint16)
+    cg.add(var.set_transition(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_segment_reverse",
+    SetSegmentReverseAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_REVERSE): cv.templatable(cv.boolean),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_segment_reverse_to_code(
+    config, action_id, template_arg, args
+):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_REVERSE], args, cg.bool_)
+    cg.add(var.set_reverse(template_))
+    return var
+
+
+@automation.register_action(
+    "wled_bridge.set_segment_mirror",
+    SetSegmentMirrorAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
+            cv.Required(CONF_MIRROR): cv.templatable(cv.boolean),
+        }
+    ),
+    synchronous=True,
+)
+async def wled_bridge_set_segment_mirror_to_code(
+    config, action_id, template_arg, args
+):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_MIRROR], args, cg.bool_)
+    cg.add(var.set_mirror(template_))
     return var

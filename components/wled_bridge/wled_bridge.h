@@ -959,5 +959,94 @@ class StopPlaylistAction : public Action<Ts...>, public Parented<WLEDBridgeCompo
   }
 };
 
+template <typename... Ts>
+class SetSpeedAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, speed)
+  void play(const Ts &...x) override {
+    this->parent_->set_speed(this->speed_.value(x...));
+    this->parent_->publish_light_state();
+  }
+};
+
+template <typename... Ts>
+class SetIntensityAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, intensity)
+  void play(const Ts &...x) override {
+    this->parent_->set_intensity(this->intensity_.value(x...));
+    this->parent_->publish_light_state();
+  }
+};
+
+template <typename... Ts>
+class StartNightlightAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint16_t, duration)
+  TEMPLATABLE_VALUE(uint8_t, target_brightness)
+  TEMPLATABLE_VALUE(uint8_t, mode)
+  void play(const Ts &...x) override {
+    this->parent_->start_nightlight(this->duration_.value(x...), this->target_brightness_.value(x...),
+                                    this->mode_.value(x...));
+  }
+};
+
+template <typename... Ts>
+class StopNightlightAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  void play(const Ts &...x) override {
+    this->parent_->stop_nightlight();
+  }
+};
+
+template <typename... Ts>
+class DeletePresetAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint8_t, preset)
+  void play(const Ts &...x) override {
+    this->parent_->delete_preset(this->preset_.value(x...));
+  }
+};
+
+template <typename... Ts>
+class SetSegmentBoundsAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint32_t, start)
+  TEMPLATABLE_VALUE(uint32_t, stop)
+  void play(const Ts &...x) override {
+    this->parent_->set_segment_bounds(this->start_.value(x...), this->stop_.value(x...));
+    this->parent_->publish_light_state();
+  }
+};
+
+template <typename... Ts>
+class SetTransitionAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(uint16_t, transition)
+  void play(const Ts &...x) override {
+    this->parent_->set_transition(this->transition_.value(x...));
+  }
+};
+
+template <typename... Ts>
+class SetSegmentReverseAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(bool, reverse)
+  void play(const Ts &...x) override {
+    this->parent_->set_segment_reverse(this->reverse_.value(x...));
+    this->parent_->publish_light_state();
+  }
+};
+
+template <typename... Ts>
+class SetSegmentMirrorAction : public Action<Ts...>, public Parented<WLEDBridgeComponent> {
+ public:
+  TEMPLATABLE_VALUE(bool, mirror)
+  void play(const Ts &...x) override {
+    this->parent_->set_segment_mirror(this->mirror_.value(x...));
+    this->parent_->publish_light_state();
+  }
+};
+
 }  // namespace wled_bridge
 }  // namespace esphome

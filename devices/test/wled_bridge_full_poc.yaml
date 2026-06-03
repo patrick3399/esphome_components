@@ -28,8 +28,37 @@ esphome:
       - wled_bridge.load_preset:
           id: wled
           preset: 1
+      - wled_bridge.set_speed:
+          id: wled
+          speed: 200
+      - wled_bridge.set_intensity:
+          id: wled
+          intensity: 150
+      - wled_bridge.set_transition:
+          id: wled
+          transition: 500
+      - wled_bridge.set_segment_bounds:
+          id: wled
+          start: 0
+          stop: 128
+      - wled_bridge.set_segment_reverse:
+          id: wled
+          reverse: true
+      - wled_bridge.set_segment_mirror:
+          id: wled
+          mirror: true
+      - wled_bridge.start_nightlight:
+          id: wled
+          duration: 300
+          target_brightness: 0
+          mode: 1
+      - wled_bridge.stop_nightlight:
+          id: wled
       - wled_bridge.stop_playlist:
           id: wled
+      - wled_bridge.delete_preset:
+          id: wled
+          preset: 16
       - wled_bridge.power_toggle:
           id: wled
       - wled_bridge.power_off:
