@@ -16,11 +16,22 @@ struct EffectDescriptor {
 
 static constexpr size_t WLED_EFFECT_COUNT_1D = 122;
 static constexpr size_t WLED_EFFECT_COUNT_2D = 52;
+static constexpr size_t WLED_EFFECT_COUNT_AUDIO_1D = 21;
+static constexpr size_t WLED_EFFECT_COUNT_AUDIO_2D = 2;
+static constexpr size_t WLED_EFFECT_COUNT_AUDIO = WLED_EFFECT_COUNT_AUDIO_1D
 #ifdef WLED_BRIDGE_2D
-static constexpr size_t WLED_EFFECT_COUNT = WLED_EFFECT_COUNT_1D + WLED_EFFECT_COUNT_2D;
-#else
-static constexpr size_t WLED_EFFECT_COUNT = WLED_EFFECT_COUNT_1D;
+                                                  + WLED_EFFECT_COUNT_AUDIO_2D
 #endif
+    ;
+
+static constexpr size_t WLED_EFFECT_COUNT = WLED_EFFECT_COUNT_1D
+#ifdef WLED_BRIDGE_2D
+                                            + WLED_EFFECT_COUNT_2D
+#endif
+#ifdef WLED_BRIDGE_AUDIO
+                                            + WLED_EFFECT_COUNT_AUDIO
+#endif
+    ;
 extern const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT];
 
 // ---- forward declarations ----
@@ -216,6 +227,37 @@ void fx_2d_driftrose(EffectContext &);
 void fx_2d_octopus(EffectContext &);
 void fx_2d_wavingcell(EffectContext &);
 #endif  // WLED_BRIDGE_2D
+
+#ifdef WLED_BRIDGE_AUDIO
+// --- audio-reactive 1D effects (volume-only) ---
+void fx_gravimeter(EffectContext &);
+void fx_puddles(EffectContext &);
+void fx_puddlepeak(EffectContext &);
+void fx_pixels_vol(EffectContext &);
+void fx_pixelwave(EffectContext &);
+void fx_noisemeter(EffectContext &);
+void fx_noisefire(EffectContext &);
+void fx_matripix(EffectContext &);
+void fx_ripple_peak(EffectContext &);
+void fx_juggles_vol(EffectContext &);
+void fx_plasmoid(EffectContext &);
+// --- audio-reactive 1D effects (FFT-based) ---
+void fx_geq(EffectContext &);
+void fx_freqmap(EffectContext &);
+void fx_blurz(EffectContext &);
+void fx_djlight(EffectContext &);
+void fx_freqpixels(EffectContext &);
+void fx_freqwave(EffectContext &);
+void fx_gravfreq(EffectContext &);
+void fx_noisemove(EffectContext &);
+void fx_waterfall(EffectContext &);
+void fx_rocktaves(EffectContext &);
+#ifdef WLED_BRIDGE_2D
+// --- audio-reactive 2D effects ---
+void fx_2d_geq(EffectContext &);
+void fx_2d_waverly_vol(EffectContext &);
+#endif  // WLED_BRIDGE_2D
+#endif  // WLED_BRIDGE_AUDIO
 
 }  // namespace wled_bridge
 }  // namespace esphome

@@ -1,7 +1,11 @@
 #pragma once
+#include "esphome/core/defines.h"
 #include "wled_types.h"
 #include "wled_color.h"
 #include "wled_palette.h"
+#ifdef WLED_BRIDGE_AUDIO
+#include "wled_audio.h"
+#endif
 
 namespace esphome {
 namespace wled_bridge {
@@ -157,6 +161,35 @@ struct EffectContext {
   void fade_2d(uint8_t amount) {
     fade_to_black(amount);
   }
+
+#ifdef WLED_BRIDGE_AUDIO
+  // ---- audio data (never nullptr when WLED_BRIDGE_AUDIO is defined) ----
+  const AudioData *audio{nullptr};
+
+  float volume() const {
+    return audio != nullptr ? audio->volume_smth : 0;
+  }
+  bool has_audio() const {
+    return audio != nullptr && audio->volume_smth > 0.5f;
+  }
+  bool beat() const {
+    return audio != nullptr && audio->sample_peak;
+  }
+  uint8_t fft_bin(uint8_t i) const {
+#ifdef WLED_BRIDGE_FFT
+    return (audio != nullptr && i < 16) ? audio->fft_result[i] : 0;
+#else
+    return 0;
+#endif
+  }
+  float major_peak() const {
+#ifdef WLED_BRIDGE_FFT
+    return audio != nullptr ? audio->fft_major_peak : 0;
+#else
+    return 0;
+#endif
+  }
+#endif  // WLED_BRIDGE_AUDIO
 };
 
 }  // namespace wled_bridge

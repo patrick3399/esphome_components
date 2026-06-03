@@ -14,6 +14,9 @@
 #ifdef USE_ESP32
 #include "wled_ws.h"
 #endif
+#ifdef WLED_BRIDGE_AUDIO
+#include "wled_audio.h"
+#endif
 
 namespace esphome {
 namespace wled_bridge {
@@ -403,6 +406,27 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   }
   bool is_artnet_receiving() const {
     return false;
+  }
+#endif
+
+#ifdef WLED_BRIDGE_AUDIO
+  void set_audio_source(microphone::MicrophoneSource *source) {
+    this->audio_source_ = source;
+  }
+  void set_audio_fft(bool v) {
+    this->audio_fft_ = v;
+  }
+  void set_audio_agc(bool v) {
+    this->audio_agc_ = v;
+  }
+  bool has_audio() const {
+    return this->audio_source_ != nullptr;
+  }
+  const AudioData &get_audio_data() const {
+    return this->audio_analyzer_.data();
+  }
+  bool is_audio_active() const {
+    return this->audio_analyzer_.is_active();
   }
 #endif
 
@@ -828,6 +852,14 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool artnet_enabled_{false};
   uint16_t artnet_universe_{0};
   uint8_t artnet_universe_count_{1};
+
+#ifdef WLED_BRIDGE_AUDIO
+  // Audio reactive
+  microphone::MicrophoneSource *audio_source_{nullptr};
+  AudioAnalyzer audio_analyzer_{};
+  bool audio_fft_{false};
+  bool audio_agc_{true};
+#endif
 };
 
 // ---- ESPHome automation actions ----

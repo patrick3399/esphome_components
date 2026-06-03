@@ -4358,6 +4358,37 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
     /* 172 */ {"2D Octopus", "2D Octopus@!,;!;!;;m12=2", fx_2d_octopus},
     /* 173 */ {"2D Waving Cell", "2D Waving Cell@!,Scale;!;!;;m12=2", fx_2d_wavingcell},
 #endif  // WLED_BRIDGE_2D
+
+#ifdef WLED_BRIDGE_AUDIO
+    // --- audio-reactive 1D effects (volume-only) ---
+    {"Gravimeter ♪", "Gravimeter ♪@Speed;!;!;;si=0", fx_gravimeter},
+    {"Puddles ♪", "Puddles ♪@,Width;!;!;;si=0", fx_puddles},
+    {"Puddlepeak ♪", "Puddlepeak ♪@,Width;!;!;;si=0", fx_puddlepeak},
+    {"Pixels ♪", "Pixels ♪@;!;!;;si=0", fx_pixels_vol},
+    {"Pixelwave ♪", "Pixelwave ♪@Speed;!;!;;si=0", fx_pixelwave},
+    {"Noisemeter ♪", "Noisemeter ♪@;!;!;;si=0", fx_noisemeter},
+    {"Noisefire ♪", "Noisefire ♪@;!;!;;si=0", fx_noisefire},
+    {"Matripix ♪", "Matripix ♪@;!;!;;si=0", fx_matripix},
+    {"Ripple Peak ♪", "Ripple Peak ♪@Speed,;!;!;;si=0", fx_ripple_peak},
+    {"Juggles ♪", "Juggles ♪@,# dots;!;!;;si=0", fx_juggles_vol},
+    {"Plasmoid ♪", "Plasmoid ♪@Speed;!;!;;si=0", fx_plasmoid},
+    // --- audio-reactive 1D effects (FFT-based) ---
+    {"GEQ ♫", "GEQ ♫@;!;!;;si=0", fx_geq},
+    {"Freqmap ♫", "Freqmap ♫@;!;!;;si=0", fx_freqmap},
+    {"Blurz ♫", "Blurz ♫@;!;!;;si=0", fx_blurz},
+    {"DJ Light ♫", "DJ Light ♫@;!;!;;si=0", fx_djlight},
+    {"Freqpixels ♫", "Freqpixels ♫@;!;!;;si=0", fx_freqpixels},
+    {"Freqwave ♫", "Freqwave ♫@;!;!;;si=0", fx_freqwave},
+    {"Gravfreq ♫", "Gravfreq ♫@Speed;!;!;;si=0", fx_gravfreq},
+    {"Noisemove ♫", "Noisemove ♫@;!;!;;si=0", fx_noisemove},
+    {"Waterfall ♫", "Waterfall ♫@;!;!;;si=0", fx_waterfall},
+    {"Rocktaves ♫", "Rocktaves ♫@;!;!;;si=0", fx_rocktaves},
+#ifdef WLED_BRIDGE_2D
+    // --- audio-reactive 2D effects ---
+    {"2D GEQ ♫", "2D GEQ ♫@;!;!;;m12=2,si=0", fx_2d_geq},
+    {"2D Waverly ♪", "2D Waverly ♪@;!;!;;m12=2,si=0", fx_2d_waverly_vol},
+#endif  // WLED_BRIDGE_2D
+#endif  // WLED_BRIDGE_AUDIO
 };
 
 }  // namespace wled_bridge

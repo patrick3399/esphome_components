@@ -69,6 +69,12 @@ CONF_E131_UNIVERSE_COUNT = "e131_universe_count"
 CONF_ARTNET_RECEIVE = "artnet_receive"
 CONF_ARTNET_UNIVERSE_COUNT = "artnet_universe_count"
 
+CONF_AUDIO = "audio"
+CONF_AUDIO_MICROPHONE = "microphone"
+CONF_AUDIO_PASSIVE = "passive"
+CONF_AUDIO_FFT = "fft"
+CONF_AUDIO_AGC = "agc"
+
 # Auto-white modes for RGBW strips (derive W channel from RGB).
 AUTO_WHITE_MODES = {
     "none": 0,
@@ -98,6 +104,26 @@ REALTIME_SCHEMA = cv.Schema(
         cv.Optional(CONF_ARTNET_UNIVERSES, default=1): cv.int_range(min=1, max=8),
     }
 )
+
+
+# Nested audio: section — enables sound reactive effects via ESPHome microphone.
+# Uses a validator function to defer `microphone` import until config validation,
+# because wled_bridge does not hard-depend on the microphone component.
+def _validate_audio(value):
+    from esphome.components import microphone  # noqa: F811
+    schema = cv.Schema(
+        {
+            cv.Optional(CONF_AUDIO_MICROPHONE, default={}):
+                microphone.microphone_source_schema(
+                    min_bits_per_sample=16, max_bits_per_sample=16,
+                ),
+            cv.Optional(CONF_AUDIO_PASSIVE, default=True): cv.boolean,
+            cv.Optional(CONF_AUDIO_FFT, default=False): cv.boolean,
+            cv.Optional(CONF_AUDIO_AGC, default=True): cv.boolean,
+        }
+    )
+    return schema(value)
+
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -129,6 +155,8 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_WEB_UI, default=True): cv.boolean,
         # Nested realtime: section — enables DDP/E1.31/Art-Net receivers
         cv.Optional(CONF_REALTIME): REALTIME_SCHEMA,
+        # Nested audio: section — enables sound reactive effects via ESPHome microphone
+        cv.Optional(CONF_AUDIO): _validate_audio,
         # --- Backward-compat flat keys (deprecated, use realtime: section instead) ---
         cv.Optional(CONF_DDP_RECEIVE, default=False): cv.boolean,
         cv.Optional(CONF_E131_RECEIVE, default=False): cv.boolean,
@@ -255,6 +283,14 @@ def FILTER_SOURCE_FILES():
         filtered.append("wled_effects_2d.cpp")
     if not _has_realtime(config):
         filtered.append("wled_udp_realtime.cpp")
+    # Audio: three files, two gates
+    audio = config.get(CONF_AUDIO)
+    if audio is None:
+        filtered.append("wled_audio.cpp")
+        filtered.append("wled_audio_fft.cpp")
+        filtered.append("wled_effects_audio.cpp")
+    elif not audio.get(CONF_AUDIO_FFT, False):
+        filtered.append("wled_audio_fft.cpp")
     return filtered
 
 
@@ -324,6 +360,20 @@ async def to_code(config):
     # Enable IDF WebSocket support so /ws endpoint works
     if _HAS_SDKCONFIG and CORE.is_esp32:
         add_idf_sdkconfig_option("CONFIG_HTTPD_WS_SUPPORT", True)
+
+    # Audio reactive — ESPHome MicrophoneSource integration
+    audio = config.get(CONF_AUDIO)
+    if audio is not None:
+        from esphome.components import microphone  # noqa: F811
+        cg.add_define("WLED_BRIDGE_AUDIO")
+        mic_source = await microphone.microphone_source_to_code(
+            audio[CONF_AUDIO_MICROPHONE], passive=audio[CONF_AUDIO_PASSIVE]
+        )
+        cg.add(var.set_audio_source(mic_source))
+        cg.add(var.set_audio_agc(audio[CONF_AUDIO_AGC]))
+        if audio[CONF_AUDIO_FFT]:
+            cg.add_define("WLED_BRIDGE_FFT")
+            cg.add(var.set_audio_fft(True))
 
     if CONF_BUSES in config:
         # Multi-bus path: call add_bus() for each entry in order.

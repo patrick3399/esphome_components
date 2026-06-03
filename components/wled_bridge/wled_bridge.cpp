@@ -259,6 +259,12 @@ void WLEDBridgeComponent::setup() {
   this->artnet_receiver_.setup(this, this->artnet_enabled_, this->artnet_universe_, this->artnet_universe_count_);
 #endif
 
+#ifdef WLED_BRIDGE_AUDIO
+  if (this->audio_source_ != nullptr) {
+    this->audio_analyzer_.setup(this->audio_source_, this->audio_fft_, this->audio_agc_);
+  }
+#endif
+
   if (this->use_task_) {
     xTaskCreatePinnedToCore(render_task_fn_, "wled_render", 8192, this, 5, &this->render_task_, APP_CPU_NUM);
     ESP_LOGD(TAG, "Render task started on core 1");
@@ -569,6 +575,11 @@ void WLEDBridgeComponent::loop() {
   this->process_playlist_();
   this->process_nightlight_();
 
+#ifdef WLED_BRIDGE_AUDIO
+  if (this->audio_source_ != nullptr)
+    this->audio_analyzer_.loop();
+#endif
+
   if (!this->use_task_) {
     uint32_t now = millis();
     if (now - this->last_frame_ms_ >= FRAMETIME_MS) {
@@ -765,6 +776,16 @@ void WLEDBridgeComponent::render_segment_(const SegmentView &view, uint32_t now)
   ctx.matrix_w = this->matrix_width_;
   ctx.matrix_h = this->matrix_height_;
   ctx.serpentine = this->matrix_serpentine_;
+
+#ifdef WLED_BRIDGE_AUDIO
+  // Provide audio data to effects: real mic data or simulated fallback.
+  if (this->audio_source_ != nullptr && this->audio_analyzer_.is_active()) {
+    ctx.audio = &this->audio_analyzer_.data();
+  } else if (this->audio_source_ != nullptr) {
+    this->audio_analyzer_.simulate(0, now);
+    ctx.audio = &this->audio_analyzer_.data();
+  }
+#endif
 
   if (view.mode < WLED_EFFECT_COUNT)
     WLED_EFFECTS[view.mode].fn(ctx);
