@@ -301,6 +301,7 @@ void WLEDBridgeComponent::persist_presets_() {
   this->preset_store_.magic = WLED_PRESET_MAGIC;
   this->preset_pref_.save(&this->preset_store_);
   global_preferences->sync();
+  this->preset_modified_ms_ = millis();
 }
 
 void WLEDBridgeComponent::load_state_() {
@@ -721,22 +722,24 @@ void WLEDBridgeComponent::render_frame_() {
   // versions — no separate "restore" step needed.
 
   // Main segment (id 0) — state lives in scalar members.
-  SegmentView main_view{static_cast<int32_t>(this->segment_start_),
-                        static_cast<int32_t>(this->segment_stop_),
-                        this->segment_reverse_,
-                        this->segment_mirror_,
-                        this->main_grouping_,
-                        this->main_spacing_,
-                        &this->params_,
-                        &this->env_,
-                        this->active_fx_};
-  this->render_segment_(main_view, now);
+  if (!this->segment_freeze_) {
+    SegmentView main_view{static_cast<int32_t>(this->segment_start_),
+                          static_cast<int32_t>(this->segment_stop_),
+                          this->segment_reverse_,
+                          this->segment_mirror_,
+                          this->main_grouping_,
+                          this->main_spacing_,
+                          &this->params_,
+                          &this->env_,
+                          this->active_fx_};
+    this->render_segment_(main_view, now);
+  }
 
   // Extra segments (id 1..)
   for (uint8_t i = 0; i < this->extra_count_; i++) {
     ExtraSegment &seg = this->extra_segments_[i];
-    if (!seg.on || seg.stop <= seg.start)
-      continue;  // off / empty segments are masked black by the opacity map
+    if (!seg.on || seg.stop <= seg.start || seg.freeze)
+      continue;  // off / empty / frozen segments skip rendering
     SegmentView view{static_cast<int32_t>(seg.start),
                      static_cast<int32_t>(seg.stop),
                      seg.reverse,
@@ -1323,6 +1326,7 @@ bool WLEDBridgeComponent::get_segment_view(uint8_t id, SegmentReadView &out) con
     out.on = this->is_on_;
     out.reverse = this->segment_reverse_;
     out.mirror = this->segment_mirror_;
+    out.freeze = this->segment_freeze_;
     out.selected = this->get_main_segment() == 0;
     out.opacity = this->main_opacity_;
     out.mode = this->active_fx_;
@@ -1350,6 +1354,7 @@ bool WLEDBridgeComponent::get_segment_view(uint8_t id, SegmentReadView &out) con
   out.on = seg.on;
   out.reverse = seg.reverse;
   out.mirror = seg.mirror;
+  out.freeze = seg.freeze;
   out.selected = this->get_main_segment() == id;
   out.opacity = seg.opacity;
   out.mode = seg.mode;
@@ -1611,6 +1616,21 @@ void WLEDBridgeComponent::segment_set_mirror(uint8_t id, bool mirror) {
     return;
   seg->mirror = mirror;
   this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_freeze(uint8_t id, bool freeze) {
+  if (id == 0) {
+    if (this->segment_freeze_ == freeze)
+      return;
+    this->segment_freeze_ = freeze;
+    this->mark_dirty_(false);
+    return;
+  }
+  ExtraSegment *seg = this->resolve_extra_(id);
+  if (seg == nullptr || seg->freeze == freeze)
+    return;
+  seg->freeze = freeze;
+  this->mark_dirty_(false);
 }
 
 void WLEDBridgeComponent::set_main_segment(uint8_t id) {

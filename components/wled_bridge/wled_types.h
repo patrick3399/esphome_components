@@ -141,6 +141,7 @@ struct ExtraSegment {
   uint16_t spacing{0};
   bool reverse{false};
   bool mirror{false};
+  bool freeze{false};
   bool on{true};
   uint8_t opacity{255};
   uint8_t mode{0};  // effect id

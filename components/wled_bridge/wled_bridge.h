@@ -537,6 +537,19 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool is_segment_mirrored() const {
     return this->segment_mirror_;
   }
+  bool is_segment_frozen() const {
+    return this->segment_freeze_;
+  }
+  uint8_t get_live_override() const {
+    return this->live_override_;
+  }
+  void set_live_override(uint8_t lor) {
+    this->live_override_ = lor;
+    this->mark_dirty_(false);
+  }
+  uint32_t get_preset_modified_ms() const {
+    return this->preset_modified_ms_;
+  }
   const WLEDPresetRecord *get_preset(uint8_t preset_id) const {
     if (preset_id == 0 || preset_id > WLED_PRESET_COUNT)
       return nullptr;
@@ -557,7 +570,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   }
   struct SegmentReadView {
     uint16_t start, stop, grouping, spacing;
-    bool on, reverse, mirror, selected;
+    bool on, reverse, mirror, freeze, selected;
     uint8_t opacity, mode, speed, intensity, palette;
     uint8_t custom1, custom2, custom3;
     bool check1, check2, check3;
@@ -580,6 +593,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void segment_set_color(uint8_t id, uint8_t slot, uint32_t rgb);
   void segment_set_reverse(uint8_t id, bool reverse);
   void segment_set_mirror(uint8_t id, bool mirror);
+  void segment_set_freeze(uint8_t id, bool freeze);
   void set_main_segment(uint8_t id);
 
   // ---- State mutators (used by JSON POST handler) ----
@@ -745,6 +759,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint32_t segment_stop_{0};
   bool segment_reverse_{false};
   bool segment_mirror_{false};
+  bool segment_freeze_{false};
   uint16_t main_grouping_{1};
   uint16_t main_spacing_{0};
   uint8_t main_opacity_{255};
@@ -789,6 +804,8 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   ESPPreferenceObject preset_pref_{};
   ESPPreferenceObject state_pref_{};
 
+  uint8_t live_override_{0};
+  uint32_t preset_modified_ms_{0};
   uint32_t last_frame_ms_{0};
   uint32_t state_version_{0};
   uint32_t state_save_due_ms_{0};

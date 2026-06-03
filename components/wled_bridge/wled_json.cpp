@@ -9,6 +9,10 @@
 #include "wled_palette.h"
 #include "esphome/core/log.h"
 #include "esphome/components/json/json_util.h"
+#include "esphome/core/helpers.h"
+#ifdef USE_WIFI
+#include "esphome/components/wifi/wifi_component.h"
+#endif
 #include <algorithm>
 #include <esp_random.h>
 #include <stdarg.h>
@@ -316,7 +320,7 @@ static std::string build_segment_object_json(const WLEDBridgeComponent::SegmentR
                         "\"spc\":%u,"
                         "\"of\":0,"
                         "\"on\":%s,"
-                        "\"frz\":false,"
+                        "\"frz\":%s,"
                         "\"bri\":%u,"
                         "\"cct\":127,"
                         "\"set\":0,"
@@ -336,12 +340,13 @@ static std::string build_segment_object_json(const WLEDBridgeComponent::SegmentR
                         "\"mi\":%s,"
                         "\"m12\":0"
                         "}",
-                        id, v.start, v.stop, len, v.grouping, v.spacing, v.on ? "true" : "false", v.opacity,
-                        R(v.colors[0]), G(v.colors[0]), B(v.colors[0]), W(v.colors[0]), R(v.colors[1]), G(v.colors[1]),
-                        B(v.colors[1]), W(v.colors[1]), R(v.colors[2]), G(v.colors[2]), B(v.colors[2]), W(v.colors[2]),
-                        v.mode, v.speed, v.intensity, v.palette, v.custom1, v.custom2, v.custom3,
-                        v.check1 ? "true" : "false", v.check2 ? "true" : "false", v.check3 ? "true" : "false",
-                        v.selected ? "true" : "false", v.reverse ? "true" : "false", v.mirror ? "true" : "false");
+                        id, v.start, v.stop, len, v.grouping, v.spacing, v.on ? "true" : "false",
+                        v.freeze ? "true" : "false", v.opacity, R(v.colors[0]), G(v.colors[0]), B(v.colors[0]),
+                        W(v.colors[0]), R(v.colors[1]), G(v.colors[1]), B(v.colors[1]), W(v.colors[1]), R(v.colors[2]),
+                        G(v.colors[2]), B(v.colors[2]), W(v.colors[2]), v.mode, v.speed, v.intensity, v.palette,
+                        v.custom1, v.custom2, v.custom3, v.check1 ? "true" : "false", v.check2 ? "true" : "false",
+                        v.check3 ? "true" : "false", v.selected ? "true" : "false", v.reverse ? "true" : "false",
+                        v.mirror ? "true" : "false");
 }
 
 std::string build_state_json(const WLEDBridgeComponent *c) {
@@ -401,7 +406,7 @@ std::string build_state_json(const WLEDBridgeComponent *c) {
       "\"rb\":%s,\"rc\":%s,\"rx\":%s,\"rp\":%s,\"so\":%s,\"sg\":%s,"
       "\"dir\":%s,\"btn\":%s,\"va\":%s,\"hue\":%s,\"ret\":%u},"
       "\"time\":0,"
-      "\"lor\":0,"
+      "\"lor\":%u,"
       "\"mainseg\":%u,"
       "\"seg\":%s}",
       c->is_on() ? "true" : "false", c->get_brightness(), transition_tenths, transition_tenths, c->get_active_preset(),
@@ -413,10 +418,51 @@ std::string build_state_json(const WLEDBridgeComponent *c) {
       c->get_udp_receive_palette() ? "true" : "false", c->get_udp_receive_segment_options() ? "true" : "false",
       c->get_udp_receive_segments() ? "true" : "false", c->get_udp_notify_direct() ? "true" : "false",
       c->get_udp_notify_button() ? "true" : "false", c->get_udp_notify_alexa() ? "true" : "false",
-      c->get_udp_notify_hue() ? "true" : "false", c->get_udp_retries(), c->get_main_segment(), seg_array.c_str());
+      c->get_udp_notify_hue() ? "true" : "false", c->get_udp_retries(), c->get_live_override(), c->get_main_segment(),
+      seg_array.c_str());
 }
 
 std::string build_info_json(const WLEDBridgeComponent *c) {
+  // MAC address
+  char mac[13];
+  get_mac_address_into_buffer(mac);
+
+  // Light capability: 0x07 = RGB, 0x0F = RGBW
+  uint8_t lc = c->get_auto_white_mode() != 0 ? 0x0F : 0x07;
+
+  // Per-segment light capabilities array
+  std::string seglc = "[";
+  for (uint8_t i = 0; i < c->get_segment_count(); i++) {
+    if (i > 0)
+      seglc += ",";
+    seglc += std::to_string(lc);
+  }
+  seglc += "]";
+
+  // WiFi info (real values from ESPHome WiFi component)
+  char bssid_str[18] = "";
+  int8_t rssi = -50;
+  int signal = 90;
+  int channel = 1;
+  char ip_str[16] = "";
+#ifdef USE_WIFI
+  auto *wifi = wifi::global_wifi_component;
+  if (wifi != nullptr) {
+    rssi = wifi->wifi_rssi();
+    signal = std::min(100, std::max(0, 2 * (static_cast<int>(rssi) + 100)));
+    channel = wifi->get_wifi_channel();
+    auto bssid = wifi->wifi_bssid();
+    snprintf(bssid_str, sizeof(bssid_str), "%02X:%02X:%02X:%02X:%02X:%02X", bssid[0], bssid[1], bssid[2], bssid[3],
+             bssid[4], bssid[5]);
+    auto ips = wifi->get_ip_addresses();
+    if (!ips.empty())
+      snprintf(ip_str, sizeof(ip_str), "%s", ips[0].str().c_str());
+  }
+#endif
+
+  // Preset modification timestamp (seconds since boot, used by python-wled to detect changes)
+  uint32_t pmt = c->get_preset_modified_ms() / 1000u;
+
   // Build matrix field: present only when 2D is configured
   std::string matrix_field;
   if (c->is_2d()) {
@@ -434,7 +480,12 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
       "\"fps\":%u,"
       "\"maxpwr\":%u,"
       "\"maxseg\":%u,"
-      "\"cco\":0"
+      "\"cco\":0,"
+      "\"lc\":%u,"
+      "\"rgbw\":%s,"
+      "\"wv\":false,"
+      "\"cct\":false,"
+      "\"seglc\":%s"
       "},"
       "\"str\":false,"
       "\"name\":\"WLED Bridge\","
@@ -447,13 +498,15 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
       "\"fxcount\":%zu,"
       "\"palcount\":%zu,"
       "\"wifi\":{"
-      "\"bssid\":\"\","
-      "\"rssi\":-50,"
-      "\"signal\":90,"
-      "\"channel\":1"
+      "\"bssid\":\"%s\","
+      "\"rssi\":%d,"
+      "\"signal\":%d,"
+      "\"channel\":%d"
       "},"
+      "\"fs\":{\"u\":0,\"t\":0,\"pmt\":%u},"
       "\"arch\":\"esp32s3\","
       "\"core\":\"idf\","
+      "\"ip\":\"%s\","
       "\"freeheap\":%u,"
       "\"uptime\":%u,"
       "\"opt\":511,"
@@ -463,11 +516,11 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
       "\"product\":\"WLED Bridge\","
       "\"btype\":\"ESPHome external component\","
       "\"release\":\"0.1.0\","
-      "\"mac\":\"\""
+      "\"mac\":\"%s\""
       "%s"
       "}",
-      c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(), WLEDBridgeComponent::get_max_segments(),
-      c->get_udp_port(),
+      c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(), WLEDBridgeComponent::get_max_segments(), lc,
+      lc > 0x07 ? "true" : "false", seglc.c_str(), c->get_udp_port(),
       (c->is_ddp_receiving() || c->is_e131_receiving() || c->is_artnet_receiving()) ? "true" : "false",
       c->is_ddp_receiving() ? "DDP" : (c->is_e131_receiving() ? "E1.31" : (c->is_artnet_receiving() ? "Art-Net" : "")),
 #ifdef USE_ESP32
@@ -475,8 +528,9 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
 #else
       0,
 #endif
-      WLED_EFFECT_COUNT, WLED_PALETTE_COUNT, static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-      static_cast<uint32_t>(millis() / 1000u), matrix_field.c_str());
+      WLED_EFFECT_COUNT, WLED_PALETTE_COUNT, bssid_str, rssi, signal, channel, pmt, ip_str,
+      static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)), static_cast<uint32_t>(millis() / 1000u), mac,
+      matrix_field.c_str());
 }
 
 std::string build_effects_json() {
@@ -1187,6 +1241,8 @@ static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVarian
     comp->segment_set_reverse(id, json_bool(seg["rev"]));
   if (!seg["mi"].isNull())
     comp->segment_set_mirror(id, json_bool(seg["mi"]));
+  if (!seg["frz"].isNull())
+    comp->segment_set_freeze(id, json_bool(seg["frz"]));
   if (!seg["sel"].isNull()) {
     if (json_bool(seg["sel"])) {
       comp->set_main_segment(id);
@@ -1670,6 +1726,8 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
     parse_playlist_json(comp_, doc["playlist"]);
   if (!doc["nl"].isNull())
     parse_nightlight_json(comp_, doc["nl"]);
+  if (!doc["lor"].isNull())
+    comp_->set_live_override(json_u8(doc["lor"]));
   if (!doc["udpn"].isNull())
     parse_udpn_json(comp_, doc["udpn"]);
   bool has_mainseg = !doc["mainseg"].isNull();
