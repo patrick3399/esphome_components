@@ -10,6 +10,7 @@
 #include "esphome/core/log.h"
 #include "esphome/components/json/json_util.h"
 #include <algorithm>
+#include <esp_random.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -213,6 +214,46 @@ static bool json_on_is_toggle(JsonVariant value) {
     return false;
   const char *text = value.as<const char *>();
   return text != nullptr && (text[0] == 't' || text[0] == 'T');
+}
+
+// Parse WLED's incremental value syntax for fx/pal/ps:
+//   "~"  = increment by 1 (wrap)
+//   "~-" = decrement by 1 (wrap)
+//   "r"  = random value in [0, max)
+//   number = literal value
+// Returns true if the value was handled; writes result to *out.
+static bool json_incremental_u8(JsonVariant value, uint8_t current, uint8_t max_val, uint8_t *out) {
+  if (value.isNull())
+    return false;
+  if (value.is<const char *>()) {
+    const char *text = value.as<const char *>();
+    if (text == nullptr || text[0] == '\0')
+      return false;
+    if (text[0] == '~') {
+      if (text[1] == '-') {
+        *out = current == 0 ? (max_val > 0 ? max_val - 1 : 0) : current - 1;
+      } else {
+        *out = (current + 1 >= max_val) ? 0 : current + 1;
+      }
+      return true;
+    }
+    if (text[0] == 'r' || text[0] == 'R') {
+      *out = max_val > 0 ? static_cast<uint8_t>(esp_random() % max_val) : 0;
+      return true;
+    }
+    // Might be a numeric string — fall through to numeric parse
+    char *end = nullptr;
+    long v = strtol(text, &end, 10);
+    if (end != text) {
+      *out = v < 0 ? 0 : (v > 255 ? 255 : static_cast<uint8_t>(v));
+      return true;
+    }
+    return false;
+  }
+  // Plain numeric
+  int v = value.as<int>();
+  *out = v < 0 ? 0 : (v > 255 ? 255 : static_cast<uint8_t>(v));
+  return true;
 }
 
 static uint16_t transition_tenths_to_ms(uint16_t tenths) {
@@ -1112,14 +1153,24 @@ static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVarian
     uint16_t spc = seg["spc"].isNull() ? (have ? cur.spacing : 0u) : seg["spc"].as<uint16_t>();
     comp->segment_set_grouping(id, grp, spc);
   }
-  if (!seg["fx"].isNull())
-    comp->segment_set_effect(id, json_u8(seg["fx"]));
+  if (!seg["fx"].isNull()) {
+    WLEDBridgeComponent::SegmentReadView sv;
+    uint8_t cur_fx = comp->get_segment_view(id, sv) ? sv.mode : 0;
+    uint8_t new_fx;
+    if (json_incremental_u8(seg["fx"], cur_fx, static_cast<uint8_t>(WLED_EFFECT_COUNT), &new_fx))
+      comp->segment_set_effect(id, new_fx);
+  }
   if (!seg["sx"].isNull())
     comp->segment_set_speed(id, json_u8(seg["sx"]));
   if (!seg["ix"].isNull())
     comp->segment_set_intensity(id, json_u8(seg["ix"]));
-  if (!seg["pal"].isNull())
-    comp->segment_set_palette(id, json_u8(seg["pal"]));
+  if (!seg["pal"].isNull()) {
+    WLEDBridgeComponent::SegmentReadView sv;
+    uint8_t cur_pal = comp->get_segment_view(id, sv) ? sv.palette : 0;
+    uint8_t new_pal;
+    if (json_incremental_u8(seg["pal"], cur_pal, static_cast<uint8_t>(WLED_PALETTE_COUNT), &new_pal))
+      comp->segment_set_palette(id, new_pal);
+  }
   if (!seg["c1"].isNull())
     comp->segment_set_custom(id, 1, json_u8(seg["c1"]));
   if (!seg["c2"].isNull())
@@ -1229,7 +1280,8 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
   if (strcmp(url.c_str(), "/json") == 0 || strcmp(url.c_str(), "/json/") == 0) {
     // Full WLED combined response: state + info + effects + palettes
     std::string body = "{\"state\":" + build_state_json(comp_) + ",\"info\":" + build_info_json(comp_) +
-                       ",\"effects\":" + build_effects_json() + ",\"palettes\":" + build_palettes_json() + "}";
+                       ",\"effects\":" + this->cached_effects_json_() +
+                       ",\"palettes\":" + this->cached_palettes_json_() + "}";
     auto *resp = request->beginResponse(200, "application/json", body);
     request->send(resp);
   } else if (strcmp(url.c_str(), "/json/si") == 0) {
@@ -1248,8 +1300,7 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
   } else if (strcmp(url.c_str(), "/json/effects") == 0 || strcmp(url.c_str(), "/json/eff") == 0) {
     handle_get_effects_(request);
   } else if (strcmp(url.c_str(), "/json/fxdata") == 0) {
-    auto body = build_fxdata_json();
-    auto *resp = request->beginResponse(200, "application/json", body);
+    auto *resp = request->beginResponse(200, "application/json", this->cached_fxdata_json_());
     request->send(resp);
   } else if (strcmp(url.c_str(), "/json/palettes") == 0 || strcmp(url.c_str(), "/json/pal") == 0 ||
              strcmp(url.c_str(), "/json/palx") == 0) {
@@ -1283,15 +1334,31 @@ void WLEDJsonHandler::handle_get_info_(web_server_idf::AsyncWebServerRequest *re
   request->send(resp);
 }
 
+const std::string &WLEDJsonHandler::cached_effects_json_() {
+  if (this->effects_cache_.empty())
+    this->effects_cache_ = build_effects_json();
+  return this->effects_cache_;
+}
+
+const std::string &WLEDJsonHandler::cached_palettes_json_() {
+  if (this->palettes_cache_.empty())
+    this->palettes_cache_ = build_palettes_json();
+  return this->palettes_cache_;
+}
+
+const std::string &WLEDJsonHandler::cached_fxdata_json_() {
+  if (this->fxdata_cache_.empty())
+    this->fxdata_cache_ = build_fxdata_json();
+  return this->fxdata_cache_;
+}
+
 void WLEDJsonHandler::handle_get_effects_(web_server_idf::AsyncWebServerRequest *request) {
-  auto body = build_effects_json();
-  auto *resp = request->beginResponse(200, "application/json", body);
+  auto *resp = request->beginResponse(200, "application/json", this->cached_effects_json_());
   request->send(resp);
 }
 
 void WLEDJsonHandler::handle_get_palettes_(web_server_idf::AsyncWebServerRequest *request) {
-  auto body = build_palettes_json();
-  auto *resp = request->beginResponse(200, "application/json", body);
+  auto *resp = request->beginResponse(200, "application/json", this->cached_palettes_json_());
   request->send(resp);
 }
 
@@ -1581,11 +1648,23 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
     comp_->set_transition(transition_tenths_to_ms(doc["transition"].as<uint16_t>()));
   if (!doc["tt"].isNull())
     comp_->set_transition(transition_tenths_to_ms(doc["tt"].as<uint16_t>()));
-  if (!doc["ps"].isNull())
-    comp_->load_preset(json_u8(doc["ps"]));
+  if (!doc["ps"].isNull()) {
+    uint8_t ps_val;
+    if (json_incremental_u8(doc["ps"], comp_->get_active_preset(), WLED_PRESET_COUNT + 1, &ps_val))
+      comp_->load_preset(ps_val);
+  }
   if (!doc["pdel"].isNull())
     comp_->delete_preset(json_u8(doc["pdel"]));
-  if (!doc["pl"].isNull() && doc["pl"].as<int>() < 0)
+  if (!doc["np"].isNull() || (!doc["pl"].isNull() && doc["pl"].as<int>() == -2)) {
+    // "np" or pl:-2 = advance to next playlist entry (WLED compatibility)
+    if (comp_->is_playlist_active()) {
+      uint8_t next_idx = (comp_->get_playlist_index() + 1) % comp_->get_playlist_count();
+      uint8_t next_preset = comp_->get_playlist_preset(next_idx);
+      if (next_preset > 0)
+        comp_->load_preset(next_preset);
+    }
+  }
+  if (!doc["pl"].isNull() && doc["pl"].as<int>() < 0 && doc["pl"].as<int>() != -2)
     comp_->stop_playlist();
   if (!doc["playlist"].isNull())
     parse_playlist_json(comp_, doc["playlist"]);

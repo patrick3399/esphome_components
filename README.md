@@ -8,7 +8,7 @@ Components live under [components/](components/).
 
 | Component | Purpose | Demo usage |
 | --- | --- | --- |
-| `wled_bridge` | WLED-compatible effects engine and Web UI for ESPHome addressable LED strips. | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml), [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) |
+| `wled_bridge` | WLED-compatible effects engine (197 effects, 54 palettes, sound reactive), Web UI, HA entities, UDP sync, DDP/E1.31/Art-Net for ESPHome addressable LED strips. | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml), [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) |
 | `74hc138_keypad` | Keyboard matrix scanner for 74HC138 decoder based designs. | M5Stack Cardputer keyboard input. |
 | `aw9523` | I2C GPIO expander with GPIO and LED-driver support. | M5Stack StamPLC relay/input expander. |
 | `bmi270` | Bosch BMI270 6-axis IMU sensor. | M5Stack Paper S3 motion sensors. |
@@ -35,9 +35,11 @@ Demo YAMLs live under [devices/](devices/).
 | Waveshare ESP32-S3 Touch LCD 1.85C | [devices/waveshare/esp32s3-touch-lcd-1.85c.yaml](devices/waveshare/esp32s3-touch-lcd-1.85c.yaml) | QSPI LCD, touch, RTC, microphone/speaker voice assistant, wake word selection, Bluetooth proxy, battery and audio diagnostics. | None currently. |
 | Waveshare ESP32-S3 ETH | [devices/waveshare/esp32s3-eth.yaml](devices/waveshare/esp32s3-eth.yaml) | W5500 Ethernet, camera, Ethernet info sensors, Bluetooth proxy, boot button, diagnostics. | None. |
 | Waveshare ESP32-S3 GEEK | [devices/waveshare/esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ST7789 display, backlight control, WiFi info, Bluetooth proxy, diagnostics. | None. |
-| WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED UI + 122 effects + multi-segment + presets/playlists + nightlight. | `wled_bridge` |
+| WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED UI + 197 effects + multi-segment + presets/playlists + nightlight. | `wled_bridge` |
 | WLED Bridge Multi-Bus PoC | [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) | ESP32-S3, two ESPHome RMT LED strips exposed as one WLED virtual LED space with per-bus current limits. | `wled_bridge` |
 | WLED Bridge Realtime PoC | [devices/test/wled_bridge_realtime_poc.yaml](devices/test/wled_bridge_realtime_poc.yaml) | ESP32-S3 realtime receiver coverage for WLED notifier, DDP, E1.31, and Art-Net with boot preset and brightness factor. | `wled_bridge` |
+| WLED Bridge Audio PoC | [devices/test/wled_bridge_audio_poc.yaml](devices/test/wled_bridge_audio_poc.yaml) | ESP32-S3, I2S microphone, sound reactive effects — volume + FFT GEQ + beat detection + AGC. | `wled_bridge` |
+| WLED Bridge Entities PoC | [devices/test/wled_bridge_entities_poc.yaml](devices/test/wled_bridge_entities_poc.yaml) | ESP32-S3, HA select/number entities — palette select, effect select, speed and intensity numbers for dashboard control. | `wled_bridge` |
 | Custom Components Smoke | [devices/test/custom_components_smoke.yaml](devices/test/custom_components_smoke.yaml) | ESP32-S3 compile smoke coverage for IMU sensors, I2C expanders, keypad scanner, and YS-IRTM UART actions. | `74hc138_keypad`, `aw9523`, `bmi270`, `pca9505`, `qmi8658`, `ys_irtm_uart` |
 | YS-IRTM UART Bridge | [devices/generic/ys-irtm-demo.yaml](devices/generic/ys-irtm-demo.yaml) | NEC IR transmit/receive, HA IR/RF Proxy bridge service, raw hex send. | `ys_irtm_uart` |
 | Guition ESP32-S3-4848S040 | TBD | Display, touch, relays. | TBD |

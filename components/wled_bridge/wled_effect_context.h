@@ -89,6 +89,51 @@ struct EffectContext {
     uint8_t pal_id = params->palette_id;
     if (pal_id == PAL_DEFAULT)
       return color(0);
+
+    // PAL_RANDOM (1): slow-cycling random hue palette, morphs every ~5 s.
+    // Uses deterministic hash of time so all pixels see a consistent palette
+    // within the same frame, and the palette transitions smoothly across periods.
+    if (pal_id == PAL_RANDOM) {
+      uint32_t period = 5000u;
+      uint32_t phase = now / period;
+      uint32_t frac = ((now % period) * 255u) / period;  // 0..255 blend into next phase
+      // Hash function: simple LCG per phase to get 4 base hues
+      auto hash_hue = [](uint32_t ph, uint8_t slot) -> uint8_t {
+        uint32_t h = ph * 2654435761u + static_cast<uint32_t>(slot) * 2246822519u;
+        return static_cast<uint8_t>(h >> 16);
+      };
+      uint8_t slot = index >> 6;  // 0..3 quadrant
+      uint8_t h_cur = hash_hue(phase, slot);
+      uint8_t h_nxt = hash_hue(phase + 1, slot);
+      uint8_t h =
+          h_cur + static_cast<uint8_t>(((static_cast<int16_t>(h_nxt) - h_cur) * static_cast<int16_t>(frac)) / 255);
+      uint32_t c = color_wheel(static_cast<uint8_t>(h + (index & 0x3F)));
+      if (brightness != 255)
+        c = RGBW32(scale8(R(c), brightness), scale8(G(c), brightness), scale8(B(c), brightness), 0);
+      return c;
+    }
+
+    // PAL_PRIMARY (2): gradient black → color0 → white, centered on the segment's
+    // primary colour.  Gives any effect an instant "themed" look from the UI colour picker.
+    if (pal_id == PAL_PRIMARY) {
+      uint32_t c0 = color(0);
+      uint32_t out;
+      if (index < 128) {
+        // black → color0
+        uint8_t f = index * 2;
+        out = RGBW32(scale8(R(c0), f), scale8(G(c0), f), scale8(B(c0), f), scale8(W(c0), f));
+      } else {
+        // color0 → white
+        uint8_t f = (index - 128) * 2;
+        out = RGBW32(R(c0) + scale8(255 - R(c0), f), G(c0) + scale8(255 - G(c0), f), B(c0) + scale8(255 - B(c0), f),
+                     W(c0) + scale8(255 - W(c0), f));
+      }
+      if (brightness != 255)
+        out = RGBW32(scale8(R(out), brightness), scale8(G(out), brightness), scale8(B(out), brightness),
+                     scale8(W(out), brightness));
+      return out;
+    }
+
     if (pal_id == PAL_RAINBOW)
       return color_wheel(static_cast<uint8_t>(index + (now >> 3)));
     if (pal_id < WLED_PALETTE_COUNT && WLED_PALETTES[pal_id].data != nullptr)

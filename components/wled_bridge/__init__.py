@@ -1,7 +1,7 @@
 from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import light, web_server_base
+from esphome.components import light, number, select, web_server_base
 from esphome.components.socket import SocketType, consume_sockets
 from esphome.const import (
     CONF_BLUE,
@@ -22,7 +22,7 @@ except ImportError:
     _HAS_SDKCONFIG = False
 
 DEPENDENCIES = ["light"]
-AUTO_LOAD = ["web_server_base", "json"]
+AUTO_LOAD = ["web_server_base", "json", "select", "number"]
 
 wled_bridge_ns = cg.esphome_ns.namespace("wled_bridge")
 WLEDBridgeComponent = wled_bridge_ns.class_("WLEDBridgeComponent", cg.Component)
@@ -36,6 +36,17 @@ SetBrightnessAction = wled_bridge_ns.class_("SetBrightnessAction", automation.Ac
 SetColorAction = wled_bridge_ns.class_("SetColorAction", automation.Action)
 PowerAction = wled_bridge_ns.class_("PowerAction", automation.Action)
 StopPlaylistAction = wled_bridge_ns.class_("StopPlaylistAction", automation.Action)
+
+# HA entity classes (select / number)
+WLEDPaletteSelect = wled_bridge_ns.class_(
+    "WLEDPaletteSelect", select.Select, cg.Component
+)
+WLEDEffectSelect = wled_bridge_ns.class_(
+    "WLEDEffectSelect", select.Select, cg.Component
+)
+WLEDNumber = wled_bridge_ns.class_("WLEDNumber", number.Number, cg.Component)
+WLED_NUM_SPEED = wled_bridge_ns.enum("WLEDNumberProperty").WLED_NUM_SPEED
+WLED_NUM_INTENSITY = wled_bridge_ns.enum("WLEDNumberProperty").WLED_NUM_INTENSITY
 
 CONF_LIGHT_ID = "light_id"
 CONF_BUSES = "buses"
@@ -68,6 +79,13 @@ CONF_E131_RECEIVE = "e131_receive"
 CONF_E131_UNIVERSE_COUNT = "e131_universe_count"
 CONF_ARTNET_RECEIVE = "artnet_receive"
 CONF_ARTNET_UNIVERSE_COUNT = "artnet_universe_count"
+
+# HA entity config keys
+CONF_ENTITIES = "entities"
+CONF_PALETTE_SELECT = "palette_select"
+CONF_EFFECT_SELECT = "effect_select"
+CONF_SPEED_NUMBER = "speed_number"
+CONF_INTENSITY_NUMBER = "intensity_number"
 
 CONF_AUDIO = "audio"
 CONF_AUDIO_MICROPHONE = "microphone"
@@ -157,6 +175,18 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_REALTIME): REALTIME_SCHEMA,
         # Nested audio: section — enables sound reactive effects via ESPHome microphone
         cv.Optional(CONF_AUDIO): _validate_audio,
+        # HA entities — auto-create select/number entities for HA dashboard control.
+        # Each key accepts a select/number schema dict for naming, or false to disable.
+        cv.Optional(CONF_PALETTE_SELECT): select.select_schema(WLEDPaletteSelect),
+        cv.Optional(CONF_EFFECT_SELECT): select.select_schema(WLEDEffectSelect),
+        cv.Optional(CONF_SPEED_NUMBER): number.number_schema(
+            WLEDNumber,
+            icon="mdi:speedometer",
+        ),
+        cv.Optional(CONF_INTENSITY_NUMBER): number.number_schema(
+            WLEDNumber,
+            icon="mdi:brightness-percent",
+        ),
         # --- Backward-compat flat keys (deprecated, use realtime: section instead) ---
         cv.Optional(CONF_DDP_RECEIVE, default=False): cv.boolean,
         cv.Optional(CONF_E131_RECEIVE, default=False): cv.boolean,
@@ -283,6 +313,14 @@ def FILTER_SOURCE_FILES():
         filtered.append("wled_effects_2d.cpp")
     if not _has_realtime(config):
         filtered.append("wled_udp_realtime.cpp")
+    # HA entities: exclude when no select/number entities are configured
+    has_ent = any(
+        k in config
+        for k in (CONF_PALETTE_SELECT, CONF_EFFECT_SELECT,
+                  CONF_SPEED_NUMBER, CONF_INTENSITY_NUMBER)
+    )
+    if not has_ent:
+        filtered.append("wled_entities.cpp")
     # Audio: three files, two gates
     audio = config.get(CONF_AUDIO)
     if audio is None:
@@ -388,6 +426,53 @@ async def to_code(config):
                 light_state, config.get(CONF_MAX_MA, 5000), config.get(CONF_LED_MA, 55)
             )
         )
+
+    # ---- HA entities: select / number ----
+    has_entities = any(
+        k in config
+        for k in (CONF_PALETTE_SELECT, CONF_EFFECT_SELECT,
+                  CONF_SPEED_NUMBER, CONF_INTENSITY_NUMBER)
+    )
+    if has_entities:
+        cg.add_define("WLED_BRIDGE_ENTITIES")
+
+    # Note: options=["_"] is a placeholder — the real option list is populated
+    # by the C++ setup() from the compiled WLED_PALETTES / WLED_EFFECTS tables.
+    if CONF_PALETTE_SELECT in config:
+        sel = await select.new_select(
+            config[CONF_PALETTE_SELECT], options=["_"]
+        )
+        await cg.register_component(sel, config[CONF_PALETTE_SELECT])
+        cg.add(sel.set_bridge(var))
+
+    if CONF_EFFECT_SELECT in config:
+        sel = await select.new_select(
+            config[CONF_EFFECT_SELECT], options=["_"]
+        )
+        await cg.register_component(sel, config[CONF_EFFECT_SELECT])
+        cg.add(sel.set_bridge(var))
+
+    if CONF_SPEED_NUMBER in config:
+        num = await number.new_number(
+            config[CONF_SPEED_NUMBER],
+            min_value=0,
+            max_value=255,
+            step=1,
+        )
+        await cg.register_component(num, config[CONF_SPEED_NUMBER])
+        cg.add(num.set_bridge(var))
+        cg.add(num.set_property(WLED_NUM_SPEED))
+
+    if CONF_INTENSITY_NUMBER in config:
+        num = await number.new_number(
+            config[CONF_INTENSITY_NUMBER],
+            min_value=0,
+            max_value=255,
+            step=1,
+        )
+        await cg.register_component(num, config[CONF_INTENSITY_NUMBER])
+        cg.add(num.set_bridge(var))
+        cg.add(num.set_property(WLED_NUM_INTENSITY))
 
 
 CONF_PRESET = "preset"

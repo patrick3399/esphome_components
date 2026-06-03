@@ -43,8 +43,16 @@ class WLEDJsonHandler : public web_server_idf::AsyncWebHandler {
   void handle_win_(web_server_idf::AsyncWebServerRequest *request, const std::string &url);
   void handle_post_state_(web_server_idf::AsyncWebServerRequest *request, const std::string &body);
 
+  // Lazy-init caches for immutable JSON lists (built once on first request).
+  const std::string &cached_effects_json_();
+  const std::string &cached_palettes_json_();
+  const std::string &cached_fxdata_json_();
+
   WLEDBridgeComponent *comp_;
   std::string post_body_;
+  std::string effects_cache_;
+  std::string palettes_cache_;
+  std::string fxdata_cache_;
 };
 
 // ---------- Live state snapshot handler ----------
