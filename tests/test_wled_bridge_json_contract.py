@@ -19,6 +19,8 @@ WLED_EFFECT_CONTEXT_H = ROOT / "components" / "wled_bridge" / "wled_effect_conte
 WLED_UI_CPP = ROOT / "components" / "wled_bridge" / "wled_ui_data.cpp"
 WLED_UI_GENERATOR = ROOT / "tools" / "gen_wled_ui.py"
 WLED_UDP_CPP = ROOT / "components" / "wled_bridge" / "wled_udp.cpp"
+WLED_UDP_SYNC_CPP = ROOT / "components" / "wled_bridge" / "wled_udp_sync.cpp"
+WLED_UDP_REALTIME_CPP = ROOT / "components" / "wled_bridge" / "wled_udp_realtime.cpp"
 WLED_UDP_H = ROOT / "components" / "wled_bridge" / "wled_udp.h"
 WLED_INIT_PY = ROOT / "components" / "wled_bridge" / "__init__.py"
 
@@ -1100,10 +1102,12 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         effects_h = read(ROOT / "components" / "wled_bridge" / "wled_effects.h")
         effects_cpp = read(ROOT / "components" / "wled_bridge" / "wled_effects.cpp")
 
-        # Declared constant
-        match = re.search(r"WLED_EFFECT_COUNT\s*=\s*(\d+)", effects_h)
-        self.assertIsNotNone(match, "WLED_EFFECT_COUNT not found in wled_effects.h")
-        declared = int(match.group(1))
+        # Declared constant — computed from 1D + 2D sub-counts
+        m1d = re.search(r"WLED_EFFECT_COUNT_1D\s*=\s*(\d+)", effects_h)
+        m2d = re.search(r"WLED_EFFECT_COUNT_2D\s*=\s*(\d+)", effects_h)
+        self.assertIsNotNone(m1d, "WLED_EFFECT_COUNT_1D not found in wled_effects.h")
+        self.assertIsNotNone(m2d, "WLED_EFFECT_COUNT_2D not found in wled_effects.h")
+        declared = int(m1d.group(1)) + int(m2d.group(1))
         self.assertGreaterEqual(declared, 44, "expected at least 44 effects")
 
         # Table entries — count /* N */ comment markers in the table block
@@ -1118,7 +1122,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         effects_h = read(ROOT / "components" / "wled_bridge" / "wled_effects.h")
         effects_cpp = read(ROOT / "components" / "wled_bridge" / "wled_effects.cpp")
 
-        declared = int(re.search(r"WLED_EFFECT_COUNT\s*=\s*(\d+)", effects_h).group(1))
+        m1d = re.search(r"WLED_EFFECT_COUNT_1D\s*=\s*(\d+)", effects_h)
+        m2d = re.search(r"WLED_EFFECT_COUNT_2D\s*=\s*(\d+)", effects_h)
+        declared = int(m1d.group(1)) + int(m2d.group(1))
         marker_values = [
             int(value)
             for value in re.findall(r"/\*\s*(\d+)\s*\*/\s*\{", effects_cpp)
@@ -1135,7 +1141,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         effects_h = read(ROOT / "components" / "wled_bridge" / "wled_effects.h")
         effects_cpp = read(ROOT / "components" / "wled_bridge" / "wled_effects.cpp")
 
-        declared = int(re.search(r"WLED_EFFECT_COUNT\s*=\s*(\d+)", effects_h).group(1))
+        m1d = re.search(r"WLED_EFFECT_COUNT_1D\s*=\s*(\d+)", effects_h)
+        m2d = re.search(r"WLED_EFFECT_COUNT_2D\s*=\s*(\d+)", effects_h)
+        declared = int(m1d.group(1)) + int(m2d.group(1))
         table_block = effects_cpp.split("const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT]", 1)[1]
         two_d_entries = re.findall(r'\{\s*"2D [^"]+"\s*,\s*"[^"]*m12=2[^"]*"\s*,\s*fx_2d_', table_block)
 
@@ -1197,7 +1205,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
 
     def test_udp_notifier_uses_wled_protocol_v12_shape(self) -> None:
         header = read(WLED_UDP_H)
-        source = read(WLED_UDP_CPP)
+        source = read(WLED_UDP_SYNC_CPP)
 
         assert_contains_all(
             self,
@@ -1237,7 +1245,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         )
 
     def test_udp_notifier_parses_wled_groups_and_segment_payload(self) -> None:
-        source = read(WLED_UDP_CPP)
+        source = read(WLED_UDP_SYNC_CPP)
 
         assert_contains_all(
             self,
@@ -1272,7 +1280,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         codegen = read(WLED_INIT_PY)
         header = read(WLED_BRIDGE_H)
         udp_header = read(WLED_UDP_H)
-        udp_source = read(WLED_UDP_CPP)
+        udp_source = read(WLED_UDP_REALTIME_CPP)
         json_source = read(WLED_JSON_CPP)
         bridge_source = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
 
@@ -1289,7 +1297,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 'consume_sockets(6, "wled_bridge", SocketType.UDP)',
                 "if config.get(CONF_E131_RECEIVE, False):",
                 "count += 1  # E1.31/sACN port 5568",
-                "cg.add(var.set_e131_enabled(config[CONF_E131_RECEIVE]))",
+                "cg.add(var.set_e131_enabled(e131_en))",
                 "cg.add(var.set_e131_universe(config[CONF_E131_UNIVERSE]))",
                 "cg.add(var.set_e131_universe_count(config[CONF_E131_UNIVERSE_COUNT]))",
             ],
@@ -1357,7 +1365,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         )
 
     def test_ddp_packet_fixture_matches_receiver_mapping_contract(self) -> None:
-        udp_source = read(WLED_UDP_CPP)
+        udp_source = read(WLED_UDP_REALTIME_CPP)
         self.assertEqual(cpp_const_int(udp_source, "DDP_HEADER_LEN"), 10)
         self.assertEqual(cpp_const_int(udp_source, "DDP_FLAGS_VER1"), 0x40)
         self.assertEqual(cpp_const_int(udp_source, "DDP_FLAGS_PUSH"), 0x01)
@@ -1387,7 +1395,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         self.assertEqual(parse_ddp_fixture(make_ddp_packet([(1, 2, 3)], dest=2), led_count=4), {})
 
     def test_e131_packet_fixture_matches_receiver_mapping_contract(self) -> None:
-        udp_source = read(WLED_UDP_CPP)
+        udp_source = read(WLED_UDP_REALTIME_CPP)
         self.assertEqual(cpp_const_int(udp_source, "E131_MIN_PACKET"), 126)
         self.assertEqual(cpp_const_int(udp_source, "E131_UNIVERSE_OFFSET"), 113)
         self.assertEqual(cpp_const_int(udp_source, "E131_SEQUENCE_OFFSET"), 111)
@@ -1422,7 +1430,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         )
 
     def test_artnet_packet_fixture_matches_receiver_mapping_contract(self) -> None:
-        udp_source = read(WLED_UDP_CPP)
+        udp_source = read(WLED_UDP_REALTIME_CPP)
         self.assertEqual(cpp_const_int(udp_source, "ARTNET_MIN_PACKET"), 18)
         self.assertEqual(cpp_const_int(udp_source, "ARTNET_DMX_DATA_OFFSET"), 18)
         self.assertEqual(cpp_const_int(udp_source, "ARTNET_OPCODE_DMX"), 0x5000)
@@ -1454,7 +1462,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         )
 
     def test_realtime_sequence_window_contract(self) -> None:
-        udp_source = read(WLED_UDP_CPP)
+        udp_source = read(WLED_UDP_REALTIME_CPP)
         assert_contains_all(
             self,
             udp_source,
@@ -1483,7 +1491,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         codegen = read(WLED_INIT_PY)
         header = read(WLED_BRIDGE_H)
         udp_header = read(WLED_UDP_H)
-        udp_source = read(WLED_UDP_CPP)
+        udp_source = read(WLED_UDP_REALTIME_CPP)
         bridge_source = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
 
         assert_contains_all(
@@ -1498,7 +1506,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "cv.Optional(CONF_ARTNET_UNIVERSE_COUNT, default=1): cv.int_range(min=1, max=8)",
                 "if config.get(CONF_ARTNET_RECEIVE, False):",
                 "count += 1  # Art-Net port 6454",
-                "cg.add(var.set_artnet_enabled(config[CONF_ARTNET_RECEIVE]))",
+                "cg.add(var.set_artnet_enabled(artnet_en))",
                 "cg.add(var.set_artnet_universe(config[CONF_ARTNET_UNIVERSE]))",
                 "cg.add(var.set_artnet_universe_count(config[CONF_ARTNET_UNIVERSE_COUNT]))",
             ],
