@@ -385,8 +385,8 @@ void WLEDArtNetReceiver::setup(WLEDBridgeComponent *comp, bool enabled, uint16_t
   this->universe_count_ = universe_count;
   if (enabled)
     this->open_socket_();
-  ESP_LOGCONFIG(TAG, "Art-Net receiver on port %u: %s (universe %u-%u)", WLED_ARTNET_PORT, enabled ? "enabled" : "disabled",
-                start_universe, start_universe + universe_count - 1);
+  ESP_LOGCONFIG(TAG, "Art-Net receiver on port %u: %s (universe %u-%u)", WLED_ARTNET_PORT,
+                enabled ? "enabled" : "disabled", start_universe, start_universe + universe_count - 1);
 }
 
 void WLEDArtNetReceiver::set_enabled(bool enabled) {

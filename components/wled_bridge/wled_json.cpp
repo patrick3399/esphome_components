@@ -705,8 +705,7 @@ std::string build_network_json(const WLEDBridgeComponent *c) {
                         "\"leds\":{\"count\":%u,\"pwr\":%u,\"maxpwr\":%u}"
                         "}"
                         "}",
-                        WLED_MODE_COUNT, WLED_PALETTE_COUNT, c->get_led_count(), c->get_current_ma(),
-                        c->get_max_ma());
+                        WLED_MODE_COUNT, WLED_PALETTE_COUNT, c->get_led_count(), c->get_current_ma(), c->get_max_ma());
 }
 
 std::string build_pins_json() {
@@ -1330,7 +1329,7 @@ bool WLEDJsonHandler::canHandle(web_server_idf::AsyncWebServerRequest *request) 
 }
 
 void WLEDJsonHandler::handleBody(web_server_idf::AsyncWebServerRequest *request, uint8_t *data, size_t len,
-                                  size_t index, size_t /*total*/) {
+                                 size_t index, size_t /*total*/) {
   if (request == nullptr)
     return;
   httpd_req_t *raw_request = *request;

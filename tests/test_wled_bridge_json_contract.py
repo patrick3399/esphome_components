@@ -1443,9 +1443,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             effects,
             [
                 "WLED_EFFECT_INDEX_TO_MODE",
-                "117, 52, 35, 47",
-                "153, WLED_EFFECT_UNSUPPORTED, 172",
-                "132, 134, 144, 128",
+                "117,\n    52,\n    35,\n    47",
+                "153,\n    WLED_EFFECT_UNSUPPORTED,\n    172",
+                "132,\n    134,\n    144,\n    128",
             ],
         )
         assert_contains_all(
