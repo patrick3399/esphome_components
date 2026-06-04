@@ -287,6 +287,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
     def test_audio_analyzer_setup_is_fail_safe(self) -> None:
         header = read(ROOT / "components" / "wled_bridge" / "wled_audio.h")
         source = read(WLED_AUDIO_CPP)
+        codegen = read(WLED_INIT_PY)
 
         assert_contains_all(
             self,
@@ -302,7 +303,18 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "if (this->source_ == nullptr)",
                 "Audio analyzer requires a microphone source",
                 "this->fft_enabled_ = false;",
+                "if (!this->source_->is_passive())",
+                "this->source_->start();",
                 "this->fft_enabled_ = audio_fft_setup();",
+            ],
+        )
+        assert_contains_all(
+            self,
+            codegen,
+            [
+                "cv.Optional(CONF_AUDIO_PASSIVE, default=False): cv.boolean",
+                "microphone_source_to_code(",
+                "passive=audio[CONF_AUDIO_PASSIVE]",
             ],
         )
         self.assertNotIn("this->source_->add_data_callback", source.split("if (this->source_ == nullptr)", 1)[0])
@@ -1254,7 +1266,8 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             header,
             [
-                "post_body_too_large_",
+                "struct PostBodyState",
+                "std::map<httpd_req_t *, PostBodyState> post_bodies_",
                 "request_body_",
                 "last_post_too_large_log_ms_",
                 "last_invalid_json_log_ms_",
@@ -1269,6 +1282,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "POST body too large, rejecting request",
                 "413 Content Too Large",
                 '"request body too large"',
+                "httpd_req_t *raw_request = *request;",
+                "auto &state = this->post_bodies_[raw_request];",
+                "this->post_bodies_.erase(state_it);",
             ],
         )
 
@@ -1290,6 +1306,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         )
         self.assertNotIn("handle_post_state_(request, this->post_body_)", source)
         self.assertNotIn("handle_post_presets_(request, this->post_body_)", source)
+        self.assertNotIn("std::string post_body_", read(ROOT / "components" / "wled_bridge" / "wled_json.h"))
 
     def test_json_error_responses_preserve_non_200_status_codes_on_idf(self) -> None:
         source = read(WLED_JSON_CPP)
@@ -1330,7 +1347,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             source,
             [
-                "WS_MAX_RECV = 4096",
+                "WS_MAX_RECV = 8192",
                 "WS_MAX_CLIENTS = 4",
                 "std::find(this->client_fds_.begin(), this->client_fds_.end(), fd)",
                 "this->client_fds_.size() >= WS_MAX_CLIENTS",
@@ -1448,6 +1465,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "if (!effect_wled_id_supported(fx_index))",
                 "log_unsupported_effect_",
                 "Ignoring unsupported WLED effect id %u",
+                "const EffectDescriptor *effect = effect_for_wled_id(this->active_fx_)",
+                "uint32_t effect_index = this->light_state_->get_effect_index(effect->name)",
+                "call.set_effect(effect_index)",
                 "const EffectDescriptor *effect = effect_for_wled_id(view.mode)",
             ],
         )
@@ -2284,6 +2304,8 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "cv.Optional(CONF_MAX_MA): cv.int_range(min=0)",
                 '"\'use_task\' is disabled until the render path is thread-safe"',
                 '"\'matrix_width\' and \'matrix_height\' must both be 0 or both be greater than 0"',
+                "matrix_width * matrix_height > 65535",
+                "WLED segment coordinates are 16-bit",
                 "flat_overrides = []",
                 "realtime' cannot be mixed with deprecated flat realtime keys",
                 "E131_MAX_UNIVERSE = 63999",
@@ -2309,6 +2331,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "if (matrix_pixels > this->total_leds_)",
                 "Matrix geometry %ux%u requires %u LEDs, but only %u are configured",
                 "this->mark_failed()",
+                "WLED_MAX_ADDRESSABLE_LEDS = 65535",
+                "this->total_leds_ > WLED_MAX_ADDRESSABLE_LEDS",
+                "WLED Bridge supports at most %u virtual LEDs, but %u are configured",
             ],
         )
 

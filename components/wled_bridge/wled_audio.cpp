@@ -49,6 +49,9 @@ void AudioAnalyzer::setup(microphone::MicrophoneSource *source, bool enable_fft,
     return;
   }
 
+  if (!this->source_->is_passive())
+    this->source_->start();
+
 #ifdef WLED_BRIDGE_FFT
   if (this->fft_enabled_) {
     this->fft_enabled_ = audio_fft_setup();

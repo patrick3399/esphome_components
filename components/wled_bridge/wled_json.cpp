@@ -165,8 +165,8 @@ static bool parse_hex_color(const char *text, uint32_t *out) {
     *out = RGBW32(static_cast<uint8_t>((value >> 16) & 0xFF), static_cast<uint8_t>((value >> 8) & 0xFF),
                   static_cast<uint8_t>(value & 0xFF), 0);
   } else {
-    *out = RGBW32(static_cast<uint8_t>((value >> 16) & 0xFF), static_cast<uint8_t>((value >> 8) & 0xFF),
-                  static_cast<uint8_t>(value & 0xFF), static_cast<uint8_t>((value >> 24) & 0xFF));
+    *out = RGBW32(static_cast<uint8_t>((value >> 24) & 0xFF), static_cast<uint8_t>((value >> 16) & 0xFF),
+                  static_cast<uint8_t>((value >> 8) & 0xFF), static_cast<uint8_t>(value & 0xFF));
   }
   return true;
 }
@@ -1330,16 +1330,20 @@ bool WLEDJsonHandler::canHandle(web_server_idf::AsyncWebServerRequest *request) 
 }
 
 void WLEDJsonHandler::handleBody(web_server_idf::AsyncWebServerRequest *request, uint8_t *data, size_t len,
-                                 size_t index, size_t /*total*/) {
-  if (index == 0) {
-    this->post_body_.clear();
-    this->post_body_too_large_ = false;
-  }
-  if (this->post_body_too_large_)
+                                  size_t index, size_t /*total*/) {
+  if (request == nullptr)
     return;
-  if (this->post_body_.size() + len > WLED_JSON_MAX_POST_BODY) {
-    this->post_body_.clear();
-    this->post_body_too_large_ = true;
+  httpd_req_t *raw_request = *request;
+  auto &state = this->post_bodies_[raw_request];
+  if (index == 0) {
+    state.body.clear();
+    state.too_large = false;
+  }
+  if (state.too_large)
+    return;
+  if (state.body.size() + len > WLED_JSON_MAX_POST_BODY) {
+    state.body.clear();
+    state.too_large = true;
     const uint32_t now = millis();
     if (this->last_post_too_large_log_ms_ == 0 ||
         now - this->last_post_too_large_log_ms_ >= WLED_JSON_WARNING_LOG_INTERVAL_MS) {
@@ -1348,7 +1352,7 @@ void WLEDJsonHandler::handleBody(web_server_idf::AsyncWebServerRequest *request,
     }
     return;
   }
-  this->post_body_.append(reinterpret_cast<const char *>(data), len);
+  state.body.append(reinterpret_cast<const char *>(data), len);
 }
 
 bool WLEDJsonHandler::request_body_(web_server_idf::AsyncWebServerRequest *request, std::string *body) {
@@ -1356,17 +1360,21 @@ bool WLEDJsonHandler::request_body_(web_server_idf::AsyncWebServerRequest *reque
     return false;
   body->clear();
 
-  if (this->post_body_too_large_) {
-    send_json_status(request, "413 Content Too Large", "{\"error\":\"request body too large\"}");
-    this->post_body_.clear();
-    this->post_body_too_large_ = false;
-    return false;
-  }
-
-  if (!this->post_body_.empty()) {
-    *body = std::move(this->post_body_);
-    this->post_body_.clear();
-    return true;
+  httpd_req_t *raw_request = nullptr;
+  if (request != nullptr)
+    raw_request = *request;
+  auto state_it = raw_request != nullptr ? this->post_bodies_.find(raw_request) : this->post_bodies_.end();
+  if (state_it != this->post_bodies_.end()) {
+    PostBodyState state = std::move(state_it->second);
+    this->post_bodies_.erase(state_it);
+    if (state.too_large) {
+      send_json_status(request, "413 Content Too Large", "{\"error\":\"request body too large\"}");
+      return false;
+    }
+    if (!state.body.empty()) {
+      *body = std::move(state.body);
+      return true;
+    }
   }
 
   if (request == nullptr || request->method() != HTTP_POST || request->contentLength() == 0)
@@ -1408,13 +1416,6 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
   char url_buf[web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
   std::string url_string(url.c_str());
-
-  if (this->post_body_too_large_) {
-    send_json_status(request, "413 Content Too Large", "{\"error\":\"request body too large\"}");
-    this->post_body_.clear();
-    this->post_body_too_large_ = false;
-    return;
-  }
 
   if (strcmp(url.c_str(), "/win") == 0 || strncmp(url.c_str(), "/win&", 5) == 0) {
     handle_win_(request, url_string);

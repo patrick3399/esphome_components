@@ -12,7 +12,7 @@ namespace wled_bridge {
 static const char *const TAG = "wled_bridge.ws";
 
 // Maximum incoming frame payload we will process (guard against huge messages).
-static constexpr size_t WS_MAX_RECV = 4096;
+static constexpr size_t WS_MAX_RECV = 8192;
 static constexpr size_t WS_MAX_CLIENTS = 4;
 
 static bool receive_frame_payload(httpd_req_t *req, httpd_ws_frame_t *frame, std::vector<uint8_t> *buf) {

@@ -37,6 +37,7 @@ static const char *const TAG = "wled_bridge";
 static constexpr uint32_t WLED_PRESET_MAGIC = 0x574C5036;  // WLP6 (adds playlist presets)
 static constexpr uint32_t WLED_STATE_MAGIC = 0x574C5334;  // WLS4 (adds selected/main segment)
 static constexpr uint32_t WLED_STATE_SAVE_DELAY_MS = 2000;
+static constexpr uint32_t WLED_MAX_ADDRESSABLE_LEDS = 65535;
 
 static uint8_t scale8_linear(uint8_t value, uint8_t scale) {
   return static_cast<uint8_t>((static_cast<uint16_t>(value) * scale) / 255u);
@@ -144,6 +145,12 @@ void WLEDBridgeComponent::setup() {
 
   if (this->total_leds_ == 0) {
     ESP_LOGE(TAG, "All buses report 0 LEDs");
+    this->mark_failed();
+    return;
+  }
+  if (this->total_leds_ > WLED_MAX_ADDRESSABLE_LEDS) {
+    ESP_LOGE(TAG, "WLED Bridge supports at most %u virtual LEDs, but %u are configured", WLED_MAX_ADDRESSABLE_LEDS,
+             this->total_leds_);
     this->mark_failed();
     return;
   }
@@ -762,6 +769,12 @@ void WLEDBridgeComponent::publish_light_state() {
   call.set_color_brightness(1.0f);
   call.set_rgbw(static_cast<float>(R(c)) / 255.0f, static_cast<float>(G(c)) / 255.0f, static_cast<float>(B(c)) / 255.0f,
                 static_cast<float>(W(c)) / 255.0f);
+  const EffectDescriptor *effect = effect_for_wled_id(this->active_fx_);
+  if (effect != nullptr) {
+    uint32_t effect_index = this->light_state_->get_effect_index(effect->name);
+    if (effect_index > 0)
+      call.set_effect(effect_index);
+  }
   call.set_transition_length(0);
 
   this->suppress_light_sync_ = true;

@@ -174,7 +174,7 @@ def _validate_audio(value):
                 microphone.microphone_source_schema(
                     min_bits_per_sample=16, max_bits_per_sample=16,
                 ),
-            cv.Optional(CONF_AUDIO_PASSIVE, default=True): cv.boolean,
+            cv.Optional(CONF_AUDIO_PASSIVE, default=False): cv.boolean,
             cv.Optional(CONF_AUDIO_FFT, default=False): cv.boolean,
             cv.Optional(CONF_AUDIO_AGC, default=True): cv.boolean,
         }
@@ -273,6 +273,11 @@ def _validate(config):
     matrix_height = config[CONF_MATRIX_HEIGHT]
     if (matrix_width == 0) != (matrix_height == 0):
         raise cv.Invalid("'matrix_width' and 'matrix_height' must both be 0 or both be greater than 0")
+    if matrix_width > 0 and matrix_height > 0 and matrix_width * matrix_height > 65535:
+        raise cv.Invalid(
+            "'matrix_width' * 'matrix_height' must not exceed 65535 LEDs "
+            "because WLED segment coordinates are 16-bit"
+        )
     rt = config.get(CONF_REALTIME)
     if rt is not None:
         flat_overrides = []

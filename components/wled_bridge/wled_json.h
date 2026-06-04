@@ -9,6 +9,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
 namespace esphome {
 namespace wled_bridge {
@@ -50,8 +51,11 @@ class WLEDJsonHandler : public web_server_idf::AsyncWebHandler {
   const std::string &cached_fxdata_json_();
 
   WLEDBridgeComponent *comp_;
-  std::string post_body_;
-  bool post_body_too_large_{false};
+  struct PostBodyState {
+    std::string body;
+    bool too_large{false};
+  };
+  std::map<httpd_req_t *, PostBodyState> post_bodies_;
   uint32_t last_post_too_large_log_ms_{0};
   uint32_t last_invalid_json_log_ms_{0};
   std::string effects_cache_;
