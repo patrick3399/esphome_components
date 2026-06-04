@@ -132,11 +132,19 @@ AUTO_WHITE_MODES = {
     "max": 4,
 }
 
+DDP_PORT = 4048
+E131_PORT = 5568
+ARTNET_PORT = 6454
+E131_MAX_UNIVERSE = 63999
+ARTNET_MAX_UNIVERSE = 32767
+WLED_MODE_MAX = 219
+WLED_PALETTE_MAX = 53
+
 # Per-bus config block
 BUS_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_LIGHT_ID): cv.use_id(light.AddressableLightState),
-        cv.Optional(CONF_MAX_MA, default=5000): cv.positive_int,
+        cv.Optional(CONF_MAX_MA, default=5000): cv.int_range(min=0),
         cv.Optional(CONF_LED_MA, default=55): cv.positive_int,
     }
 )
@@ -181,7 +189,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_LIGHT_ID): cv.use_id(light.AddressableLightState),
         cv.Optional(CONF_BUSES): cv.All(cv.ensure_list(BUS_SCHEMA), cv.Length(min=1)),
         # Global defaults used when light_id (not buses:) is specified.
-        cv.Optional(CONF_MAX_MA): cv.positive_int,
+        cv.Optional(CONF_MAX_MA): cv.int_range(min=0),
         cv.Optional(CONF_LED_MA): cv.positive_int,
         cv.Optional(CONF_USE_TASK, default=False): cv.boolean,
         cv.Optional(CONF_AUTO_WHITE, default="none"): cv.enum(
@@ -199,7 +207,7 @@ CONFIG_SCHEMA = cv.Schema(
         # Boot preset (0 = restore last NVS state, 1-16 = load specific preset)
         cv.Optional(CONF_BOOT_PRESET, default=0): cv.int_range(min=0, max=16),
         # Brightness factor (0-100%, caps maximum brightness like WLED BF setting)
-        cv.Optional(CONF_BRIGHTNESS_FACTOR, default=100): cv.int_range(min=1, max=100),
+        cv.Optional(CONF_BRIGHTNESS_FACTOR, default=100): cv.int_range(min=0, max=100),
         # Web UI (default enabled): set false to strip ~64 KB of gzip blobs from flash
         cv.Optional(CONF_WEB_UI, default=True): cv.boolean,
         # Nested realtime: section — enables DDP/E1.31/Art-Net receivers
@@ -259,6 +267,65 @@ def _validate(config):
         raise cv.Invalid("Either 'light_id' or 'buses' must be specified")
     if CONF_LIGHT_ID in config and CONF_BUSES in config:
         raise cv.Invalid("'light_id' and 'buses' are mutually exclusive")
+    if config[CONF_USE_TASK]:
+        raise cv.Invalid("'use_task' is disabled until the render path is thread-safe")
+    matrix_width = config[CONF_MATRIX_WIDTH]
+    matrix_height = config[CONF_MATRIX_HEIGHT]
+    if (matrix_width == 0) != (matrix_height == 0):
+        raise cv.Invalid("'matrix_width' and 'matrix_height' must both be 0 or both be greater than 0")
+    rt = config.get(CONF_REALTIME)
+    if rt is not None:
+        flat_overrides = []
+        if config.get(CONF_DDP_RECEIVE, False):
+            flat_overrides.append(CONF_DDP_RECEIVE)
+        if config.get(CONF_E131_RECEIVE, False):
+            flat_overrides.append(CONF_E131_RECEIVE)
+        if config.get(CONF_E131_UNIVERSE, 1) != 1:
+            flat_overrides.append(CONF_E131_UNIVERSE)
+        if config.get(CONF_E131_UNIVERSE_COUNT, 1) != 1:
+            flat_overrides.append(CONF_E131_UNIVERSE_COUNT)
+        if config.get(CONF_ARTNET_RECEIVE, False):
+            flat_overrides.append(CONF_ARTNET_RECEIVE)
+        if config.get(CONF_ARTNET_UNIVERSE, 0) != 0:
+            flat_overrides.append(CONF_ARTNET_UNIVERSE)
+        if config.get(CONF_ARTNET_UNIVERSE_COUNT, 1) != 1:
+            flat_overrides.append(CONF_ARTNET_UNIVERSE_COUNT)
+        if flat_overrides:
+            raise cv.Invalid(
+                "'realtime' cannot be mixed with deprecated flat realtime keys: "
+                + ", ".join(flat_overrides)
+            )
+        ddp_enabled = rt.get(CONF_DDP, False)
+        e131_enabled = rt.get(CONF_E131, False)
+        e131_universe = rt.get(CONF_E131_UNIVERSE, 1)
+        e131_count = rt.get(CONF_E131_UNIVERSES, 1)
+        artnet_enabled = rt.get(CONF_ARTNET, False)
+        artnet_universe = rt.get(CONF_ARTNET_UNIVERSE, 0)
+        artnet_count = rt.get(CONF_ARTNET_UNIVERSES, 1)
+    else:
+        ddp_enabled = config.get(CONF_DDP_RECEIVE, False)
+        e131_enabled = config.get(CONF_E131_RECEIVE, False)
+        e131_universe = config.get(CONF_E131_UNIVERSE, 1)
+        e131_count = config.get(CONF_E131_UNIVERSE_COUNT, 1)
+        artnet_enabled = config.get(CONF_ARTNET_RECEIVE, False)
+        artnet_universe = config.get(CONF_ARTNET_UNIVERSE, 0)
+        artnet_count = config.get(CONF_ARTNET_UNIVERSE_COUNT, 1)
+    if e131_enabled and e131_universe + e131_count - 1 > E131_MAX_UNIVERSE:
+        raise cv.Invalid("E1.31 universe range exceeds 63999")
+    if artnet_enabled and artnet_universe + artnet_count - 1 > ARTNET_MAX_UNIVERSE:
+        raise cv.Invalid("Art-Net universe range exceeds 32767")
+    if config.get(CONF_UDP_RECEIVE, False):
+        udp_ports = {config[CONF_UDP_PORT], config[CONF_UDP_PORT2]}
+        realtime_ports = set()
+        if ddp_enabled:
+            realtime_ports.add(DDP_PORT)
+        if e131_enabled:
+            realtime_ports.add(E131_PORT)
+        if artnet_enabled:
+            realtime_ports.add(ARTNET_PORT)
+        conflict = udp_ports & realtime_ports
+        if conflict:
+            raise cv.Invalid(f"UDP sync receive port conflicts with realtime receiver port {min(conflict)}")
     return config
 
 
@@ -285,7 +352,7 @@ def _count_udp_sockets(config):
         count += 1  # recv port1
         if config.get(CONF_UDP_PORT2, 0) != config.get(CONF_UDP_PORT, 21324):
             count += 1  # recv port2
-    rt = config.get(CONF_REALTIME, {})
+    rt = config.get(CONF_REALTIME) or {}
     if rt.get(CONF_DDP, False) or config.get(CONF_DDP_RECEIVE, False):
         count += 1  # DDP port 4048
     if rt.get(CONF_E131, False) or config.get(CONF_E131_RECEIVE, False):
@@ -295,10 +362,18 @@ def _count_udp_sockets(config):
     return count
 
 
+def _consume_wled_bridge_sockets(config):
+    return consume_sockets(
+        _count_udp_sockets(config),
+        "wled_bridge",
+        SocketType.UDP,
+    )(config)
+
+
 CONFIG_SCHEMA = cv.All(
     CONFIG_SCHEMA,
     _validate,
-    consume_sockets(6, "wled_bridge", SocketType.UDP),
+    _consume_wled_bridge_sockets,
 )
 
 # Path to pre-compressed UI asset blobs generated by tools/gen_wled_ui.py
@@ -622,7 +697,7 @@ async def wled_bridge_save_preset_to_code(config, action_id, template_arg, args)
     cv.Schema(
         {
             cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
-            cv.Required(CONF_EFFECT): cv.templatable(cv.int_range(min=0, max=255)),
+            cv.Required(CONF_EFFECT): cv.templatable(cv.int_range(min=0, max=WLED_MODE_MAX)),
         }
     ),
     synchronous=True,
@@ -641,7 +716,7 @@ async def wled_bridge_set_effect_to_code(config, action_id, template_arg, args):
     cv.Schema(
         {
             cv.GenerateID(): cv.use_id(WLEDBridgeComponent),
-            cv.Required(CONF_PALETTE): cv.templatable(cv.int_range(min=0, max=255)),
+            cv.Required(CONF_PALETTE): cv.templatable(cv.int_range(min=0, max=WLED_PALETTE_MAX)),
         }
     ),
     synchronous=True,

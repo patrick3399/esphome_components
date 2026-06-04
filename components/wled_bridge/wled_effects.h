@@ -32,7 +32,14 @@ static constexpr size_t WLED_EFFECT_COUNT = WLED_EFFECT_COUNT_1D
                                             + WLED_EFFECT_COUNT_AUDIO
 #endif
     ;
+static constexpr size_t WLED_MODE_COUNT = 220;
+static constexpr uint8_t WLED_EFFECT_UNSUPPORTED = 0xFF;
 extern const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT];
+
+uint8_t effect_wled_id_for_index(size_t index);
+int effect_index_for_wled_id(uint8_t wled_id);
+const EffectDescriptor *effect_for_wled_id(uint8_t wled_id);
+bool effect_wled_id_supported(uint8_t wled_id);
 
 // ---- forward declarations ----
 void fx_solid(EffectContext &);

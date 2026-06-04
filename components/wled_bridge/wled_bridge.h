@@ -9,6 +9,7 @@
 #include "esphome/components/light/light_state.h"
 #include "wled_types.h"
 #include "wled_effects.h"
+#include "wled_palette.h"
 #include "wled_json.h"
 #include "wled_udp.h"
 #ifdef USE_ESP32
@@ -38,7 +39,8 @@ class WLEDProxyEffect : public light::AddressableLightEffect {
     if (this->state_ != nullptr) {
       auto *al = static_cast<light::AddressableLight *>(
           static_cast<light::AddressableLightState *>(this->state_)->get_output());
-      al->set_effect_active(true);
+      if (al != nullptr)
+        al->set_effect_active(true);
     }
   }
 
@@ -182,18 +184,8 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   }
 
   // UDP sync
-  void set_udp_port(uint16_t port) {
-    this->udp_port_ = port;
-#ifdef USE_ESP32
-    this->udp_sync_.set_ports(this->udp_port_, this->udp_port2_);
-#endif
-  }
-  void set_udp_port2(uint16_t port) {
-    this->udp_port2_ = port;
-#ifdef USE_ESP32
-    this->udp_sync_.set_ports(this->udp_port_, this->udp_port2_);
-#endif
-  }
+  void set_udp_port(uint16_t port);
+  void set_udp_port2(uint16_t port);
   void set_udp_send(bool v) {
     this->udp_send_ = v;
   }
@@ -201,18 +193,18 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     this->udp_receive_ = v;
   }
   void set_udp_send_enabled(bool v) {
-    this->udp_send_ = v;
 #ifdef USE_ESP32
-    this->udp_sync_.set_send_enabled(v);
+    if (this->udp_send_ != v)
+      this->udp_sync_.set_send_enabled(v);
 #endif
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_send_, v, false);
   }
   void set_udp_receive_enabled(bool v) {
-    this->udp_receive_ = v;
 #ifdef USE_ESP32
-    this->udp_sync_.set_receive_enabled(v);
+    if (this->udp_receive_ != v)
+      this->udp_sync_.set_receive_enabled(v);
 #endif
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_receive_, v, false);
   }
   uint16_t get_udp_port() const {
     return this->udp_port_;
@@ -227,56 +219,43 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     return this->udp_receive_;
   }
   void set_udp_sync_groups(uint8_t groups) {
-    this->udp_sync_groups_ = groups;
-    this->mark_dirty_(false);
+    this->set_u8_dirty_(this->udp_sync_groups_, groups, false);
   }
   void set_udp_receive_groups(uint8_t groups) {
-    this->udp_receive_groups_ = groups;
-    this->mark_dirty_(false);
+    this->set_u8_dirty_(this->udp_receive_groups_, groups, false);
   }
   void set_udp_receive_brightness(bool v) {
-    this->udp_receive_brightness_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_receive_brightness_, v, false);
   }
   void set_udp_receive_color(bool v) {
-    this->udp_receive_color_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_receive_color_, v, false);
   }
   void set_udp_receive_effects(bool v) {
-    this->udp_receive_effects_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_receive_effects_, v, false);
   }
   void set_udp_receive_palette(bool v) {
-    this->udp_receive_palette_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_receive_palette_, v, false);
   }
   void set_udp_receive_segments(bool v) {
-    this->udp_receive_segments_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_receive_segments_, v, false);
   }
   void set_udp_receive_segment_options(bool v) {
-    this->udp_receive_segment_options_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_receive_segment_options_, v, false);
   }
   void set_udp_notify_direct(bool v) {
-    this->udp_notify_direct_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_notify_direct_, v, false);
   }
   void set_udp_notify_button(bool v) {
-    this->udp_notify_button_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_notify_button_, v, false);
   }
   void set_udp_notify_alexa(bool v) {
-    this->udp_notify_alexa_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_notify_alexa_, v, false);
   }
   void set_udp_notify_hue(bool v) {
-    this->udp_notify_hue_ = v;
-    this->mark_dirty_(false);
+    this->set_bool_dirty_(this->udp_notify_hue_, v, false);
   }
   void set_udp_retries(uint8_t retries) {
-    this->udp_retries_ = retries;
-    this->mark_dirty_(false);
+    this->set_u8_dirty_(this->udp_retries_, retries, false);
   }
   uint8_t get_udp_sync_groups() const {
     return this->udp_sync_groups_;
@@ -471,7 +450,8 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     return this->current_ma_;
   }
   uint32_t get_live_pixel_color(uint32_t index) const;
-  bool set_pixel_override(uint8_t segment_id, uint32_t segment_offset, uint32_t color);
+  bool set_pixel_override(uint8_t segment_id, uint32_t segment_offset, uint32_t color, bool mark_dirty = true);
+  void mark_pixel_overrides_changed();
   void clear_pixel_overrides();
   uint32_t get_state_version() const {
     return this->state_version_;
@@ -544,8 +524,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     return this->live_override_;
   }
   void set_live_override(uint8_t lor) {
-    this->live_override_ = lor;
-    this->mark_dirty_(false);
+    this->set_u8_dirty_(this->live_override_, lor, false);
   }
   uint32_t get_preset_modified_ms() const {
     return this->preset_modified_ms_;
@@ -601,54 +580,51 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void set_brightness(uint8_t bri);
   void set_effect(uint8_t fx_index);
   void set_speed(uint8_t sx) {
-    this->params_.speed = sx;
-    this->mark_dirty_();
+    this->set_u8_dirty_(this->params_.speed, sx);
   }
   void set_intensity(uint8_t ix) {
-    this->params_.intensity = ix;
-    this->mark_dirty_();
+    this->set_u8_dirty_(this->params_.intensity, ix);
   }
   void set_palette(uint8_t pal) {
-    this->params_.palette_id = pal;
-    this->mark_dirty_();
+    if (pal >= WLED_PALETTE_COUNT)
+      return;
+    this->set_u8_dirty_(this->params_.palette_id, pal);
   }
   void set_custom1(uint8_t c1) {
-    this->params_.custom1 = c1;
-    this->mark_dirty_();
+    this->set_u8_dirty_(this->params_.custom1, c1);
   }
   void set_custom2(uint8_t c2) {
-    this->params_.custom2 = c2;
-    this->mark_dirty_();
+    this->set_u8_dirty_(this->params_.custom2, c2);
   }
   void set_custom3(uint8_t c3) {
-    this->params_.custom3 = c3;
-    this->mark_dirty_();
+    this->set_u8_dirty_(this->params_.custom3, c3);
   }
   void set_check1(bool o1) {
-    this->params_.check1 = o1;
-    this->mark_dirty_();
+    this->set_bool_dirty_(this->params_.check1, o1);
   }
   void set_check2(bool o2) {
-    this->params_.check2 = o2;
-    this->mark_dirty_();
+    this->set_bool_dirty_(this->params_.check2, o2);
   }
   void set_check3(bool o3) {
-    this->params_.check3 = o3;
-    this->mark_dirty_();
+    this->set_bool_dirty_(this->params_.check3, o3);
   }
   void set_color(uint8_t slot, uint32_t rgb) {
-    if (slot < 3) {
-      this->params_.colors[slot] = rgb;
-      this->mark_dirty_();
-    }
+    if (slot >= 3 || this->params_.colors[slot] == rgb)
+      return;
+    this->params_.colors[slot] = rgb;
+    this->mark_dirty_();
   }
   void set_custom(uint8_t c1, uint8_t c2, uint8_t c3) {
+    if (this->params_.custom1 == c1 && this->params_.custom2 == c2 && this->params_.custom3 == c3)
+      return;
     this->params_.custom1 = c1;
     this->params_.custom2 = c2;
     this->params_.custom3 = c3;
     this->mark_dirty_();
   }
   void set_transition(uint16_t ms) {
+    if (this->transition_ms_ == ms)
+      return;
     this->transition_ms_ = ms;
     this->mark_dirty_();
   }
@@ -710,6 +686,9 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void apply_transition_blend_(uint32_t now);
   void reset_segment_state_();
   void begin_transition_();
+  void log_unsupported_effect_(uint8_t fx_index);
+  bool udp_port_conflicts_realtime_(uint16_t port) const;
+  void log_udp_port_conflict_(uint16_t port);
   void load_presets_();
   void persist_presets_();
   void load_state_();
@@ -722,6 +701,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void process_nightlight_();
   void apply_nightlight_brightness_(uint8_t bri, bool finished);
   void apply_pixel_overrides_();
+  void free_runtime_buffers_();
   void apply_preset_(const WLEDPresetRecord &preset);
   WLEDPresetRecord current_as_preset_() const;
   void set_default_preset_name_(WLEDPresetRecord *preset, uint8_t preset_id) const;
@@ -736,6 +716,18 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
     this->state_version_++;
     this->state_dirty_ = true;
     this->schedule_state_save_();
+  }
+  void set_bool_dirty_(bool &field, bool value, bool clear_active_preset = true) {
+    if (field == value)
+      return;
+    field = value;
+    this->mark_dirty_(clear_active_preset);
+  }
+  void set_u8_dirty_(uint8_t &field, uint8_t value, bool clear_active_preset = true) {
+    if (field == value)
+      return;
+    field = value;
+    this->mark_dirty_(clear_active_preset);
   }
 
   static void render_task_fn_(void *arg);
@@ -807,6 +799,8 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint8_t live_override_{0};
   uint32_t preset_modified_ms_{0};
   uint32_t last_frame_ms_{0};
+  uint32_t last_unsupported_effect_log_ms_{0};
+  uint32_t last_udp_port_conflict_log_ms_{0};
   uint32_t state_version_{0};
   uint32_t state_save_due_ms_{0};
   bool state_dirty_{false};

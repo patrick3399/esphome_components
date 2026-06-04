@@ -10,6 +10,10 @@ namespace wled_bridge {
 
 class WLEDBridgeComponent;
 
+static constexpr uint16_t WLED_DDP_PORT = 4048;
+static constexpr uint16_t WLED_E131_PORT = 5568;
+static constexpr uint16_t WLED_ARTNET_PORT = 6454;
+
 // WLED UDP Notifier sync (port 21324, WLED protocol 0 / compatibility v12).
 // Enables this device to participate in a WLED network:
 //   send=true  — broadcast a notifier packet whenever local state changes
@@ -62,13 +66,15 @@ class WLEDDdpReceiver {
  protected:
   void open_socket_();
   void close_socket_();
-  void process_packet_(const uint8_t *buf, size_t len);
+  void process_packet_(const uint8_t *buf, size_t len, uint32_t source_ip);
 
   WLEDBridgeComponent *comp_{nullptr};
   bool enabled_{false};
   bool receiving_{false};
   int fd_{-1};
   uint32_t last_receive_ms_{0};
+  uint32_t source_ip_{0};
+  uint32_t last_source_reject_log_ms_{0};
   bool push_seen_{false};
 };
 
@@ -91,7 +97,7 @@ class WLEDE131Receiver {
  protected:
   void open_socket_();
   void close_socket_();
-  void process_packet_(const uint8_t *buf, size_t len);
+  void process_packet_(const uint8_t *buf, size_t len, uint32_t source_ip);
 
   WLEDBridgeComponent *comp_{nullptr};
   bool enabled_{false};
@@ -100,6 +106,8 @@ class WLEDE131Receiver {
   uint16_t start_universe_{1};
   uint8_t universe_count_{1};
   uint32_t last_receive_ms_{0};
+  uint32_t source_ip_{0};
+  uint32_t last_source_reject_log_ms_{0};
   uint8_t last_seq_[8]{};
 };
 
@@ -121,7 +129,7 @@ class WLEDArtNetReceiver {
  protected:
   void open_socket_();
   void close_socket_();
-  void process_packet_(const uint8_t *buf, size_t len);
+  void process_packet_(const uint8_t *buf, size_t len, uint32_t source_ip);
 
   WLEDBridgeComponent *comp_{nullptr};
   bool enabled_{false};
@@ -130,6 +138,8 @@ class WLEDArtNetReceiver {
   uint16_t start_universe_{0};
   uint8_t universe_count_{1};
   uint32_t last_receive_ms_{0};
+  uint32_t source_ip_{0};
+  uint32_t last_source_reject_log_ms_{0};
   uint8_t last_seq_[8]{};
 };
 #endif  // WLED_BRIDGE_REALTIME

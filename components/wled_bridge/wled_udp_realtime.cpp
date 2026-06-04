@@ -13,17 +13,48 @@
 #include <fcntl.h>
 #include <cstring>
 #include <cerrno>
+#include <cstdio>
 
 namespace esphome {
 namespace wled_bridge {
 
 static const char *const TAG = "wled_bridge.realtime";
+static constexpr uint32_t REALTIME_SOURCE_REJECT_LOG_INTERVAL_MS = 5000;
+
+static void format_source_ip(uint32_t source_ip, char *out, size_t out_len) {
+  if (out == nullptr || out_len == 0)
+    return;
+  struct in_addr addr = {};
+  addr.s_addr = source_ip;
+  if (inet_ntop(AF_INET, &addr, out, out_len) == nullptr)
+    snprintf(out, out_len, "unknown");
+}
+
+static bool realtime_source_allowed(const char *protocol, uint32_t source_ip, bool receiving, uint32_t *locked_source,
+                                    uint32_t *last_reject_log_ms) {
+  if (locked_source == nullptr || last_reject_log_ms == nullptr)
+    return true;
+  if (!receiving || *locked_source == 0 || *locked_source == source_ip) {
+    *locked_source = source_ip;
+    return true;
+  }
+
+  uint32_t now = millis();
+  if (*last_reject_log_ms == 0 || now - *last_reject_log_ms >= REALTIME_SOURCE_REJECT_LOG_INTERVAL_MS) {
+    char incoming[16];
+    char active[16];
+    format_source_ip(source_ip, incoming, sizeof(incoming));
+    format_source_ip(*locked_source, active, sizeof(active));
+    ESP_LOGW(TAG, "%s: ignoring realtime packet from %s while locked to %s", protocol, incoming, active);
+    *last_reject_log_ms = now;
+  }
+  return false;
+}
 
 // ============================================================
 // DDP (Distributed Display Protocol) receiver — UDP port 4048
 // ============================================================
 
-static constexpr uint16_t DDP_PORT = 4048;
 static constexpr size_t DDP_HEADER_LEN = 10;
 static constexpr uint8_t DDP_FLAGS_VER1 = 0x40;
 static constexpr uint8_t DDP_FLAGS_PUSH = 0x01;
@@ -39,7 +70,7 @@ void WLEDDdpReceiver::setup(WLEDBridgeComponent *comp, bool enabled) {
   this->enabled_ = enabled;
   if (enabled)
     this->open_socket_();
-  ESP_LOGCONFIG(TAG, "DDP receiver on port %u: %s", DDP_PORT, enabled ? "enabled" : "disabled");
+  ESP_LOGCONFIG(TAG, "DDP receiver on port %u: %s", WLED_DDP_PORT, enabled ? "enabled" : "disabled");
 }
 
 void WLEDDdpReceiver::set_enabled(bool enabled) {
@@ -66,9 +97,9 @@ void WLEDDdpReceiver::open_socket_() {
   struct sockaddr_in addr = {};
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  addr.sin_port = htons(DDP_PORT);
+  addr.sin_port = htons(WLED_DDP_PORT);
   if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-    ESP_LOGW(TAG, "DDP: bind failed on port %u: %d", DDP_PORT, errno);
+    ESP_LOGW(TAG, "DDP: bind failed on port %u: %d", WLED_DDP_PORT, errno);
     close(fd);
     return;
   }
@@ -81,6 +112,7 @@ void WLEDDdpReceiver::close_socket_() {
     this->fd_ = -1;
   }
   this->receiving_ = false;
+  this->source_ip_ = 0;
 }
 
 void WLEDDdpReceiver::loop() {
@@ -96,17 +128,20 @@ void WLEDDdpReceiver::loop() {
     if (len <= 0)
       break;
     if (static_cast<size_t>(len) >= DDP_HEADER_LEN)
-      this->process_packet_(buf, static_cast<size_t>(len));
+      this->process_packet_(buf, static_cast<size_t>(len), src.sin_addr.s_addr);
   }
 
   if (this->receiving_ && (millis() - this->last_receive_ms_ > DDP_TIMEOUT_MS)) {
     this->receiving_ = false;
+    this->source_ip_ = 0;
     this->comp_->clear_pixel_overrides();
     ESP_LOGD(TAG, "DDP: stream timeout, returning to effects");
   }
 }
 
-void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len) {
+void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len, uint32_t source_ip) {
+  if (buf == nullptr || len < DDP_HEADER_LEN)
+    return;
   uint8_t flags = buf[0];
 
   if ((flags & DDP_FLAGS_VER1) == 0)
@@ -116,6 +151,9 @@ void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len) {
 
   uint8_t dest = buf[3];
   if (dest != DDP_ID_DISPLAY && dest != DDP_ID_ALL)
+    return;
+  if (!realtime_source_allowed("DDP", source_ip, this->receiving_, &this->source_ip_,
+                               &this->last_source_reject_log_ms_))
     return;
 
   uint32_t channel_offset = (static_cast<uint32_t>(buf[4]) << 24) | (static_cast<uint32_t>(buf[5]) << 16) |
@@ -136,14 +174,17 @@ void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len) {
   uint32_t start_led = channel_offset / channels_per_pixel;
   uint32_t pixel_count = data_len / channels_per_pixel;
 
+  bool changed = false;
   for (uint32_t i = 0; i < pixel_count && (start_led + i) < led_count; i++) {
     const uint8_t *p = pixel_data + i * channels_per_pixel;
     uint8_t r = p[0];
     uint8_t g = p[1];
     uint8_t b = p[2];
     uint8_t w = (channels_per_pixel >= 4) ? p[3] : 0;
-    this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, w));
+    changed |= this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, w), false);
   }
+  if (changed)
+    this->comp_->mark_pixel_overrides_changed();
 
   this->last_receive_ms_ = millis();
   if (!this->receiving_) {
@@ -161,7 +202,6 @@ void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len) {
 // E1.31 (sACN) receiver — UDP port 5568
 // ============================================================
 
-static constexpr uint16_t E131_PORT = 5568;
 static constexpr size_t E131_MIN_PACKET = 126;
 static constexpr size_t E131_UNIVERSE_OFFSET = 113;
 static constexpr size_t E131_SEQUENCE_OFFSET = 111;
@@ -181,7 +221,7 @@ void WLEDE131Receiver::setup(WLEDBridgeComponent *comp, bool enabled, uint16_t s
   this->universe_count_ = universe_count;
   if (enabled)
     this->open_socket_();
-  ESP_LOGCONFIG(TAG, "E1.31 receiver on port %u: %s (universe %u-%u)", E131_PORT, enabled ? "enabled" : "disabled",
+  ESP_LOGCONFIG(TAG, "E1.31 receiver on port %u: %s (universe %u-%u)", WLED_E131_PORT, enabled ? "enabled" : "disabled",
                 start_universe, start_universe + universe_count - 1);
 }
 
@@ -209,9 +249,9 @@ void WLEDE131Receiver::open_socket_() {
   struct sockaddr_in addr = {};
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  addr.sin_port = htons(E131_PORT);
+  addr.sin_port = htons(WLED_E131_PORT);
   if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-    ESP_LOGW(TAG, "E1.31: bind failed on port %u: %d", E131_PORT, errno);
+    ESP_LOGW(TAG, "E1.31: bind failed on port %u: %d", WLED_E131_PORT, errno);
     close(fd);
     return;
   }
@@ -235,6 +275,7 @@ void WLEDE131Receiver::close_socket_() {
     this->fd_ = -1;
   }
   this->receiving_ = false;
+  this->source_ip_ = 0;
 }
 
 void WLEDE131Receiver::loop() {
@@ -250,17 +291,20 @@ void WLEDE131Receiver::loop() {
     if (len <= 0)
       break;
     if (static_cast<size_t>(len) >= E131_MIN_PACKET)
-      this->process_packet_(buf, static_cast<size_t>(len));
+      this->process_packet_(buf, static_cast<size_t>(len), src.sin_addr.s_addr);
   }
 
   if (this->receiving_ && (millis() - this->last_receive_ms_ > E131_TIMEOUT_MS)) {
     this->receiving_ = false;
+    this->source_ip_ = 0;
     this->comp_->clear_pixel_overrides();
     ESP_LOGD(TAG, "E1.31: stream timeout, returning to effects");
   }
 }
 
-void WLEDE131Receiver::process_packet_(const uint8_t *buf, size_t len) {
+void WLEDE131Receiver::process_packet_(const uint8_t *buf, size_t len, uint32_t source_ip) {
+  if (buf == nullptr || len < E131_MIN_PACKET)
+    return;
   // Verify ACN packet identifier
   if (memcmp(buf + 4, E131_ACN_ID, sizeof(E131_ACN_ID)) != 0)
     return;
@@ -276,6 +320,9 @@ void WLEDE131Receiver::process_packet_(const uint8_t *buf, size_t len) {
 
   uint16_t universe = (static_cast<uint16_t>(buf[E131_UNIVERSE_OFFSET]) << 8) | buf[E131_UNIVERSE_OFFSET + 1];
   if (universe < this->start_universe_ || universe >= this->start_universe_ + this->universe_count_)
+    return;
+  if (!realtime_source_allowed("E1.31", source_ip, this->receiving_, &this->source_ip_,
+                               &this->last_source_reject_log_ms_))
     return;
 
   uint8_t uni_index = static_cast<uint8_t>(universe - this->start_universe_);
@@ -302,12 +349,15 @@ void WLEDE131Receiver::process_packet_(const uint8_t *buf, size_t len) {
   uint32_t start_led = static_cast<uint32_t>(uni_index) * E131_PIXELS_PER_UNIVERSE;
   uint32_t pixel_count = static_cast<uint32_t>(avail_channels / 3);
 
+  bool changed = false;
   for (uint32_t i = 0; i < pixel_count && (start_led + i) < led_count; i++) {
     uint8_t r = dmx[i * 3];
     uint8_t g = dmx[i * 3 + 1];
     uint8_t b = dmx[i * 3 + 2];
-    this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0));
+    changed |= this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0), false);
   }
+  if (changed)
+    this->comp_->mark_pixel_overrides_changed();
 
   this->last_receive_ms_ = millis();
   if (!this->receiving_) {
@@ -320,7 +370,6 @@ void WLEDE131Receiver::process_packet_(const uint8_t *buf, size_t len) {
 // Art-Net receiver — UDP port 6454
 // ============================================================
 
-static constexpr uint16_t ARTNET_PORT = 6454;
 static constexpr size_t ARTNET_MIN_PACKET = 18;
 static constexpr size_t ARTNET_DMX_DATA_OFFSET = 18;
 static constexpr uint16_t ARTNET_OPCODE_DMX = 0x5000;  // little-endian on wire: 00 50
@@ -336,7 +385,7 @@ void WLEDArtNetReceiver::setup(WLEDBridgeComponent *comp, bool enabled, uint16_t
   this->universe_count_ = universe_count;
   if (enabled)
     this->open_socket_();
-  ESP_LOGCONFIG(TAG, "Art-Net receiver on port %u: %s (universe %u-%u)", ARTNET_PORT, enabled ? "enabled" : "disabled",
+  ESP_LOGCONFIG(TAG, "Art-Net receiver on port %u: %s (universe %u-%u)", WLED_ARTNET_PORT, enabled ? "enabled" : "disabled",
                 start_universe, start_universe + universe_count - 1);
 }
 
@@ -364,9 +413,9 @@ void WLEDArtNetReceiver::open_socket_() {
   struct sockaddr_in addr = {};
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  addr.sin_port = htons(ARTNET_PORT);
+  addr.sin_port = htons(WLED_ARTNET_PORT);
   if (bind(fd, reinterpret_cast<struct sockaddr *>(&addr), sizeof(addr)) < 0) {
-    ESP_LOGW(TAG, "Art-Net: bind failed on port %u: %d", ARTNET_PORT, errno);
+    ESP_LOGW(TAG, "Art-Net: bind failed on port %u: %d", WLED_ARTNET_PORT, errno);
     close(fd);
     return;
   }
@@ -379,6 +428,7 @@ void WLEDArtNetReceiver::close_socket_() {
     this->fd_ = -1;
   }
   this->receiving_ = false;
+  this->source_ip_ = 0;
 }
 
 void WLEDArtNetReceiver::loop() {
@@ -394,17 +444,20 @@ void WLEDArtNetReceiver::loop() {
     if (len <= 0)
       break;
     if (static_cast<size_t>(len) >= ARTNET_MIN_PACKET)
-      this->process_packet_(buf, static_cast<size_t>(len));
+      this->process_packet_(buf, static_cast<size_t>(len), src.sin_addr.s_addr);
   }
 
   if (this->receiving_ && (millis() - this->last_receive_ms_ > ARTNET_TIMEOUT_MS)) {
     this->receiving_ = false;
+    this->source_ip_ = 0;
     this->comp_->clear_pixel_overrides();
     ESP_LOGD(TAG, "Art-Net: stream timeout, returning to effects");
   }
 }
 
-void WLEDArtNetReceiver::process_packet_(const uint8_t *buf, size_t len) {
+void WLEDArtNetReceiver::process_packet_(const uint8_t *buf, size_t len, uint32_t source_ip) {
+  if (buf == nullptr || len < ARTNET_MIN_PACKET)
+    return;
   if (memcmp(buf, ARTNET_ID, sizeof(ARTNET_ID)) != 0)
     return;
 
@@ -418,6 +471,9 @@ void WLEDArtNetReceiver::process_packet_(const uint8_t *buf, size_t len) {
 
   uint16_t universe = static_cast<uint16_t>(buf[14]) | (static_cast<uint16_t>(buf[15]) << 8);
   if (universe < this->start_universe_ || universe >= this->start_universe_ + this->universe_count_)
+    return;
+  if (!realtime_source_allowed("Art-Net", source_ip, this->receiving_, &this->source_ip_,
+                               &this->last_source_reject_log_ms_))
     return;
 
   uint8_t uni_index = static_cast<uint8_t>(universe - this->start_universe_);
@@ -443,12 +499,15 @@ void WLEDArtNetReceiver::process_packet_(const uint8_t *buf, size_t len) {
   uint32_t start_led = static_cast<uint32_t>(uni_index) * ARTNET_PIXELS_PER_UNIVERSE;
   uint32_t pixel_count = static_cast<uint32_t>(data_len / 3);
 
+  bool changed = false;
   for (uint32_t i = 0; i < pixel_count && (start_led + i) < led_count; i++) {
     uint8_t r = dmx[i * 3];
     uint8_t g = dmx[i * 3 + 1];
     uint8_t b = dmx[i * 3 + 2];
-    this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0));
+    changed |= this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0), false);
   }
+  if (changed)
+    this->comp_->mark_pixel_overrides_changed();
 
   this->last_receive_ms_ = millis();
   if (!this->receiving_) {

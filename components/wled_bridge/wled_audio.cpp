@@ -20,6 +20,7 @@ static constexpr size_t BYTES_PER_SAMPLE = 2;  // int16
 static constexpr size_t RING_BUFFER_SIZE = (AUDIO_SAMPLE_RATE * RING_BUFFER_MS / 1000) * BYTES_PER_SAMPLE;
 static constexpr uint32_t PROCESS_INTERVAL_MS = 20;  // ~50 Hz analysis rate
 static constexpr size_t READ_BUF_SAMPLES = (AUDIO_SAMPLE_RATE * PROCESS_INTERVAL_MS / 1000);
+static constexpr uint8_t MAX_STALE_AUDIO_DRAIN_BATCHES = 4;
 
 // IIR smoothing factor for volume envelope (lower = smoother).
 static constexpr float VOLUME_SMOOTH = 0.08f;
@@ -33,6 +34,12 @@ void AudioAnalyzer::setup(microphone::MicrophoneSource *source, bool enable_fft,
   this->fft_enabled_ = enable_fft;
   this->agc_enabled_ = enable_agc;
 
+  if (this->source_ == nullptr) {
+    ESP_LOGE(TAG, "Audio analyzer requires a microphone source");
+    this->fft_enabled_ = false;
+    return;
+  }
+
   this->source_->add_data_callback([this](const std::vector<uint8_t> &data) { this->on_audio_data_(data); });
 
   this->read_buf_len_ = READ_BUF_SAMPLES;
@@ -44,7 +51,7 @@ void AudioAnalyzer::setup(microphone::MicrophoneSource *source, bool enable_fft,
 
 #ifdef WLED_BRIDGE_FFT
   if (this->fft_enabled_) {
-    audio_fft_setup();
+    this->fft_enabled_ = audio_fft_setup();
   }
 #endif
 
@@ -98,10 +105,16 @@ void AudioAnalyzer::loop() {
   if (bytes_available < bytes_to_read)
     return;
 
-  // Drain to latest: skip old data if ring buffer has more than one batch.
-  while (bytes_available > bytes_to_read * 2) {
+  // Drain toward latest without letting audio backlog monopolize loop().
+  uint8_t drained_batches = 0;
+  while (bytes_available > bytes_to_read * 2 && drained_batches < MAX_STALE_AUDIO_DRAIN_BATCHES) {
     rb->read(this->read_buf_, bytes_to_read, 0);
     bytes_available -= bytes_to_read;
+    drained_batches++;
+  }
+  if (bytes_available > bytes_to_read * 2) {
+    rb->reset();
+    return;
   }
   rb->read(this->read_buf_, bytes_to_read, 0);
 

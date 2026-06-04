@@ -8,6 +8,7 @@
 #include "wled_effects.h"
 #include "wled_palette.h"
 #include "esphome/core/log.h"
+#include "esphome/core/hal.h"
 #include "esphome/components/json/json_util.h"
 #include "esphome/core/helpers.h"
 #ifdef USE_WIFI
@@ -25,6 +26,26 @@ namespace esphome {
 namespace wled_bridge {
 
 static const char *const TAG = "wled_bridge.json";
+static constexpr size_t WLED_JSON_MAX_POST_BODY = 8192;
+static constexpr uint32_t WLED_JSON_WARNING_LOG_INTERVAL_MS = 5000;
+
+static void send_json_status(web_server_idf::AsyncWebServerRequest *request, const char *status, const char *body) {
+  if (request == nullptr)
+    return;
+  httpd_resp_set_status(*request, status);
+  httpd_resp_set_type(*request, "application/json");
+  httpd_resp_set_hdr(*request, "Accept-Ranges", "none");
+  httpd_resp_send(*request, body, HTTPD_RESP_USE_STRLEN);
+}
+
+static bool content_type_contains(web_server_idf::AsyncWebServerRequest *request, const char *needle) {
+  if (request == nullptr)
+    return false;
+  auto content_type = request->get_header("Content-Type");
+  if (!content_type.has_value())
+    return false;
+  return strcasestr(content_type.value().c_str(), needle) != nullptr;
+}
 
 static bool json_bool(JsonVariant value) {
   if (value.is<bool>())
@@ -191,6 +212,16 @@ static bool win_has_arg(web_server_idf::AsyncWebServerRequest *request, const st
   return (request != nullptr && request->hasArg(name)) || legacy_path_has_arg(url, name);
 }
 
+static bool path_has_prefix_boundary(const char *path, const char *prefix) {
+  if (path == nullptr || prefix == nullptr)
+    return false;
+  size_t len = strlen(prefix);
+  if (strncmp(path, prefix, len) != 0)
+    return false;
+  char c = path[len];
+  return c == '\0' || c == '/' || c == '?' || c == '&';
+}
+
 static bool parse_bool_text(const std::string &value) {
   return value.empty() || value == "1" || value == "true" || value == "on" || value == "yes" || value == "checked";
 }
@@ -249,14 +280,22 @@ static bool json_incremental_u8(JsonVariant value, uint8_t current, uint8_t max_
     char *end = nullptr;
     long v = strtol(text, &end, 10);
     if (end != text) {
-      *out = v < 0 ? 0 : (v > 255 ? 255 : static_cast<uint8_t>(v));
+      if (v < 0)
+        v = 0;
+      if (max_val > 0 && v >= max_val)
+        return false;
+      *out = v > 255 ? 255 : static_cast<uint8_t>(v);
       return true;
     }
     return false;
   }
   // Plain numeric
   int v = value.as<int>();
-  *out = v < 0 ? 0 : (v > 255 ? 255 : static_cast<uint8_t>(v));
+  if (v < 0)
+    v = 0;
+  if (max_val > 0 && v >= max_val)
+    return false;
+  *out = v > 255 ? 255 : static_cast<uint8_t>(v);
   return true;
 }
 
@@ -456,7 +495,7 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
              bssid[4], bssid[5]);
     auto ips = wifi->get_ip_addresses();
     if (!ips.empty())
-      snprintf(ip_str, sizeof(ip_str), "%s", ips[0].str().c_str());
+      ips[0].str_to(ip_str);
   }
 #endif
 
@@ -528,18 +567,19 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
 #else
       0,
 #endif
-      WLED_EFFECT_COUNT, WLED_PALETTE_COUNT, bssid_str, rssi, signal, channel, pmt, ip_str,
+      WLED_MODE_COUNT, WLED_PALETTE_COUNT, bssid_str, rssi, signal, channel, pmt, ip_str,
       static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)), static_cast<uint32_t>(millis() / 1000u), mac,
       matrix_field.c_str());
 }
 
 std::string build_effects_json() {
   std::string out = "[";
-  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+  for (size_t i = 0; i < WLED_MODE_COUNT; i++) {
     if (i > 0)
       out += ",";
+    const EffectDescriptor *effect = effect_for_wled_id(static_cast<uint8_t>(i));
     out += "\"";
-    out += json_escape(WLED_EFFECTS[i].name);
+    out += json_escape(effect == nullptr ? "Unsupported" : effect->name);
     out += "\"";
   }
   out += "]";
@@ -548,10 +588,11 @@ std::string build_effects_json() {
 
 std::string build_fxdata_json() {
   std::string out = "[";
-  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+  for (size_t i = 0; i < WLED_MODE_COUNT; i++) {
     if (i > 0)
       out += ",";
-    const char *meta = WLED_EFFECTS[i].meta;
+    const EffectDescriptor *effect = effect_for_wled_id(static_cast<uint8_t>(i));
+    const char *meta = effect == nullptr ? nullptr : effect->meta;
     const char *data = meta == nullptr ? nullptr : strchr(meta, '@');
     out += "\"";
     out += json_escape(data == nullptr ? "" : data + 1);
@@ -664,7 +705,7 @@ std::string build_network_json(const WLEDBridgeComponent *c) {
                         "\"leds\":{\"count\":%u,\"pwr\":%u,\"maxpwr\":%u}"
                         "}"
                         "}",
-                        WLED_EFFECT_COUNT, WLED_PALETTE_COUNT, c->get_led_count(), c->get_current_ma(),
+                        WLED_MODE_COUNT, WLED_PALETTE_COUNT, c->get_led_count(), c->get_current_ma(),
                         c->get_max_ma());
 }
 
@@ -1211,7 +1252,7 @@ static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVarian
     WLEDBridgeComponent::SegmentReadView sv;
     uint8_t cur_fx = comp->get_segment_view(id, sv) ? sv.mode : 0;
     uint8_t new_fx;
-    if (json_incremental_u8(seg["fx"], cur_fx, static_cast<uint8_t>(WLED_EFFECT_COUNT), &new_fx))
+    if (json_incremental_u8(seg["fx"], cur_fx, static_cast<uint8_t>(WLED_MODE_COUNT), &new_fx))
       comp->segment_set_effect(id, new_fx);
   }
   if (!seg["sx"].isNull())
@@ -1282,7 +1323,7 @@ static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVarian
 bool WLEDJsonHandler::canHandle(web_server_idf::AsyncWebServerRequest *request) const {
   char url_buf[web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
-  return strncmp(url.c_str(), "/json", 5) == 0 || strcmp(url.c_str(), "/presets.json") == 0 ||
+  return path_has_prefix_boundary(url.c_str(), "/json") || strcmp(url.c_str(), "/presets.json") == 0 ||
          strcmp(url.c_str(), "/cfg.json") == 0 || strcmp(url.c_str(), "/win") == 0 ||
          strncmp(url.c_str(), "/win&", 5) == 0 || strcmp(url.c_str(), "/version") == 0 ||
          strcmp(url.c_str(), "/freeheap") == 0;
@@ -1290,15 +1331,90 @@ bool WLEDJsonHandler::canHandle(web_server_idf::AsyncWebServerRequest *request) 
 
 void WLEDJsonHandler::handleBody(web_server_idf::AsyncWebServerRequest *request, uint8_t *data, size_t len,
                                  size_t index, size_t /*total*/) {
-  if (index == 0)
+  if (index == 0) {
     this->post_body_.clear();
+    this->post_body_too_large_ = false;
+  }
+  if (this->post_body_too_large_)
+    return;
+  if (this->post_body_.size() + len > WLED_JSON_MAX_POST_BODY) {
+    this->post_body_.clear();
+    this->post_body_too_large_ = true;
+    const uint32_t now = millis();
+    if (this->last_post_too_large_log_ms_ == 0 ||
+        now - this->last_post_too_large_log_ms_ >= WLED_JSON_WARNING_LOG_INTERVAL_MS) {
+      ESP_LOGW(TAG, "POST body too large, rejecting request");
+      this->last_post_too_large_log_ms_ = now;
+    }
+    return;
+  }
   this->post_body_.append(reinterpret_cast<const char *>(data), len);
+}
+
+bool WLEDJsonHandler::request_body_(web_server_idf::AsyncWebServerRequest *request, std::string *body) {
+  if (body == nullptr)
+    return false;
+  body->clear();
+
+  if (this->post_body_too_large_) {
+    send_json_status(request, "413 Content Too Large", "{\"error\":\"request body too large\"}");
+    this->post_body_.clear();
+    this->post_body_too_large_ = false;
+    return false;
+  }
+
+  if (!this->post_body_.empty()) {
+    *body = std::move(this->post_body_);
+    this->post_body_.clear();
+    return true;
+  }
+
+  if (request == nullptr || request->method() != HTTP_POST || request->contentLength() == 0)
+    return true;
+
+  // ESPHome's IDF web shim only calls handleBody() for non-IDF async stacks. For
+  // application/json it falls back to the normal handler with the body still
+  // unread, so WLED JSON endpoints need to read it from the raw IDF request.
+  if (!content_type_contains(request, "application/json") && !content_type_contains(request, "text/json"))
+    return true;
+
+  size_t total = request->contentLength();
+  if (total > WLED_JSON_MAX_POST_BODY) {
+    const uint32_t now = millis();
+    if (this->last_post_too_large_log_ms_ == 0 ||
+        now - this->last_post_too_large_log_ms_ >= WLED_JSON_WARNING_LOG_INTERVAL_MS) {
+      ESP_LOGW(TAG, "POST body too large, rejecting request");
+      this->last_post_too_large_log_ms_ = now;
+    }
+    send_json_status(request, "413 Content Too Large", "{\"error\":\"request body too large\"}");
+    return false;
+  }
+
+  body->resize(total);
+  size_t offset = 0;
+  while (offset < total) {
+    int ret = httpd_req_recv(*request, &(*body)[offset], total - offset);
+    if (ret <= 0) {
+      body->clear();
+      send_json_status(request, "400 Bad Request", "{\"error\":\"invalid request body\"}");
+      return false;
+    }
+    offset += static_cast<size_t>(ret);
+  }
+  return true;
 }
 
 void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *request) {
   char url_buf[web_server_idf::AsyncWebServerRequest::URL_BUF_SIZE];
   auto url = request->url_to(url_buf);
   std::string url_string(url.c_str());
+
+  if (this->post_body_too_large_) {
+    send_json_status(request, "413 Content Too Large", "{\"error\":\"request body too large\"}");
+    this->post_body_.clear();
+    this->post_body_too_large_ = false;
+    return;
+  }
 
   if (strcmp(url.c_str(), "/win") == 0 || strncmp(url.c_str(), "/win&", 5) == 0) {
     handle_win_(request, url_string);
@@ -1309,10 +1425,11 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
     if (request->method() == HTTP_GET) {
       handle_get_presets_(request);
     } else if (request->method() == HTTP_POST) {
-      handle_post_presets_(request, this->post_body_);
-      this->post_body_.clear();
+      std::string body;
+      if (this->request_body_(request, &body))
+        handle_post_presets_(request, body);
     } else {
-      request->send(405, "application/json", "{\"error\":\"method not allowed\"}");
+      send_json_status(request, "405 Method Not Allowed", "{\"error\":\"method not allowed\"}");
     }
     return;
   }
@@ -1321,14 +1438,15 @@ void WLEDJsonHandler::handleRequest(web_server_idf::AsyncWebServerRequest *reque
     if (request->method() == HTTP_GET) {
       handle_get_config_(request);
     } else {
-      request->send(405, "application/json", "{\"error\":\"cfg restore is managed by ESPHome\"}");
+      send_json_status(request, "405 Method Not Allowed", "{\"error\":\"cfg restore is managed by ESPHome\"}");
     }
     return;
   }
 
   if (request->method() == HTTP_POST) {
-    handle_post_state_(request, this->post_body_);
-    this->post_body_.clear();
+    std::string body;
+    if (this->request_body_(request, &body))
+      handle_post_state_(request, body);
     return;
   }
 
@@ -1452,7 +1570,7 @@ void WLEDJsonHandler::handle_post_presets_(web_server_idf::AsyncWebServerRequest
 
   auto doc = json::parse_json(body);
   if (doc.isNull() || !doc.is<JsonObject>()) {
-    request->send(400, "application/json", "{\"error\":\"invalid presets json\"}");
+    send_json_status(request, "400 Bad Request", "{\"error\":\"invalid presets json\"}");
     return;
   }
 
@@ -1515,8 +1633,10 @@ void WLEDJsonHandler::handle_win_(web_server_idf::AsyncWebServerRequest *request
     changed = true;
   }
   if (win_arg_u16(request, url, "FX", &value)) {
-    comp_->set_effect(static_cast<uint8_t>(value > 255 ? 255 : value));
-    changed = true;
+    if (value < WLED_MODE_COUNT) {
+      comp_->set_effect(static_cast<uint8_t>(value));
+      changed = true;
+    }
   }
   if (win_arg_u16(request, url, "SX", &value)) {
     comp_->set_speed(static_cast<uint8_t>(value > 255 ? 255 : value));
@@ -1527,8 +1647,10 @@ void WLEDJsonHandler::handle_win_(web_server_idf::AsyncWebServerRequest *request
     changed = true;
   }
   if (win_arg_u16(request, url, "FP", &value)) {
-    comp_->set_palette(static_cast<uint8_t>(value > 255 ? 255 : value));
-    changed = true;
+    if (value < WLED_PALETTE_COUNT) {
+      comp_->set_palette(static_cast<uint8_t>(value));
+      changed = true;
+    }
   }
   if (win_arg_u16(request, url, "TT", &value)) {
     comp_->set_transition(transition_tenths_to_ms(value));
@@ -1679,9 +1801,14 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
   // Parse JSON using ESPHome's ArduinoJson wrapper
   auto doc = json::parse_json(body);
   if (doc.isNull()) {
-    ESP_LOGW(TAG, "Invalid JSON in POST body (%u bytes)", body.size());
+    const uint32_t now = millis();
+    if (this->last_invalid_json_log_ms_ == 0 ||
+        now - this->last_invalid_json_log_ms_ >= WLED_JSON_WARNING_LOG_INTERVAL_MS) {
+      ESP_LOGW(TAG, "Invalid JSON in POST body (%u bytes)", body.size());
+      this->last_invalid_json_log_ms_ = now;
+    }
     if (request)
-      request->send(400, "application/json", "{\"error\":\"invalid json\"}");
+      send_json_status(request, "400 Bad Request", "{\"error\":\"invalid json\"}");
     return;
   }
 

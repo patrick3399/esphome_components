@@ -98,7 +98,7 @@ class WLEDPresetSelect : public select::Select, public Component {
   void rebuild_options_();
 
   WLEDBridgeComponent *bridge_{nullptr};
-  uint8_t last_published_{0};
+  uint8_t last_published_{255};
   uint32_t last_option_check_ms_{0};
   uint16_t last_valid_mask_{0};
   uint8_t option_preset_ids_[16]{};

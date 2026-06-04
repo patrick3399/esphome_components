@@ -118,7 +118,7 @@ class AudioAnalyzer {
 #ifdef WLED_BRIDGE_FFT
 // Implemented in wled_audio_fft.cpp — called by AudioAnalyzer::loop().
 void audio_fft_process(const int16_t *samples, size_t count, AudioData *out);
-void audio_fft_setup();
+bool audio_fft_setup();
 #endif
 
 }  // namespace wled_bridge

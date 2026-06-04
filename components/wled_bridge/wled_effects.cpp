@@ -4391,5 +4391,53 @@ const EffectDescriptor WLED_EFFECTS[WLED_EFFECT_COUNT] = {
 #endif  // WLED_BRIDGE_AUDIO
 };
 
+static constexpr uint8_t WLED_EFFECT_INDEX_TO_MODE[WLED_EFFECT_COUNT] = {
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, WLED_EFFECT_UNSUPPORTED, 23, 24, 68, 40, 41, 66,
+    76, WLED_EFFECT_UNSUPPORTED, WLED_EFFECT_UNSUPPORTED, 65, 79, 64, 91, 42, WLED_EFFECT_UNSUPPORTED, 31, 100, 43,
+    20, 63, 88, 69, 62, 46, 101, 92, 18, 27, 30, 34, 45, 50, 54, 58, 57, 87, 103, 85, 98, 110, 105, 108, 106, 67,
+    111, 39, 60, 49, 51, 55, 56, 59, 74, 75, 78, 82, 97, 104, 113, 115, 25, 28, 29, 84, 83, 26, 117, 52, 35, 47,
+    61, 86, 93, 94, 99, 102, 107, 80, 179, 81, 19, 36, 32, 21, 22, 37, 33, 70, 71, 72, 73, 109, 184, 161, 38, 44,
+    48, 89, 90, 95, 96, 112, 116,
+#ifdef WLED_BRIDGE_2D
+    153, WLED_EFFECT_UNSUPPORTED, 172, 173, 165, 146, 181, 176, 177, 183, WLED_EFFECT_UNSUPPORTED, 168, 154,
+    WLED_EFFECT_UNSUPPORTED, WLED_EFFECT_UNSUPPORTED, 152, 162, 164, 149, 145, 167, WLED_EFFECT_UNSUPPORTED,
+    WLED_EFFECT_UNSUPPORTED, WLED_EFFECT_UNSUPPORTED, WLED_EFFECT_UNSUPPORTED, 186, WLED_EFFECT_UNSUPPORTED,
+    WLED_EFFECT_UNSUPPORTED, 180, WLED_EFFECT_UNSUPPORTED, WLED_EFFECT_UNSUPPORTED, WLED_EFFECT_UNSUPPORTED,
+    WLED_EFFECT_UNSUPPORTED, WLED_EFFECT_UNSUPPORTED, 150, 166, 174, 175, 182, 178, 160, 114, 124, 125, 118, 119,
+    120, 121, 123, 126, 127,
+#endif
+#ifdef WLED_BRIDGE_AUDIO
+    132, 134, 144, 128, 129, 136, 143, 131, 148, 130, 133, 138, 155, 163, 159, 141, 137, 158, 145, 140, 185,
+#ifdef WLED_BRIDGE_2D
+    139, WLED_EFFECT_UNSUPPORTED,
+#endif
+#endif
+};
+
+uint8_t effect_wled_id_for_index(size_t index) {
+  if (index >= WLED_EFFECT_COUNT)
+    return WLED_EFFECT_UNSUPPORTED;
+  return WLED_EFFECT_INDEX_TO_MODE[index];
+}
+
+int effect_index_for_wled_id(uint8_t wled_id) {
+  if (wled_id >= WLED_MODE_COUNT)
+    return -1;
+  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+    if (WLED_EFFECT_INDEX_TO_MODE[i] == wled_id)
+      return static_cast<int>(i);
+  }
+  return -1;
+}
+
+const EffectDescriptor *effect_for_wled_id(uint8_t wled_id) {
+  int index = effect_index_for_wled_id(wled_id);
+  return index < 0 ? nullptr : &WLED_EFFECTS[index];
+}
+
+bool effect_wled_id_supported(uint8_t wled_id) {
+  return effect_index_for_wled_id(wled_id) >= 0;
+}
+
 }  // namespace wled_bridge
 }  // namespace esphome

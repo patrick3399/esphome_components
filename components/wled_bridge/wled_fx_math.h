@@ -64,10 +64,15 @@ inline int32_t map_range(int32_t x, int32_t in_lo, int32_t in_hi, int32_t out_lo
 inline uint8_t get_random_wheel_index(uint8_t base) {
   // pick a wheel index at least 42 away from base
   uint8_t r = 0;
-  uint8_t minDist = 42;
+  const uint8_t min_dist = 42;
   do {
     r = hw_random8();
-  } while (r < base + minDist || r > base - minDist);
+    uint8_t delta = r > base ? r - base : base - r;
+    if (delta > 128)
+      delta = 256 - delta;
+    if (delta >= min_dist)
+      break;
+  } while (true);
   return r;
 }
 

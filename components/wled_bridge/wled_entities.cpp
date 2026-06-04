@@ -13,6 +13,19 @@ namespace wled_bridge {
 
 static const char *const TAG = "wled_bridge.entities";
 
+static int effect_option_index_for_wled_id(uint8_t wled_id) {
+  int option = 0;
+  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+    uint8_t id = effect_wled_id_for_index(i);
+    if (id == WLED_EFFECT_UNSUPPORTED)
+      continue;
+    if (id == wled_id)
+      return option;
+    option++;
+  }
+  return -1;
+}
+
 // ============================================================
 // WLEDPaletteSelect
 // ============================================================
@@ -58,19 +71,25 @@ void WLEDPaletteSelect::control(const std::string &value) {
 void WLEDEffectSelect::setup() {
   FixedVector<const char *> opts;
   opts.init(WLED_EFFECT_COUNT);
-  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++)
+  uint8_t supported = 0;
+  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+    if (effect_wled_id_for_index(i) == WLED_EFFECT_UNSUPPORTED)
+      continue;
     opts.push_back(WLED_EFFECTS[i].name);
+    supported++;
+  }
   this->traits.set_options(opts);
   this->last_published_ = 255;
-  ESP_LOGCONFIG(TAG, "Effect Select: %u options", static_cast<unsigned>(WLED_EFFECT_COUNT));
+  ESP_LOGCONFIG(TAG, "Effect Select: %u supported WLED options", supported);
 }
 
 void WLEDEffectSelect::loop() {
   if (this->bridge_ == nullptr)
     return;
   uint8_t current = this->bridge_->get_effect_index();
-  if (current != this->last_published_ && current < WLED_EFFECT_COUNT) {
-    this->publish_state(static_cast<size_t>(current));
+  int option = effect_option_index_for_wled_id(current);
+  if (current != this->last_published_ && option >= 0) {
+    this->publish_state(static_cast<size_t>(option));
     this->last_published_ = current;
   }
 }
@@ -78,14 +97,19 @@ void WLEDEffectSelect::loop() {
 void WLEDEffectSelect::control(const std::string &value) {
   if (this->bridge_ == nullptr)
     return;
+  size_t option = 0;
   for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+    if (effect_wled_id_for_index(i) == WLED_EFFECT_UNSUPPORTED)
+      continue;
     if (value == WLED_EFFECTS[i].name) {
-      this->bridge_->set_effect(static_cast<uint8_t>(i));
+      uint8_t wled_id = effect_wled_id_for_index(i);
+      this->bridge_->set_effect(wled_id);
       this->bridge_->publish_light_state();
-      this->publish_state(i);
-      this->last_published_ = static_cast<uint8_t>(i);
+      this->publish_state(option);
+      this->last_published_ = wled_id;
       return;
     }
+    option++;
   }
 }
 
@@ -142,6 +166,8 @@ void WLEDNumber::control(float value) {
 // ============================================================
 
 void WLEDPresetSelect::setup() {
+  if (this->bridge_ == nullptr)
+    return;
   this->rebuild_options_();
   uint8_t active = this->bridge_->get_active_preset();
   if (active > 0) {
@@ -152,6 +178,9 @@ void WLEDPresetSelect::setup() {
         break;
       }
     }
+  } else if (this->option_count_ > 0 && this->option_preset_ids_[0] == 0) {
+    this->publish_state(this->traits.get_options()[0]);
+    this->last_published_ = 0;
   }
 }
 
@@ -180,6 +209,8 @@ void WLEDPresetSelect::loop() {
           break;
         }
       }
+    } else if (this->option_count_ > 0 && this->option_preset_ids_[0] == 0) {
+      this->publish_state(this->traits.get_options()[0]);
     }
     this->last_published_ = current;
   }
@@ -189,9 +220,10 @@ void WLEDPresetSelect::control(const std::string &value) {
   if (this->bridge_ == nullptr)
     return;
   const auto &options = this->traits.get_options();
-  for (size_t i = 0; i < options.size(); i++) {
+  for (size_t i = 0; i < options.size() && i < this->option_count_; i++) {
     if (options[i] == value && this->option_preset_ids_[i] > 0) {
-      this->bridge_->load_preset(this->option_preset_ids_[i]);
+      if (!this->bridge_->load_preset(this->option_preset_ids_[i]))
+        return;
       this->bridge_->publish_light_state();
       this->publish_state(value);
       this->last_published_ = this->option_preset_ids_[i];
@@ -201,6 +233,8 @@ void WLEDPresetSelect::control(const std::string &value) {
 }
 
 void WLEDPresetSelect::rebuild_options_() {
+  if (this->bridge_ == nullptr)
+    return;
   this->option_count_ = 0;
 
   for (uint8_t i = 1; i <= 16; i++) {
@@ -327,11 +361,11 @@ void WLEDCurrentSensor::loop() {
   uint32_t now = millis();
   if (now - this->last_publish_ms_ < 2000)
     return;
+  this->last_publish_ms_ = now;
   uint32_t ma = this->bridge_->get_current_ma();
   if (ma != this->last_ma_) {
     this->publish_state(static_cast<float>(ma));
     this->last_ma_ = ma;
-    this->last_publish_ms_ = now;
   }
 }
 

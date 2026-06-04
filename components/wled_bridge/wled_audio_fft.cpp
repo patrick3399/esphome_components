@@ -30,6 +30,19 @@ static uint16_t *fft_bit_rev_{nullptr};
 static float *fft_real_{nullptr};
 static float *fft_imag_{nullptr};
 
+static void fft_free_buffers_() {
+  free(fft_sin_table_);
+  free(fft_cos_table_);
+  free(fft_bit_rev_);
+  free(fft_real_);
+  free(fft_imag_);
+  fft_sin_table_ = nullptr;
+  fft_cos_table_ = nullptr;
+  fft_bit_rev_ = nullptr;
+  fft_real_ = nullptr;
+  fft_imag_ = nullptr;
+}
+
 static void fft_compute_tables_() {
   for (size_t i = 0; i < FFT_HALF; i++) {
     float angle = -2.0f * M_PI * static_cast<float>(i) / static_cast<float>(FFT_N);
@@ -98,7 +111,7 @@ static void fft_execute_(const int16_t *input, size_t input_count) {
 static constexpr uint16_t GEQ_BIN_STARTS[AUDIO_GEQ_CHANNELS + 1] = {1,  2,  3,  5,   7,   10,  14,  20, 28,
                                                                     40, 56, 79, 111, 156, 180, 210, 256};
 
-void audio_fft_setup() {
+bool audio_fft_setup() {
   fft_sin_table_ = static_cast<float *>(malloc(FFT_HALF * sizeof(float)));
   fft_cos_table_ = static_cast<float *>(malloc(FFT_HALF * sizeof(float)));
   fft_bit_rev_ = static_cast<uint16_t *>(malloc(FFT_N * sizeof(uint16_t)));
@@ -107,16 +120,19 @@ void audio_fft_setup() {
 
   if (fft_sin_table_ == nullptr || fft_cos_table_ == nullptr || fft_bit_rev_ == nullptr || fft_real_ == nullptr ||
       fft_imag_ == nullptr) {
+    fft_free_buffers_();
     ESP_LOGE(TAG, "Failed to allocate FFT buffers");
-    return;
+    return false;
   }
 
   fft_compute_tables_();
   ESP_LOGCONFIG(TAG, "FFT initialized (N=%u, %u GEQ channels)", FFT_N, AUDIO_GEQ_CHANNELS);
+  return true;
 }
 
 void audio_fft_process(const int16_t *samples, size_t count, AudioData *out) {
-  if (fft_real_ == nullptr)
+  if (samples == nullptr || out == nullptr || fft_sin_table_ == nullptr || fft_cos_table_ == nullptr ||
+      fft_bit_rev_ == nullptr || fft_real_ == nullptr || fft_imag_ == nullptr)
     return;
 
   fft_execute_(samples, count);

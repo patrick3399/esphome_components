@@ -16,13 +16,21 @@ ROOT = Path(__file__).resolve().parents[1]
 WLED_JSON_CPP = ROOT / "components" / "wled_bridge" / "wled_json.cpp"
 WLED_BRIDGE_H = ROOT / "components" / "wled_bridge" / "wled_bridge.h"
 WLED_EFFECT_CONTEXT_H = ROOT / "components" / "wled_bridge" / "wled_effect_context.h"
+WLED_EFFECTS_H = ROOT / "components" / "wled_bridge" / "wled_effects.h"
+WLED_EFFECTS_CPP = ROOT / "components" / "wled_bridge" / "wled_effects.cpp"
+WLED_FX_MATH_H = ROOT / "components" / "wled_bridge" / "wled_fx_math.h"
+WLED_AUDIO_CPP = ROOT / "components" / "wled_bridge" / "wled_audio.cpp"
+WLED_AUDIO_FFT_CPP = ROOT / "components" / "wled_bridge" / "wled_audio_fft.cpp"
 WLED_UI_CPP = ROOT / "components" / "wled_bridge" / "wled_ui_data.cpp"
 WLED_UI_GENERATOR = ROOT / "tools" / "gen_wled_ui.py"
 WLED_UDP_CPP = ROOT / "components" / "wled_bridge" / "wled_udp.cpp"
 WLED_UDP_SYNC_CPP = ROOT / "components" / "wled_bridge" / "wled_udp_sync.cpp"
 WLED_UDP_REALTIME_CPP = ROOT / "components" / "wled_bridge" / "wled_udp_realtime.cpp"
 WLED_UDP_H = ROOT / "components" / "wled_bridge" / "wled_udp.h"
+WLED_WS_CPP = ROOT / "components" / "wled_bridge" / "wled_ws.cpp"
 WLED_INIT_PY = ROOT / "components" / "wled_bridge" / "__init__.py"
+WLED_COMPONENT_README = ROOT / "components" / "wled_bridge" / "README.md"
+PROJECT_README = ROOT / "README.md"
 
 
 def read(path: Path) -> str:
@@ -88,6 +96,8 @@ def make_ddp_packet(
 
 
 def parse_ddp_fixture(packet: bytes, led_count: int) -> dict[int, tuple[int, int, int, int]]:
+    if len(packet) < 10:
+        return {}
     flags = packet[0]
     if (flags & 0x40) == 0 or flags & (0x02 | 0x04 | 0x08):
         return {}
@@ -136,6 +146,8 @@ def parse_e131_fixture(
     universe_count: int,
     led_count: int,
 ) -> dict[int, tuple[int, int, int, int]]:
+    if len(packet) < 126:
+        return {}
     if packet[4:16] != bytes([0x41, 0x53, 0x43, 0x2D, 0x45, 0x31, 0x2E, 0x31, 0x37, 0x00, 0x00, 0x00]):
         return {}
     if packet[112] & 0xC0:
@@ -182,6 +194,8 @@ def parse_artnet_fixture(
     universe_count: int,
     led_count: int,
 ) -> dict[int, tuple[int, int, int, int]]:
+    if len(packet) < 18:
+        return {}
     if packet[:8] != b"Art-Net\0":
         return {}
     if int.from_bytes(packet[8:10], "little") != 0x5000:
@@ -204,6 +218,118 @@ def parse_artnet_fixture(
 
 
 class WLEDBridgeJsonContractTest(unittest.TestCase):
+    def test_component_documentation_states_public_compatibility_contract(self) -> None:
+        component_readme = read(WLED_COMPONENT_README)
+        project_readme = read(PROJECT_README)
+
+        assert_contains_all(
+            self,
+            component_readme,
+            [
+                "WLED v16.0.0",
+                "MODE_COUNT = 220",
+                "`Unsupported`",
+                "use_task: true",
+                "E1.31 universe ranges must stay within 1..63999",
+                "Art-Net universe ranges must stay within 0..32767",
+                "Runtime `/win` updates to those ports are also ignored",
+                "JSON POST bodies are capped at 8192 bytes",
+                "lock to the first valid source IP",
+                "auto-white conversion path",
+                "not a full WLED firmware replacement",
+                "Version Strategy",
+            ],
+        )
+        assert_contains_all(
+            self,
+            project_readme,
+            [
+                "WLED v16-compatible bridge",
+                "fixed 220 WLED mode slots",
+                "supported-effect mapping",
+            ],
+        )
+
+    def test_random_wheel_index_uses_wrap_safe_distance_check(self) -> None:
+        source = read(WLED_FX_MATH_H)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "uint8_t delta = r > base ? r - base : base - r",
+                "if (delta > 128)",
+                "delta = 256 - delta",
+                "if (delta >= min_dist)",
+            ],
+        )
+        self.assertNotIn("base + minDist", source)
+        self.assertNotIn("base - minDist", source)
+
+    def test_audio_analyzer_bounds_stale_backlog_drain(self) -> None:
+        source = read(WLED_AUDIO_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "MAX_STALE_AUDIO_DRAIN_BATCHES = 4",
+                "uint8_t drained_batches = 0",
+                "bytes_available > bytes_to_read * 2 && drained_batches < MAX_STALE_AUDIO_DRAIN_BATCHES",
+                "drained_batches++",
+                "if (bytes_available > bytes_to_read * 2)",
+                "rb->reset();",
+                "return;",
+            ],
+        )
+        self.assertNotIn("while (bytes_available > bytes_to_read * 2) {", source)
+
+    def test_audio_analyzer_setup_is_fail_safe(self) -> None:
+        header = read(ROOT / "components" / "wled_bridge" / "wled_audio.h")
+        source = read(WLED_AUDIO_CPP)
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "bool audio_fft_setup();",
+            ],
+        )
+        assert_contains_all(
+            self,
+            source,
+            [
+                "if (this->source_ == nullptr)",
+                "Audio analyzer requires a microphone source",
+                "this->fft_enabled_ = false;",
+                "this->fft_enabled_ = audio_fft_setup();",
+            ],
+        )
+        self.assertNotIn("this->source_->add_data_callback", source.split("if (this->source_ == nullptr)", 1)[0])
+
+    def test_audio_fft_allocation_failure_cleans_up_partial_buffers(self) -> None:
+        source = read(WLED_AUDIO_FFT_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "static void fft_free_buffers_()",
+                "free(fft_sin_table_);",
+                "free(fft_cos_table_);",
+                "free(fft_bit_rev_);",
+                "free(fft_real_);",
+                "free(fft_imag_);",
+                "fft_sin_table_ = nullptr;",
+                "fft_free_buffers_();",
+                "Failed to allocate FFT buffers",
+                "return false;",
+                "return true;",
+                "samples == nullptr || out == nullptr || fft_sin_table_ == nullptr || fft_cos_table_ == nullptr",
+                "fft_bit_rev_ == nullptr || fft_real_ == nullptr || fft_imag_ == nullptr",
+            ],
+        )
+
     def test_state_json_exposes_wled_ui_core_fields(self) -> None:
         source = read(WLED_JSON_CPP)
 
@@ -596,7 +722,9 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "comp_->set_on(!comp_->is_on())",
                 "comp_->set_brightness",
                 "comp_->set_effect",
+                "if (value < WLED_MODE_COUNT)",
                 "comp_->set_palette",
+                "if (value < WLED_PALETTE_COUNT)",
                 "comp_->set_transition(transition_tenths_to_ms(value))",
                 "comp_->load_preset",
                 "comp_->save_preset",
@@ -619,6 +747,238 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "comp_->set_udp_notify_hue(flag)",
                 "comp_->set_udp_retries",
                 "comp_->publish_light_state();",
+            ],
+        )
+
+    def test_json_incremental_values_respect_declared_upper_bounds(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "static bool json_incremental_u8(JsonVariant value, uint8_t current, uint8_t max_val, uint8_t *out)",
+                "if (max_val > 0 && v >= max_val)",
+                "return false",
+                'json_incremental_u8(seg["fx"], cur_fx, static_cast<uint8_t>(WLED_MODE_COUNT), &new_fx)',
+                'json_incremental_u8(seg["pal"], cur_pal, static_cast<uint8_t>(WLED_PALETTE_COUNT), &new_pal)',
+            ],
+        )
+        self.assertNotIn("comp_->set_effect(static_cast<uint8_t>(value > 255 ? 255 : value));", source)
+
+    def test_runtime_udp_sync_ports_reject_realtime_receiver_collisions(self) -> None:
+        bridge_h = read(WLED_BRIDGE_H)
+        bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+        udp_h = read(WLED_UDP_H)
+        realtime_cpp = read(WLED_UDP_REALTIME_CPP)
+
+        assert_contains_all(
+            self,
+            udp_h,
+            [
+                "WLED_DDP_PORT = 4048",
+                "WLED_E131_PORT = 5568",
+                "WLED_ARTNET_PORT = 6454",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_h,
+            [
+                "void set_udp_port(uint16_t port)",
+                "void set_udp_port2(uint16_t port)",
+                "bool udp_port_conflicts_realtime_(uint16_t port) const",
+                "last_udp_port_conflict_log_ms_",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_cpp,
+            [
+                "udp_port_conflicts_realtime_",
+                "port == WLED_DDP_PORT",
+                "port == WLED_E131_PORT",
+                "port == WLED_ARTNET_PORT",
+                "Ignoring UDP sync port %u because it conflicts with an enabled realtime receiver",
+                "this->udp_sync_.set_ports(this->udp_port_, this->udp_port2_)",
+            ],
+        )
+        assert_contains_all(
+            self,
+            realtime_cpp,
+            [
+                "WLED_DDP_PORT",
+                "WLED_E131_PORT",
+                "WLED_ARTNET_PORT",
+            ],
+        )
+        self.assertNotIn("static constexpr uint16_t DDP_PORT = 4048", realtime_cpp)
+        self.assertNotIn("static constexpr uint16_t E131_PORT = 5568", realtime_cpp)
+        self.assertNotIn("static constexpr uint16_t ARTNET_PORT = 6454", realtime_cpp)
+
+    def test_repeated_state_setters_do_not_dirty_state(self) -> None:
+        bridge_h = read(WLED_BRIDGE_H)
+        bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+
+        assert_contains_all(
+            self,
+            bridge_h,
+            [
+                "void set_bool_dirty_(bool &field, bool value, bool clear_active_preset = true)",
+                "void set_u8_dirty_(uint8_t &field, uint8_t value, bool clear_active_preset = true)",
+                "if (field == value)",
+                "this->set_u8_dirty_(this->udp_sync_groups_, groups, false)",
+                "this->set_bool_dirty_(this->udp_receive_brightness_, v, false)",
+                "this->set_u8_dirty_(this->params_.speed, sx)",
+                "this->set_u8_dirty_(this->params_.intensity, ix)",
+                "if (pal >= WLED_PALETTE_COUNT)",
+                "this->set_u8_dirty_(this->params_.palette_id, pal)",
+                "this->set_u8_dirty_(this->params_.custom1, c1)",
+                "this->set_bool_dirty_(this->params_.check1, o1)",
+                "if (slot >= 3 || this->params_.colors[slot] == rgb)",
+                "if (this->transition_ms_ == ms)",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_cpp,
+            [
+                "if (this->is_on_ == on)",
+                "if (this->global_bri_ == bri)",
+            ],
+        )
+
+    def test_segment_mutators_validate_bounds_and_avoid_redundant_dirty_state(self) -> None:
+        bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+
+        assert_contains_all(
+            self,
+            bridge_cpp,
+            [
+                "if (this->main_grouping_ == grouping && this->main_spacing_ == spacing)",
+                "seg == nullptr || (seg->grouping == grouping && seg->spacing == spacing)",
+                "if (this->main_opacity_ == opacity)",
+                "seg == nullptr || seg->opacity == opacity",
+                "seg == nullptr || seg->params.speed == v",
+                "seg == nullptr || seg->params.intensity == v",
+                "if (v >= WLED_PALETTE_COUNT)",
+                "seg == nullptr || seg->params.palette_id == v",
+                "uint8_t *field = nullptr",
+                "if (*field == v)",
+                "if (p->check1 == v)",
+                "if (p->check2 == v)",
+                "if (p->check3 == v)",
+                "seg == nullptr || seg->params.colors[slot] == rgb",
+            ],
+        )
+
+    def test_persisted_and_imported_presets_sanitize_palette_ids(self) -> None:
+        bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+
+        assert_contains_all(
+            self,
+            bridge_cpp,
+            [
+                "static uint8_t valid_palette_or_default(uint8_t palette_id)",
+                "return palette_id < WLED_PALETTE_COUNT ? palette_id : 0;",
+                "seg.params.palette_id = valid_palette_or_default(rec.palette);",
+                "this->params_.palette_id = valid_palette_or_default(preset.palette);",
+                "stored.palette = valid_palette_or_default(stored.palette);",
+                "seg.palette = valid_palette_or_default(seg.palette);",
+            ],
+        )
+        self.assertNotIn("this->params_.palette_id = preset.palette;", bridge_cpp)
+        self.assertNotIn("seg.params.palette_id = rec.palette;", bridge_cpp)
+
+    def test_light_output_runtime_fail_safe_guards(self) -> None:
+        bridge_h = read(WLED_BRIDGE_H)
+        bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+
+        assert_contains_all(
+            self,
+            bridge_h,
+            [
+                "static_cast<light::AddressableLightState *>(this->state_)->get_output()",
+                "if (al != nullptr)",
+                "al->set_effect_active(true)",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_cpp,
+            [
+                "bus.strip = static_cast<light::AddressableLight *>(bus.light_state->get_output())",
+                "if (state == nullptr)",
+                "Ignoring null light bus",
+                "if (bus.light_state == nullptr)",
+                "Bus light state is null",
+                "if (bus.strip == nullptr)",
+                '"Bus output is not ready or is not addressable"',
+                "this->mark_failed()",
+            ],
+        )
+
+    def test_setup_allocation_failures_release_runtime_buffers(self) -> None:
+        bridge_h = read(WLED_BRIDGE_H)
+        bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+
+        assert_contains_all(
+            self,
+            bridge_h,
+            [
+                "void free_runtime_buffers_();",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_cpp,
+            [
+                "void WLEDBridgeComponent::free_runtime_buffers_()",
+                "free(this->full_frame_);",
+                "free(this->transition_frame_);",
+                "free(this->pixel_opacity_);",
+                "free(this->pixel_override_colors_);",
+                "free(this->pixel_override_mask_);",
+                "this->full_frame_ = nullptr;",
+                "this->transition_frame_ = nullptr;",
+                "this->pixel_opacity_ = nullptr;",
+                "this->pixel_override_colors_ = nullptr;",
+                "this->pixel_override_mask_ = nullptr;",
+                "this->pixel_overrides_active_ = false;",
+                "Unable to allocate full-frame buffer",
+                "Unable to allocate transition buffer",
+                "Unable to allocate opacity map",
+                "Unable to allocate pixel override buffers",
+                "this->free_runtime_buffers_();",
+            ],
+        )
+
+    def test_ha_entities_publish_only_confirmed_or_throttled_state(self) -> None:
+        header = read(ROOT / "components" / "wled_bridge" / "wled_entities.h")
+        entities = read(ROOT / "components" / "wled_bridge" / "wled_entities.cpp")
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "uint8_t last_published_{255}",
+            ],
+        )
+        assert_contains_all(
+            self,
+            entities,
+            [
+                "void WLEDPresetSelect::setup()",
+                "if (this->bridge_ == nullptr)",
+                "this->publish_state(this->traits.get_options()[0]);",
+                "options.size() && i < this->option_count_",
+                "void WLEDPresetSelect::rebuild_options_()",
+                "if (!this->bridge_->load_preset(this->option_preset_ids_[i]))",
+                "return;",
+                "this->bridge_->publish_light_state();",
+                "this->last_publish_ms_ = now;",
+                "uint32_t ma = this->bridge_->get_current_ma();",
+                "if (ma != this->last_ma_)",
             ],
         )
 
@@ -857,6 +1217,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             header,
             [
                 "set_pixel_override",
+                "mark_pixel_overrides_changed",
                 "clear_pixel_overrides",
                 "apply_pixel_overrides_",
                 "pixel_override_colors_",
@@ -886,6 +1247,136 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             ],
         )
 
+    def test_http_post_body_has_size_guard(self) -> None:
+        header = read(ROOT / "components" / "wled_bridge" / "wled_json.h")
+        source = read(WLED_JSON_CPP)
+        assert_contains_all(
+            self,
+            header,
+            [
+                "post_body_too_large_",
+                "request_body_",
+                "last_post_too_large_log_ms_",
+                "last_invalid_json_log_ms_",
+            ],
+        )
+        assert_contains_all(
+            self,
+            source,
+            [
+                "WLED_JSON_MAX_POST_BODY = 8192",
+                "WLED_JSON_WARNING_LOG_INTERVAL_MS = 5000",
+                "POST body too large, rejecting request",
+                "413 Content Too Large",
+                '"request body too large"',
+            ],
+        )
+
+    def test_idf_json_post_reads_raw_request_body(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "bool WLEDJsonHandler::request_body_",
+                'content_type_contains(request, "application/json")',
+                'content_type_contains(request, "text/json")',
+                "request->contentLength()",
+                "httpd_req_recv(*request",
+                "handle_post_presets_(request, body)",
+                "handle_post_state_(request, body)",
+            ],
+        )
+        self.assertNotIn("handle_post_state_(request, this->post_body_)", source)
+        self.assertNotIn("handle_post_presets_(request, this->post_body_)", source)
+
+    def test_json_error_responses_preserve_non_200_status_codes_on_idf(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "static void send_json_status",
+                "httpd_resp_set_status(*request, status)",
+                'send_json_status(request, "400 Bad Request"',
+                'send_json_status(request, "405 Method Not Allowed"',
+                'send_json_status(request, "413 Content Too Large"',
+            ],
+        )
+        self.assertNotIn("request->send(400", source)
+        self.assertNotIn("request->send(405", source)
+        self.assertNotIn("request->send(413", source)
+
+    def test_json_handler_matches_only_wled_path_boundaries(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "static bool path_has_prefix_boundary(const char *path, const char *prefix)",
+                "return c == '\\0' || c == '/' || c == '?' || c == '&';",
+                'path_has_prefix_boundary(url.c_str(), "/json")',
+            ],
+        )
+        self.assertNotIn('strncmp(url.c_str(), "/json", 5) == 0', source)
+
+    def test_websocket_clients_are_bounded(self) -> None:
+        source = read(WLED_WS_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "WS_MAX_RECV = 4096",
+                "WS_MAX_CLIENTS = 4",
+                "std::find(this->client_fds_.begin(), this->client_fds_.end(), fd)",
+                "this->client_fds_.size() >= WS_MAX_CLIENTS",
+                "WS client limit reached (%u), closing fd=%d",
+                "httpd_sess_trigger_close(this->server_, fd)",
+            ],
+        )
+
+    def test_websocket_oversized_frames_close_the_session(self) -> None:
+        source = read(WLED_WS_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "if (frame.len > WS_MAX_RECV)",
+                "httpd_req_to_sockfd(req)",
+                "WS frame too large (%u bytes), closing fd=%d",
+                "httpd_sess_trigger_close(self->server_, fd)",
+                "if (frame.type != HTTPD_WS_TYPE_TEXT)",
+                "Unsupported WS frame type %u, closing fd=%d",
+                "if (frame.len == 0)",
+            ],
+        )
+        self.assertNotIn("frame.len == 0 || frame.len > WS_MAX_RECV", source)
+
+    def test_websocket_control_frames_drain_payloads_before_returning(self) -> None:
+        source = read(WLED_WS_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "static bool receive_frame_payload",
+                "httpd_ws_recv_frame(req, frame, frame->len)",
+                "if (frame.type == HTTPD_WS_TYPE_PING)",
+                "if (frame.len > 125)",
+                "WS ping frame too large (%u bytes), closing fd=%d",
+                "receive_frame_payload(req, &frame, &ping_buf)",
+                "pong.payload = frame.payload",
+                "pong.len = frame.len",
+                "if (frame.type == HTTPD_WS_TYPE_PONG)",
+                "receive_frame_payload(req, &frame, &pong_buf)",
+            ],
+        )
+
     def test_effect_metadata_is_separate_from_effect_names(self) -> None:
         header = read(ROOT / "components" / "wled_bridge" / "wled_json.h")
         source = read(WLED_JSON_CPP)
@@ -902,13 +1393,99 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             source,
             [
-                "WLED_EFFECTS[i].name",
+                "effect_for_wled_id",
+                'effect == nullptr ? "Unsupported" : effect->name',
+                "WLED_MODE_COUNT",
                 "build_fxdata_json",
                 "strchr(meta, '@')",
                 '"/json/fxdata"',
                 '"/json/palx"',
             ],
         )
+
+    def test_effect_ids_are_mapped_to_wled_mode_ids(self) -> None:
+        header = read(WLED_EFFECTS_H)
+        effects = read(WLED_EFFECTS_CPP)
+        bridge = read(WLED_BRIDGE_H)
+        bridge_source = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+        entities = read(ROOT / "components" / "wled_bridge" / "wled_entities.cpp")
+
+        assert_contains_all(
+            self,
+            header,
+            [
+                "WLED_MODE_COUNT = 220",
+                "WLED_EFFECT_UNSUPPORTED = 0xFF",
+                "effect_wled_id_for_index",
+                "effect_index_for_wled_id",
+                "effect_for_wled_id",
+            ],
+        )
+        assert_contains_all(
+            self,
+            effects,
+            [
+                "WLED_EFFECT_INDEX_TO_MODE",
+                "117, 52, 35, 47",
+                "153, WLED_EFFECT_UNSUPPORTED, 172",
+                "132, 134, 144, 128",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge,
+            [
+                "uint8_t get_effect_index() const",
+                "void set_effect(uint8_t fx_index)",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_source,
+            [
+                "uint8_t wled_id = effect_wled_id_for_index(i)",
+                "auto *proxy = new WLEDProxyEffect(WLED_EFFECTS[i].name, wled_id, this)",
+                "if (!effect_wled_id_supported(fx_index))",
+                "log_unsupported_effect_",
+                "Ignoring unsupported WLED effect id %u",
+                "const EffectDescriptor *effect = effect_for_wled_id(view.mode)",
+            ],
+        )
+        assert_contains_all(
+            self,
+            entities,
+            [
+                "effect_option_index_for_wled_id",
+                "effect_wled_id_for_index(i)",
+                "this->bridge_->set_effect(wled_id)",
+            ],
+        )
+
+    def test_set_effect_automation_schema_uses_wled_mode_slot_limit(self) -> None:
+        source = read(WLED_INIT_PY)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "WLED_MODE_MAX = 219",
+                "cv.Required(CONF_EFFECT): cv.templatable(cv.int_range(min=0, max=WLED_MODE_MAX))",
+            ],
+        )
+        self.assertNotIn("cv.Required(CONF_EFFECT): cv.templatable(cv.int_range(min=0, max=255))", source)
+
+    def test_set_palette_automation_schema_uses_palette_slot_limit(self) -> None:
+        source = read(WLED_INIT_PY)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "WLED_PALETTE_MAX = 53",
+                "cv.Required(CONF_PALETTE): cv.templatable(cv.int_range(min=0, max=WLED_PALETTE_MAX))",
+            ],
+        )
+        self.assertNotIn("cv.Required(CONF_PALETTE): cv.templatable(cv.int_range(min=0, max=255))", source)
 
     def test_pins_probe_is_read_only_under_esphome_hardware_ownership(self) -> None:
         header = read(ROOT / "components" / "wled_bridge" / "wled_json.h")
@@ -1004,6 +1581,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "uint8_t effective_bri = this->global_bri_;",
                 "if (this->brightness_factor_ < 100)",
                 "effective_bri = static_cast<uint8_t>((static_cast<uint16_t>(effective_bri) * this->brightness_factor_) / 100u);",
+                "if (this->auto_white_mode_ != 0)\n        c = apply_auto_white(c, this->auto_white_mode_);",
                 "uint64_t requested_bus_ma = (raw_bus_ma * effective_bri) / 255u;",
                 "uint64_t requested_total_ma = (raw_total_ma * effective_bri) / 255u;",
                 "uint8_t final_scale = std::min<uint8_t>(effective_bri, limit_scale);",
@@ -1302,7 +1880,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "cv.Optional(CONF_E131_RECEIVE, default=False): cv.boolean",
                 "cv.Optional(CONF_E131_UNIVERSE, default=1): cv.int_range(min=1, max=63999)",
                 "cv.Optional(CONF_E131_UNIVERSE_COUNT, default=1): cv.int_range(min=1, max=8)",
-                'consume_sockets(6, "wled_bridge", SocketType.UDP)',
+                "_consume_wled_bridge_sockets",
                 "if config.get(CONF_E131_RECEIVE, False):",
                 "count += 1  # E1.31/sACN port 5568",
                 "cg.add(var.set_e131_enabled(e131_en))",
@@ -1332,6 +1910,8 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "Listens on UDP 5568",
                 "uint16_t start_universe_{1}",
                 "uint8_t universe_count_{1}",
+                "uint32_t source_ip_{0}",
+                "uint32_t last_source_reject_log_ms_{0}",
                 "uint8_t last_seq_[8]{}",
             ],
         )
@@ -1339,7 +1919,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             udp_source,
             [
-                "E131_PORT = 5568",
+                "WLED_E131_PORT",
                 "E131_PIXELS_PER_UNIVERSE = 170",
                 "E131_TIMEOUT_MS = 2500",
                 "IP_ADD_MEMBERSHIP",
@@ -1349,8 +1929,10 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "if (buf[E131_DMX_START_CODE_OFFSET] != 0x00)",
                 "universe < this->start_universe_",
                 "universe >= this->start_universe_ + this->universe_count_",
+                'realtime_source_allowed("E1.31", source_ip',
                 "int8_t diff = static_cast<int8_t>(seq - last)",
-                "this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0))",
+                "this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0), false)",
+                "this->comp_->mark_pixel_overrides_changed();",
                 "this->comp_->clear_pixel_overrides();",
             ],
         )
@@ -1401,6 +1983,15 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         self.assertEqual(parse_ddp_fixture(make_ddp_packet([(1, 2, 3)], flags=0x01), led_count=4), {})
         self.assertEqual(parse_ddp_fixture(make_ddp_packet([(1, 2, 3)], flags=0x43), led_count=4), {})
         self.assertEqual(parse_ddp_fixture(make_ddp_packet([(1, 2, 3)], dest=2), led_count=4), {})
+        self.assertEqual(parse_ddp_fixture(b"\x40\x00", led_count=4), {})
+
+        truncated = bytearray(make_ddp_packet([(1, 2, 3), (4, 5, 6)]))
+        truncated[8] = 0
+        truncated[9] = 12
+        self.assertEqual(
+            parse_ddp_fixture(bytes(truncated[:-3]), led_count=4),
+            {0: rgbw(1, 2, 3)},
+        )
 
     def test_e131_packet_fixture_matches_receiver_mapping_contract(self) -> None:
         udp_source = read(WLED_UDP_REALTIME_CPP)
@@ -1436,6 +2027,13 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             parse_e131_fixture(make_e131_packet([(1, 2, 3)], universe=1, start_code=1), start_universe=1, universe_count=1, led_count=10),
             {},
         )
+        self.assertEqual(parse_e131_fixture(b"ASC", start_universe=1, universe_count=1, led_count=10), {})
+
+        truncated = make_e131_packet([(1, 2, 3), (4, 5, 6)], universe=1)[:-3]
+        self.assertEqual(
+            parse_e131_fixture(truncated, start_universe=1, universe_count=1, led_count=10),
+            {0: rgbw(1, 2, 3)},
+        )
 
     def test_artnet_packet_fixture_matches_receiver_mapping_contract(self) -> None:
         udp_source = read(WLED_UDP_REALTIME_CPP)
@@ -1468,6 +2066,13 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             parse_artnet_fixture(make_artnet_packet([(1, 2, 3)], universe=0, opcode=0x5100), start_universe=0, universe_count=1, led_count=10),
             {},
         )
+        self.assertEqual(parse_artnet_fixture(b"Art-Net", start_universe=0, universe_count=1, led_count=10), {})
+
+        truncated = make_artnet_packet([(1, 2, 3), (4, 5, 6)], universe=0)[:-3]
+        self.assertEqual(
+            parse_artnet_fixture(truncated, start_universe=0, universe_count=1, led_count=10),
+            {0: rgbw(1, 2, 3)},
+        )
 
     def test_realtime_sequence_window_contract(self) -> None:
         udp_source = read(WLED_UDP_REALTIME_CPP)
@@ -1494,6 +2099,48 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         self.assertTrue(accepted(10, 0))
         self.assertTrue(accepted(250, 3))
         self.assertTrue(accepted(100, 70))
+
+    def test_realtime_process_packet_defensively_rechecks_minimum_lengths(self) -> None:
+        udp_source = read(WLED_UDP_REALTIME_CPP)
+
+        assert_contains_all(
+            self,
+            udp_source,
+            [
+                "if (buf == nullptr || len < DDP_HEADER_LEN)",
+                "if (buf == nullptr || len < E131_MIN_PACKET)",
+                "if (buf == nullptr || len < ARTNET_MIN_PACKET)",
+            ],
+        )
+
+    def test_realtime_receivers_lock_to_one_source_until_timeout(self) -> None:
+        udp_header = read(WLED_UDP_H)
+        udp_source = read(WLED_UDP_REALTIME_CPP)
+
+        assert_contains_all(
+            self,
+            udp_header,
+            [
+                "process_packet_(const uint8_t *buf, size_t len, uint32_t source_ip)",
+                "uint32_t source_ip_{0}",
+                "uint32_t last_source_reject_log_ms_{0}",
+            ],
+        )
+        assert_contains_all(
+            self,
+            udp_source,
+            [
+                "REALTIME_SOURCE_REJECT_LOG_INTERVAL_MS = 5000",
+                "format_source_ip",
+                "realtime_source_allowed",
+                "while locked to %s",
+                "this->process_packet_(buf, static_cast<size_t>(len), src.sin_addr.s_addr)",
+                'realtime_source_allowed("DDP", source_ip',
+                'realtime_source_allowed("E1.31", source_ip',
+                'realtime_source_allowed("Art-Net", source_ip',
+                "this->source_ip_ = 0;",
+            ],
+        )
 
     def test_artnet_receiver_contract_is_declared_and_accounted(self) -> None:
         codegen = read(WLED_INIT_PY)
@@ -1541,6 +2188,8 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "Listens on UDP 6454",
                 "uint16_t start_universe_{0}",
                 "uint8_t universe_count_{1}",
+                "uint32_t source_ip_{0}",
+                "uint32_t last_source_reject_log_ms_{0}",
                 "uint8_t last_seq_[8]{}",
             ],
         )
@@ -1548,7 +2197,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             udp_source,
             [
-                "ARTNET_PORT = 6454",
+                "WLED_ARTNET_PORT",
                 "ARTNET_OPCODE_DMX = 0x5000",
                 "ARTNET_PIXELS_PER_UNIVERSE = 170",
                 "ARTNET_TIMEOUT_MS = 2500",
@@ -1557,10 +2206,12 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "if (protocol_version < 14)",
                 "universe < this->start_universe_",
                 "universe >= this->start_universe_ + this->universe_count_",
+                'realtime_source_allowed("Art-Net", source_ip',
                 "uint16_t data_len = (static_cast<uint16_t>(buf[16]) << 8) | buf[17]",
                 "if (data_len > 512)",
                 "int8_t diff = static_cast<int8_t>(seq - last)",
-                "this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0))",
+                "this->comp_->set_pixel_override(0, start_led + i, RGBW32(r, g, b, 0), false)",
+                "this->comp_->mark_pixel_overrides_changed();",
                 "this->comp_->clear_pixel_overrides();",
             ],
         )
@@ -1586,7 +2237,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 'CONF_BOOT_PRESET = "boot_preset"',
                 'CONF_BRIGHTNESS_FACTOR = "brightness_factor"',
                 "cv.Optional(CONF_BOOT_PRESET, default=0): cv.int_range(min=0, max=16)",
-                "cv.Optional(CONF_BRIGHTNESS_FACTOR, default=100): cv.int_range(min=1, max=100)",
+                "cv.Optional(CONF_BRIGHTNESS_FACTOR, default=100): cv.int_range(min=0, max=100)",
                 "if config[CONF_BOOT_PRESET] > 0:",
                 "cg.add(var.set_boot_preset(config[CONF_BOOT_PRESET]))",
                 "if config[CONF_BRIGHTNESS_FACTOR] < 100:",
@@ -1620,6 +2271,93 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "uint64_t requested_total_ma = (raw_total_ma * effective_bri) / 255u;",
                 "uint8_t final_scale = std::min<uint8_t>(effective_bri, limit_scale);",
                 'ESP_LOGCONFIG(TAG, "  Boot preset: %u", this->boot_preset_);',
+            ],
+        )
+
+    def test_schema_rejects_unsafe_task_and_validates_limits(self) -> None:
+        codegen = read(WLED_INIT_PY)
+        assert_contains_all(
+            self,
+            codegen,
+            [
+                "cv.Optional(CONF_MAX_MA, default=5000): cv.int_range(min=0)",
+                "cv.Optional(CONF_MAX_MA): cv.int_range(min=0)",
+                '"\'use_task\' is disabled until the render path is thread-safe"',
+                '"\'matrix_width\' and \'matrix_height\' must both be 0 or both be greater than 0"',
+                "flat_overrides = []",
+                "realtime' cannot be mixed with deprecated flat realtime keys",
+                "E131_MAX_UNIVERSE = 63999",
+                "ARTNET_MAX_UNIVERSE = 32767",
+                "if e131_enabled and e131_universe + e131_count - 1 > E131_MAX_UNIVERSE",
+                '"E1.31 universe range exceeds 63999"',
+                "if artnet_enabled and artnet_universe + artnet_count - 1 > ARTNET_MAX_UNIVERSE",
+                '"Art-Net universe range exceeds 32767"',
+                "udp_ports = {config[CONF_UDP_PORT], config[CONF_UDP_PORT2]}",
+                "UDP sync receive port conflicts with realtime receiver port",
+            ],
+        )
+
+    def test_matrix_geometry_is_checked_against_runtime_led_count(self) -> None:
+        bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+
+        assert_contains_all(
+            self,
+            bridge_cpp,
+            [
+                "if (this->is_2d())",
+                "uint32_t matrix_pixels = static_cast<uint32_t>(this->matrix_width_) * static_cast<uint32_t>(this->matrix_height_)",
+                "if (matrix_pixels > this->total_leds_)",
+                "Matrix geometry %ux%u requires %u LEDs, but only %u are configured",
+                "this->mark_failed()",
+            ],
+        )
+
+    def test_socket_accounting_uses_actual_enabled_udp_features(self) -> None:
+        codegen = read(WLED_INIT_PY)
+
+        assert_contains_all(
+            self,
+            codegen,
+            [
+                "def _count_udp_sockets(config):",
+                "if config.get(CONF_UDP_SEND, False):",
+                "if config.get(CONF_UDP_RECEIVE, False):",
+                "if config.get(CONF_UDP_PORT2, 0) != config.get(CONF_UDP_PORT, 21324):",
+                "if rt.get(CONF_DDP, False) or config.get(CONF_DDP_RECEIVE, False):",
+                "if rt.get(CONF_E131, False) or config.get(CONF_E131_RECEIVE, False):",
+                "if rt.get(CONF_ARTNET, False) or config.get(CONF_ARTNET_RECEIVE, False):",
+                "def _consume_wled_bridge_sockets(config):",
+                "_count_udp_sockets(config)",
+                '"wled_bridge"',
+                "SocketType.UDP",
+                "_consume_wled_bridge_sockets",
+            ],
+        )
+        self.assertNotIn('consume_sockets(6, "wled_bridge", SocketType.UDP)', codegen)
+
+    def test_source_filters_match_feature_boundaries(self) -> None:
+        codegen = read(WLED_INIT_PY)
+
+        assert_contains_all(
+            self,
+            codegen,
+            [
+                "def FILTER_SOURCE_FILES():",
+                'filtered = ["wled_udp.cpp", "wled_ui_data.cpp"]',
+                'filtered.append("wled_effects_2d.cpp")',
+                'filtered.append("wled_udp_realtime.cpp")',
+                'filtered.append("wled_entities.cpp")',
+                'filtered.append("wled_audio.cpp")',
+                'filtered.append("wled_audio_fft.cpp")',
+                'filtered.append("wled_effects_audio.cpp")',
+                "elif not audio.get(CONF_AUDIO_FFT, False):",
+                'filtered.append("wled_audio_fft.cpp")',
+                'cg.add_define("WLED_BRIDGE_2D")',
+                'cg.add_define("WLED_BRIDGE_WEB_UI")',
+                'cg.add_define("WLED_BRIDGE_REALTIME")',
+                'cg.add_define("WLED_BRIDGE_AUDIO")',
+                'cg.add_define("WLED_BRIDGE_FFT")',
+                'cg.add_define("WLED_BRIDGE_ENTITIES")',
             ],
         )
 

@@ -8,7 +8,7 @@ Components live under [components/](components/).
 
 | Component | Purpose | Demo usage |
 | --- | --- | --- |
-| `wled_bridge` | WLED-compatible effects engine (197 effects, 54 palettes, sound reactive), Web UI, HA entities, UDP sync, DDP/E1.31/Art-Net for ESPHome addressable LED strips. | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml), [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) |
+| `wled_bridge` | WLED v16-compatible bridge for ESPHome addressable LED strips: fixed 220 WLED mode slots with supported-effect mapping, 54 palettes, Web UI, HA entities, UDP sync, DDP/E1.31/Art-Net, and sound reactive options. | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml), [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) |
 | `74hc138_keypad` | Keyboard matrix scanner for 74HC138 decoder based designs. | M5Stack Cardputer keyboard input. |
 | `aw9523` | I2C GPIO expander with GPIO and LED-driver support. | M5Stack StamPLC relay/input expander. |
 | `bmi270` | Bosch BMI270 6-axis IMU sensor. | M5Stack Paper S3 motion sensors. |
@@ -35,7 +35,7 @@ Demo YAMLs live under [devices/](devices/).
 | Waveshare ESP32-S3 Touch LCD 1.85C | [devices/waveshare/esp32s3-touch-lcd-1.85c.yaml](devices/waveshare/esp32s3-touch-lcd-1.85c.yaml) | QSPI LCD, touch, RTC, microphone/speaker voice assistant, wake word selection, Bluetooth proxy, battery and audio diagnostics. | None currently. |
 | Waveshare ESP32-S3 ETH | [devices/waveshare/esp32s3-eth.yaml](devices/waveshare/esp32s3-eth.yaml) | W5500 Ethernet, camera, Ethernet info sensors, Bluetooth proxy, boot button, diagnostics. | None. |
 | Waveshare ESP32-S3 GEEK | [devices/waveshare/esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ST7789 display, backlight control, WiFi info, Bluetooth proxy, diagnostics. | None. |
-| WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED UI + 197 effects + multi-segment + presets/playlists + nightlight. | `wled_bridge` |
+| WLED Bridge PoC | [devices/test/wled_bridge_poc.yaml](devices/test/wled_bridge_poc.yaml) | ESP32-S3, 16MB flash, 8MB PSRAM, WS2812 strip — WLED v16 JSON UI compatibility, fixed 220 mode slots, supported-effect mapping, multi-segment, presets/playlists, and nightlight. | `wled_bridge` |
 | WLED Bridge Multi-Bus PoC | [devices/test/wled_bridge_multibus_poc.yaml](devices/test/wled_bridge_multibus_poc.yaml) | ESP32-S3, two ESPHome RMT LED strips exposed as one WLED virtual LED space with per-bus current limits. | `wled_bridge` |
 | WLED Bridge Realtime PoC | [devices/test/wled_bridge_realtime_poc.yaml](devices/test/wled_bridge_realtime_poc.yaml) | ESP32-S3 realtime receiver coverage for WLED notifier, DDP, E1.31, and Art-Net with boot preset and brightness factor. | `wled_bridge` |
 | WLED Bridge Audio PoC | [devices/test/wled_bridge_audio_poc.yaml](devices/test/wled_bridge_audio_poc.yaml) | ESP32-S3, I2S microphone, sound reactive effects — volume + FFT GEQ + beat detection + AGC. | `wled_bridge` |
