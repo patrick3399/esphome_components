@@ -54,7 +54,7 @@ esp_err_t WLEDWsHandler::ws_handler_(httpd_req_t *req) {
     int fd = httpd_req_to_sockfd(req);
     auto *fds = &self->client_fds_;
     fds->erase(std::remove(fds->begin(), fds->end(), fd), fds->end());
-    ESP_LOGD(TAG, "WS client fd=%d disconnected", fd);
+    ESP_LOGV(TAG, "WS client fd=%d disconnected", fd);
     return ESP_OK;
   }
 
@@ -84,7 +84,7 @@ esp_err_t WLEDWsHandler::ws_handler_(httpd_req_t *req) {
 
 void WLEDWsHandler::on_client_connect_(int fd) {
   this->client_fds_.push_back(fd);
-  ESP_LOGD(TAG, "WS client fd=%d connected (%zu total)", fd, this->client_fds_.size());
+  ESP_LOGV(TAG, "WS client fd=%d connected (%zu total)", fd, this->client_fds_.size());
 
   // Send current state immediately
   std::string json = build_state_json(this->comp_);
@@ -111,7 +111,7 @@ void WLEDWsHandler::broadcast_state() {
     if (ret == ESP_OK) {
       alive.push_back(fd);
     } else {
-      ESP_LOGD(TAG, "WS client fd=%d removed (err %d)", fd, ret);
+      ESP_LOGV(TAG, "WS client fd=%d removed (err %d)", fd, ret);
     }
   }
   this->client_fds_ = std::move(alive);
@@ -127,7 +127,7 @@ void WLEDWsHandler::send_to_client_(int fd, const std::string &json) {
 
   esp_err_t ret = httpd_ws_send_frame_async(this->server_, fd, &frame);
   if (ret != ESP_OK) {
-    ESP_LOGD(TAG, "WS initial send fd=%d failed (err %d), removing", fd, ret);
+    ESP_LOGV(TAG, "WS initial send fd=%d failed (err %d), removing", fd, ret);
     auto &fds = this->client_fds_;
     fds.erase(std::remove(fds.begin(), fds.end(), fd), fds.end());
   }

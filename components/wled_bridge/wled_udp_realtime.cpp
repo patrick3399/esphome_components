@@ -17,7 +17,7 @@
 namespace esphome {
 namespace wled_bridge {
 
-static const char *const TAG = "wled_bridge.udp";
+static const char *const TAG = "wled_bridge.realtime";
 
 // ============================================================
 // DDP (Distributed Display Protocol) receiver — UDP port 4048
@@ -146,7 +146,10 @@ void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len) {
   }
 
   this->last_receive_ms_ = millis();
-  this->receiving_ = true;
+  if (!this->receiving_) {
+    ESP_LOGD(TAG, "DDP: receiving pixel data (offset=%u, %u pixels)", start_led, pixel_count);
+    this->receiving_ = true;
+  }
 
   if ((flags & DDP_FLAGS_PUSH) || !this->push_seen_) {
     if (flags & DDP_FLAGS_PUSH)
@@ -307,7 +310,10 @@ void WLEDE131Receiver::process_packet_(const uint8_t *buf, size_t len) {
   }
 
   this->last_receive_ms_ = millis();
-  this->receiving_ = true;
+  if (!this->receiving_) {
+    ESP_LOGD(TAG, "E1.31: receiving on universe %u (%u pixels)", universe, pixel_count);
+    this->receiving_ = true;
+  }
 }
 
 // ============================================================
@@ -445,7 +451,10 @@ void WLEDArtNetReceiver::process_packet_(const uint8_t *buf, size_t len) {
   }
 
   this->last_receive_ms_ = millis();
-  this->receiving_ = true;
+  if (!this->receiving_) {
+    ESP_LOGD(TAG, "Art-Net: receiving on universe %u (%u pixels)", universe, pixel_count);
+    this->receiving_ = true;
+  }
 }
 
 }  // namespace wled_bridge

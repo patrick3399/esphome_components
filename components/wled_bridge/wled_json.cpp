@@ -1679,6 +1679,7 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
   // Parse JSON using ESPHome's ArduinoJson wrapper
   auto doc = json::parse_json(body);
   if (doc.isNull()) {
+    ESP_LOGW(TAG, "Invalid JSON in POST body (%u bytes)", body.size());
     if (request)
       request->send(400, "application/json", "{\"error\":\"invalid json\"}");
     return;
@@ -1793,7 +1794,9 @@ void WLEDSseHandler::broadcast_state() {
   this->pending_state_ = build_state_json(comp_);
   this->pending_version_ = comp_->get_state_version();
   this->has_pending_ = true;
+#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   ESP_LOGV(TAG, "State broadcast v%u: %s", this->pending_version_, this->pending_state_.c_str());
+#endif
 }
 
 #ifdef WLED_BRIDGE_WEB_UI

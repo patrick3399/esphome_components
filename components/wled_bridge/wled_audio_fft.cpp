@@ -10,7 +10,7 @@
 namespace esphome {
 namespace wled_bridge {
 
-static const char *const TAG = "wled_audio_fft";
+static const char *const TAG = "wled_bridge.audio";
 
 // Lightweight in-place radix-2 real FFT.
 // N must be a power of 2.  Input is int16 samples, output is float magnitudes.
@@ -112,7 +112,7 @@ void audio_fft_setup() {
   }
 
   fft_compute_tables_();
-  ESP_LOGI(TAG, "FFT initialized (N=%u, %u GEQ channels)", FFT_N, AUDIO_GEQ_CHANNELS);
+  ESP_LOGCONFIG(TAG, "FFT initialized (N=%u, %u GEQ channels)", FFT_N, AUDIO_GEQ_CHANNELS);
 }
 
 void audio_fft_process(const int16_t *samples, size_t count, AudioData *out) {

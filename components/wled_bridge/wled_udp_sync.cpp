@@ -306,7 +306,9 @@ void WLEDUdpSync::apply_packet_(const uint8_t *buf, size_t len) {
   uint32_t col2 =
       version > 6 && len > 23 ? RGBW32(buf[20], buf[21], buf[22], buf[23]) : this->comp_->get_params().colors[2];
 
+#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   ESP_LOGV(TAG, "UDP recv: fx=%u bri=%u pal=%u spd=%u ix=%u compat=%u", fx, bri, pal, spd, ix, version);
+#endif
 
   if (this->comp_->get_udp_receive_brightness())
     this->comp_->set_brightness(bri);

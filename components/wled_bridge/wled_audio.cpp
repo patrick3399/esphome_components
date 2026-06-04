@@ -13,7 +13,7 @@
 namespace esphome {
 namespace wled_bridge {
 
-static const char *const TAG = "wled_audio";
+static const char *const TAG = "wled_bridge.audio";
 
 static constexpr uint32_t RING_BUFFER_MS = 120;
 static constexpr size_t BYTES_PER_SAMPLE = 2;  // int16
@@ -48,8 +48,8 @@ void AudioAnalyzer::setup(microphone::MicrophoneSource *source, bool enable_fft,
   }
 #endif
 
-  ESP_LOGI(TAG, "Audio analyzer ready (FFT: %s, AGC: %s)", this->fft_enabled_ ? "yes" : "no",
-           this->agc_enabled_ ? "yes" : "no");
+  ESP_LOGCONFIG(TAG, "Audio analyzer ready (FFT: %s, AGC: %s)", this->fft_enabled_ ? "yes" : "no",
+                this->agc_enabled_ ? "yes" : "no");
 }
 
 void AudioAnalyzer::on_audio_data_(const std::vector<uint8_t> &data) {
@@ -81,7 +81,7 @@ void AudioAnalyzer::loop() {
     this->ring_buffer_storage_ = std::shared_ptr<ring_buffer::RingBuffer>(rb_unique.release());
     this->ring_buffer_ = this->ring_buffer_storage_;
     this->started_ = true;
-    ESP_LOGI(TAG, "Ring buffer allocated (%u bytes), audio active", RING_BUFFER_SIZE);
+    ESP_LOGD(TAG, "Ring buffer allocated (%u bytes), audio active", RING_BUFFER_SIZE);
   }
 
   uint32_t now = millis();

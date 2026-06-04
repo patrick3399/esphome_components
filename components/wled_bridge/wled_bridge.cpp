@@ -1036,6 +1036,7 @@ void WLEDBridgeComponent::start_nightlight(uint16_t duration_s, uint8_t target_b
   this->nightlight_active_ = true;
   this->state_version_++;
   this->state_dirty_ = true;
+  ESP_LOGD(TAG, "Nightlight started: %us, target bri=%u, mode=%u", duration_s, target_bri, mode);
 }
 
 void WLEDBridgeComponent::stop_nightlight() {
@@ -1044,6 +1045,7 @@ void WLEDBridgeComponent::stop_nightlight() {
   this->nightlight_active_ = false;
   this->state_version_++;
   this->state_dirty_ = true;
+  ESP_LOGD(TAG, "Nightlight stopped");
 }
 
 void WLEDBridgeComponent::process_nightlight_() {
@@ -1059,6 +1061,7 @@ void WLEDBridgeComponent::process_nightlight_() {
   if (duration_ms == 0 || elapsed_ms >= duration_ms) {
     this->nightlight_active_ = false;
     this->apply_nightlight_brightness_(this->nightlight_target_bri_, true);
+    ESP_LOGD(TAG, "Nightlight expired, target bri=%u", this->nightlight_target_bri_);
     return;
   }
 
@@ -1122,6 +1125,7 @@ bool WLEDBridgeComponent::save_preset(uint8_t preset_id, const char *name) {
   this->active_preset_ = preset_id;
   this->persist_presets_();
   this->mark_dirty_(false);
+  ESP_LOGD(TAG, "Preset %u saved", preset_id);
   return true;
 }
 
@@ -1189,6 +1193,7 @@ bool WLEDBridgeComponent::load_preset(uint8_t preset_id) {
   this->apply_preset_(preset);
   this->active_preset_ = preset_id;
   this->mark_dirty_(false);
+  ESP_LOGD(TAG, "Preset %u loaded (fx=%u pal=%u bri=%u)", preset_id, preset.effect, preset.palette, preset.brightness);
   return true;
 }
 
@@ -1200,6 +1205,7 @@ bool WLEDBridgeComponent::delete_preset(uint8_t preset_id) {
     this->active_preset_ = 0;
   this->persist_presets_();
   this->mark_dirty_(false);
+  ESP_LOGD(TAG, "Preset %u deleted", preset_id);
   return true;
 }
 
@@ -1277,6 +1283,8 @@ void WLEDBridgeComponent::advance_playlist_() {
   this->playlist_applying_ = false;
   this->playlist_next_ms_ = millis() + static_cast<uint32_t>(this->playlist_durations_[next]) * 1000u;
   this->mark_dirty_(false);
+  ESP_LOGD(TAG, "Playlist advance: index=%u preset=%u duration=%us", next, this->playlist_presets_[next],
+           this->playlist_durations_[next]);
 }
 
 void WLEDBridgeComponent::set_segment_bounds(uint32_t start, uint32_t stop) {
@@ -1691,6 +1699,27 @@ void WLEDBridgeComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "  Art-Net receiver: disabled");
   if (this->boot_preset_ > 0)
     ESP_LOGCONFIG(TAG, "  Boot preset: %u", this->boot_preset_);
+  else
+    ESP_LOGCONFIG(TAG, "  Boot preset: last state");
+  if (this->brightness_factor_ < 100)
+    ESP_LOGCONFIG(TAG, "  Brightness factor: %u%%", this->brightness_factor_);
+#ifdef WLED_BRIDGE_WEB_UI
+  ESP_LOGCONFIG(TAG, "  Web UI: yes");
+#else
+  ESP_LOGCONFIG(TAG, "  Web UI: no");
+#endif
+#ifdef WLED_BRIDGE_AUDIO
+  ESP_LOGCONFIG(TAG, "  Audio: mic=%s, FFT=%s, AGC=%s", this->audio_source_ != nullptr ? "yes" : "no",
+#ifdef WLED_BRIDGE_FFT
+                "yes",
+#else
+                "no",
+#endif
+                this->audio_analyzer_.get_agc_enabled() ? "yes" : "no");
+#endif
+#ifdef WLED_BRIDGE_ENTITIES
+  ESP_LOGCONFIG(TAG, "  HA entities: enabled");
+#endif
 }
 
 // ============================================================
