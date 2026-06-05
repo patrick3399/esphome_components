@@ -1125,10 +1125,14 @@ uint8_t WLEDBridgeComponent::infer_light_capability_(const light::LightTraits &t
 
 light::ColorMode WLEDBridgeComponent::preferred_color_mode_(const light::LightTraits &traits) {
   static const light::ColorMode ORDER[] = {
-      light::ColorMode::RGB_COLD_WARM_WHITE, light::ColorMode::RGB_COLOR_TEMPERATURE,
-      light::ColorMode::RGB_WHITE,           light::ColorMode::RGB,
-      light::ColorMode::COLD_WARM_WHITE,     light::ColorMode::COLOR_TEMPERATURE,
-      light::ColorMode::WHITE,               light::ColorMode::BRIGHTNESS,
+      light::ColorMode::RGB_COLD_WARM_WHITE,
+      light::ColorMode::RGB_COLOR_TEMPERATURE,
+      light::ColorMode::RGB_WHITE,
+      light::ColorMode::RGB,
+      light::ColorMode::COLD_WARM_WHITE,
+      light::ColorMode::COLOR_TEMPERATURE,
+      light::ColorMode::WHITE,
+      light::ColorMode::BRIGHTNESS,
       light::ColorMode::ON_OFF,
   };
   for (auto mode : ORDER) {
@@ -1267,8 +1271,9 @@ void WLEDBridgeComponent::flush_frame_to_buses_(uint8_t final_scale) {
         c = apply_auto_white(c, this->auto_white_mode_);
       uint8_t op = this->pixel_opacity_ != nullptr ? this->pixel_opacity_[bus.start] : 255;
       uint8_t scale = scale8_linear(op, final_scale);
-      this->flush_lightstate_bus_(bus, RGBW32(scale8_linear(R(c), scale), scale8_linear(G(c), scale),
-                                              scale8_linear(B(c), scale), scale8_linear(W(c), scale)),
+      this->flush_lightstate_bus_(bus,
+                                  RGBW32(scale8_linear(R(c), scale), scale8_linear(G(c), scale),
+                                         scale8_linear(B(c), scale), scale8_linear(W(c), scale)),
                                   this->get_pixel_cct_(bus.start));
       continue;
     }

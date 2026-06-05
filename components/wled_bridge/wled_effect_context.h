@@ -156,11 +156,12 @@ struct EffectContext {
         stop_count = 4;
       }
 
-      uint8_t scaled = stop_count > 1 ? static_cast<uint8_t>((static_cast<uint16_t>(index) * (stop_count - 1)) / 255) : 0;
+      uint8_t scaled =
+          stop_count > 1 ? static_cast<uint8_t>((static_cast<uint16_t>(index) * (stop_count - 1)) / 255) : 0;
       if (scaled >= stop_count - 1)
         scaled = stop_count - 2;
-      uint8_t local =
-          static_cast<uint8_t>((static_cast<uint16_t>(index) * (stop_count - 1)) - (static_cast<uint16_t>(scaled) * 255));
+      uint8_t local = static_cast<uint8_t>((static_cast<uint16_t>(index) * (stop_count - 1)) -
+                                           (static_cast<uint16_t>(scaled) * 255));
       uint32_t a = stops[scaled];
       uint32_t b = stops[scaled + 1];
       uint32_t out = RGBW32(lerp8by8(R(a), R(b), local), lerp8by8(G(a), G(b), local), lerp8by8(B(a), B(b), local),

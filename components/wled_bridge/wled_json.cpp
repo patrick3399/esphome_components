@@ -808,8 +808,7 @@ static std::string build_preset_segment_json(uint8_t id, uint16_t start, uint16_
                         id, start, stop, grouping, spacing, on ? "true" : "false", opacity, cct, R(colors[0]),
                         G(colors[0]), B(colors[0]), W(colors[0]), R(colors[1]), G(colors[1]), B(colors[1]),
                         W(colors[1]), R(colors[2]), G(colors[2]), B(colors[2]), W(colors[2]), fx, sx, ix, pal, c1, c2,
-                        c3,
-                        o1 ? "true" : "false", o2 ? "true" : "false", o3 ? "true" : "false",
+                        c3, o1 ? "true" : "false", o2 ? "true" : "false", o3 ? "true" : "false",
                         selected ? "true" : "false", reverse ? "true" : "false", mirror ? "true" : "false");
 }
 
@@ -825,18 +824,18 @@ std::string build_presets_json(const WLEDBridgeComponent *c) {
     std::string seg_json = "[";
     seg_json += build_preset_segment_json(
         0, preset->segment_start, preset->segment_stop, preset->main_grouping, preset->main_spacing, preset->on != 0,
-        preset->main_opacity, preset->main_cct, preset->colors, preset->effect, preset->speed, preset->intensity, preset->palette,
-        preset->custom1, preset->custom2, preset->custom3, preset->check1 != 0, preset->check2 != 0,
+        preset->main_opacity, preset->main_cct, preset->colors, preset->effect, preset->speed, preset->intensity,
+        preset->palette, preset->custom1, preset->custom2, preset->custom3, preset->check1 != 0, preset->check2 != 0,
         preset->check3 != 0, preset->reverse != 0, preset->mirror != 0, preset->main_segment == 0);
     uint8_t extra_count = std::min<uint8_t>(preset->extra_count, WLED_MAX_SEGMENTS - 1);
     for (uint8_t i = 0; i < extra_count; i++) {
       const WLEDExtraSegRecord &seg = preset->extras[i];
       seg_json += ",";
       seg_json += build_preset_segment_json(static_cast<uint8_t>(i + 1), seg.start, seg.stop, seg.grouping, seg.spacing,
-                                            seg.on != 0, seg.opacity, seg.cct, seg.colors, seg.mode, seg.speed, seg.intensity,
-                                            seg.palette, seg.custom1, seg.custom2, seg.custom3, seg.check1 != 0,
-                                            seg.check2 != 0, seg.check3 != 0, seg.reverse != 0, seg.mirror != 0,
-                                            preset->main_segment == i + 1);
+                                            seg.on != 0, seg.opacity, seg.cct, seg.colors, seg.mode, seg.speed,
+                                            seg.intensity, seg.palette, seg.custom1, seg.custom2, seg.custom3,
+                                            seg.check1 != 0, seg.check2 != 0, seg.check3 != 0, seg.reverse != 0,
+                                            seg.mirror != 0, preset->main_segment == i + 1);
     }
     seg_json += "]";
 
