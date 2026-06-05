@@ -278,9 +278,10 @@ void WLEDBridgeComponent::setup() {
     char mac[13];
     get_mac_address_into_buffer(mac);
     mdns_txt_item_t txt[] = {{"mac", mac}};
-    esp_err_t err = mdns_service_add(nullptr, "_wled", "_tcp", 80, txt, 1);
+    uint16_t mdns_port = wsb != nullptr ? wsb->get_port() : 80;
+    esp_err_t err = mdns_service_add(nullptr, "_wled", "_tcp", mdns_port, txt, 1);
     if (err == ESP_OK) {
-      ESP_LOGD(TAG, "mDNS _wled._tcp registered (mac=%s)", mac);
+      ESP_LOGD(TAG, "mDNS _wled._tcp registered (port=%u, mac=%s)", mdns_port, mac);
     } else {
       ESP_LOGW(TAG, "mDNS _wled._tcp registration failed: %d", err);
     }

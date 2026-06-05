@@ -33,63 +33,63 @@ enum PaletteID : uint8_t {
   PAL_DEFAULT = 0,  // solid segment color (dynamic, no table)
   PAL_RANDOM = 1,  // random cycling (dynamic, no table)
   PAL_PRIMARY = 2,  // based on seg color 0 (dynamic, no table)
-  PAL_RAINBOW = 6,
-  PAL_RAINBOW_BANDS = 7,
-  PAL_PARTY = 8,
+  PAL_PARTY = 6,
+  PAL_CLOUD = 7,
+  PAL_LAVA = 8,
   PAL_OCEAN = 9,
-  PAL_LAVA = 10,
-  PAL_FOREST = 11,
-  PAL_SUNSET = 12,
-  PAL_HEAT = 13,
-  PAL_TIAMAT = 14,
-  PAL_APRIL_NIGHT = 15,
-  PAL_ORANGERY = 16,
-  PAL_SAKURA = 17,
-  PAL_AURORA = 18,
-  PAL_C9 = 19,
-  PAL_ATLANTICA = 20,
-  PAL_C9_2 = 21,
-  PAL_C9_NEW = 22,
-  PAL_TEMPERATURE = 23,
-  PAL_CANDY = 24,
-  PAL_TOXY_REAF = 25,
-  PAL_FAIRY_REAF = 26,
-  PAL_SEMI_BLUE = 27,
-  PAL_PINK_CANDY = 28,
-  PAL_RED_REAF = 29,
-  PAL_YELBLU_HOT = 30,
-  PAL_SUNSET_REAL = 31,
-  PAL_RIVENDELL = 32,
-  PAL_RED_BLUE = 33,
+  PAL_FOREST = 10,
+  PAL_RAINBOW = 11,
+  PAL_RAINBOW_BANDS = 12,
+  PAL_SUNSET = 13,
+  PAL_RIVENDELL = 14,
+  PAL_RED_BLUE = 16,
   PAL_TERTIARY = 34,
   PAL_FIRE = 35,
   PAL_ICEFIRE = 36,
   PAL_CYANE = 37,
   PAL_LIGHT_PINK = 38,
-  PAL_AURORA2 = 39,
-  PAL_RETRO_CLOWN = 40,
-  PAL_AUTUMN = 41,
-  PAL_MAGENTA = 42,
-  PAL_MAGRED = 43,
-  PAL_YELMAG = 44,
-  PAL_YELBLU = 45,
-  PAL_ORANGE_TEAL = 46,
-  PAL_AQUA_FLASH = 47,
-  PAL_LITE_LIGHT = 48,
-  PAL_RED_FLASH = 49,
-  PAL_BLINK_RED = 50,
-  PAL_RED_SHIFT = 51,
-  PAL_RED_TIDE = 52,
-  PAL_CANDY2 = 53,
+  PAL_AUTUMN = 39,
+  PAL_MAGENTA = 40,
+  PAL_MAGRED = 41,
+  PAL_YELMAG = 42,
+  PAL_YELBLU = 43,
+  PAL_ORANGE_TEAL = 44,
+  PAL_TIAMAT = 45,
+  PAL_APRIL_NIGHT = 46,
+  PAL_ORANGERY = 47,
+  PAL_C9 = 48,
+  PAL_SAKURA = 49,
+  PAL_AURORA = 50,
+  PAL_ATLANTICA = 51,
+  PAL_C9_2 = 52,
+  PAL_C9_NEW = 53,
+  PAL_TEMPERATURE = 54,
+  PAL_AURORA2 = 55,
+  PAL_RETRO_CLOWN = 56,
+  PAL_CANDY = 57,
+  PAL_TOXY_REAF = 58,
+  PAL_FAIRY_REAF = 59,
+  PAL_SEMI_BLUE = 60,
+  PAL_PINK_CANDY = 61,
+  PAL_RED_REAF = 62,
+  PAL_AQUA_FLASH = 63,
+  PAL_YELBLU_HOT = 64,
+  PAL_LITE_LIGHT = 65,
+  PAL_RED_FLASH = 66,
+  PAL_BLINK_RED = 67,
+  PAL_RED_SHIFT = 68,
+  PAL_RED_TIDE = 69,
+  PAL_CANDY2 = 70,
 };
 
-static constexpr size_t WLED_PALETTE_COUNT = 54;
+static constexpr size_t WLED_PALETTE_COUNT = 72;
 extern const PaletteInfo WLED_PALETTES[WLED_PALETTE_COUNT];
 
 // Palette data tables (defined in wled_palette.cpp)
 extern const WLEDPalette16 PAL_DATA_RAINBOW;
 extern const WLEDPalette16 PAL_DATA_RAINBOW_BANDS;
 extern const WLEDPalette16 PAL_DATA_PARTY;
+extern const WLEDPalette16 PAL_DATA_CLOUD;
 extern const WLEDPalette16 PAL_DATA_OCEAN;
 extern const WLEDPalette16 PAL_DATA_LAVA;
 extern const WLEDPalette16 PAL_DATA_FOREST;
@@ -114,7 +114,25 @@ extern const WLEDPalette16 PAL_DATA_RED_REAF;
 extern const WLEDPalette16 PAL_DATA_YELBLU_HOT;
 extern const WLEDPalette16 PAL_DATA_SUNSET_REAL;
 extern const WLEDPalette16 PAL_DATA_RIVENDELL;
+extern const WLEDPalette16 PAL_DATA_BREEZE;
 extern const WLEDPalette16 PAL_DATA_RED_BLUE;
+extern const WLEDPalette16 PAL_DATA_YELLOWOUT;
+extern const WLEDPalette16 PAL_DATA_ANALOGOUS;
+extern const WLEDPalette16 PAL_DATA_SPLASH;
+extern const WLEDPalette16 PAL_DATA_PASTEL;
+extern const WLEDPalette16 PAL_DATA_SUNSET2;
+extern const WLEDPalette16 PAL_DATA_BEACH;
+extern const WLEDPalette16 PAL_DATA_VINTAGE;
+extern const WLEDPalette16 PAL_DATA_DEPARTURE;
+extern const WLEDPalette16 PAL_DATA_LANDSCAPE;
+extern const WLEDPalette16 PAL_DATA_BEECH;
+extern const WLEDPalette16 PAL_DATA_SHERBET;
+extern const WLEDPalette16 PAL_DATA_HULT;
+extern const WLEDPalette16 PAL_DATA_HULT64;
+extern const WLEDPalette16 PAL_DATA_DRYWET;
+extern const WLEDPalette16 PAL_DATA_JUL;
+extern const WLEDPalette16 PAL_DATA_GRINTAGE;
+extern const WLEDPalette16 PAL_DATA_REWHI;
 extern const WLEDPalette16 PAL_DATA_TERTIARY;
 extern const WLEDPalette16 PAL_DATA_FIRE;
 extern const WLEDPalette16 PAL_DATA_ICEFIRE;
@@ -135,6 +153,7 @@ extern const WLEDPalette16 PAL_DATA_BLINK_RED;
 extern const WLEDPalette16 PAL_DATA_RED_SHIFT;
 extern const WLEDPalette16 PAL_DATA_RED_TIDE;
 extern const WLEDPalette16 PAL_DATA_CANDY2;
+extern const WLEDPalette16 PAL_DATA_TRAFFIC_LIGHT;
 
 }  // namespace wled_bridge
 }  // namespace esphome

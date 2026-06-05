@@ -479,7 +479,7 @@ void fx_fire_2012(EffectContext &ctx) {
   // Step 4: render heat to pixels using Heat palette
   for (int32_t i = 0; i < SEGLEN; i++) {
     uint32_t col;
-    if (ctx.params->palette_id == PAL_DEFAULT || ctx.params->palette_id == PAL_HEAT) {
+    if (ctx.params->palette_id == PAL_DEFAULT) {
       col = palette_color(PAL_DATA_HEAT, heat[i]);
     } else {
       col = ctx.pal_color(heat[i]);

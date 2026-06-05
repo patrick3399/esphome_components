@@ -23,6 +23,8 @@ WLED_AUDIO_CPP = ROOT / "components" / "wled_bridge" / "wled_audio.cpp"
 WLED_AUDIO_FFT_CPP = ROOT / "components" / "wled_bridge" / "wled_audio_fft.cpp"
 WLED_UI_CPP = ROOT / "components" / "wled_bridge" / "wled_ui_data.cpp"
 WLED_UI_GENERATOR = ROOT / "tools" / "gen_wled_ui.py"
+WLED_PALETTE_H = ROOT / "components" / "wled_bridge" / "wled_palette.h"
+WLED_PALETTE_CPP = ROOT / "components" / "wled_bridge" / "wled_palette.cpp"
 WLED_UDP_CPP = ROOT / "components" / "wled_bridge" / "wled_udp.cpp"
 WLED_UDP_SYNC_CPP = ROOT / "components" / "wled_bridge" / "wled_udp_sync.cpp"
 WLED_UDP_REALTIME_CPP = ROOT / "components" / "wled_bridge" / "wled_udp_realtime.cpp"
@@ -31,6 +33,8 @@ WLED_WS_CPP = ROOT / "components" / "wled_bridge" / "wled_ws.cpp"
 WLED_INIT_PY = ROOT / "components" / "wled_bridge" / "__init__.py"
 WLED_COMPONENT_README = ROOT / "components" / "wled_bridge" / "README.md"
 PROJECT_README = ROOT / "README.md"
+WLED_AUDIO_POC = ROOT / "devices" / "test" / "wled_bridge_audio_poc.yaml"
+WLED_FULL_POC = ROOT / "devices" / "test" / "wled_bridge_full_poc.yaml"
 
 
 def read(path: Path) -> str:
@@ -319,6 +323,20 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         )
         self.assertNotIn("this->source_->add_data_callback", source.split("if (this->source_ == nullptr)", 1)[0])
 
+    def test_audio_demo_configs_start_microphone_and_avoid_gpio3_strapping_pin(self) -> None:
+        for path in (WLED_AUDIO_POC, WLED_FULL_POC):
+            text = read(path)
+            assert_contains_all(
+                self,
+                text,
+                [
+                    "passive: false",
+                    "i2s_lrclk_pin: GPIO6",
+                ],
+            )
+            self.assertNotIn("passive: true", text)
+            self.assertNotIn("i2s_lrclk_pin: GPIO3", text)
+
     def test_audio_fft_allocation_failure_cleans_up_partial_buffers(self) -> None:
         source = read(WLED_AUDIO_FFT_CPP)
 
@@ -522,6 +540,51 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             ],
         )
 
+    def test_info_json_reports_target_arch_instead_of_hardcoded_s3(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "static const char *wled_arch()",
+                "CONFIG_IDF_TARGET_ESP32",
+                "CONFIG_IDF_TARGET_ESP32S3",
+                "wled_arch()",
+                '"arch":"%s"',
+            ],
+        )
+        self.assertNotIn('"arch":"esp32s3"', source)
+
+    def test_component_schema_rejects_unsupported_platforms_and_frameworks(self) -> None:
+        source = read(WLED_INIT_PY)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "Framework",
+                "PLATFORM_ESP32",
+                "cv.only_on(PLATFORM_ESP32)",
+                "cv.only_with_framework(Framework.ESP_IDF)",
+            ],
+        )
+        self.assertNotIn("only_with_esp_idf", source)
+
+    def test_mdns_wled_service_uses_web_server_port(self) -> None:
+        source = read(WLED_BRIDGE_H.parent / "wled_bridge.cpp")
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "wsb->get_port()",
+                'mdns_service_add(nullptr, "_wled", "_tcp", mdns_port, txt, 1)',
+                '"mDNS _wled._tcp registered (port=%u, mac=%s)"',
+            ],
+        )
+        self.assertNotIn('mdns_service_add(nullptr, "_wled", "_tcp", 80, txt, 1)', source)
+
     def test_config_and_network_json_expose_wled_probe_fields(self) -> None:
         header = read(ROOT / "components" / "wled_bridge" / "wled_json.h")
         source = read(WLED_JSON_CPP)
@@ -655,6 +718,32 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "publish_light_state",
             ],
         )
+
+    def test_segment_color_parser_matches_wled_json_color_shapes(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        assert_contains_all(
+            self,
+            source,
+            [
+                "static uint32_t json_color(JsonVariant value, uint32_t fallback)",
+                'value.is<JsonObject>()',
+                'obj["r"].isNull() ? R(fallback) : json_u8(obj["r"])',
+                'obj["g"].isNull() ? G(fallback) : json_u8(obj["g"])',
+                'obj["b"].isNull() ? B(fallback) : json_u8(obj["b"])',
+                'obj["w"].isNull() ? W(fallback) : json_u8(obj["w"])',
+                'text[0] == \'r\' && text[1] == \'\\0\'',
+                "color_wheel(hw_random8())",
+                "parse_hex_color(text, &out)",
+                "kelvin_to_rgbw(value.as<uint32_t>())",
+            ],
+        )
+
+    def test_segment_object_without_id_targets_selected_main_segment(self) -> None:
+        source = read(WLED_JSON_CPP)
+
+        self.assertIn('uint8_t id = segv["id"].isNull() ? comp_->get_main_segment() : json_u8(segv["id"]);', source)
+        self.assertNotIn('uint8_t id = segv["id"].isNull() ? 0 : json_u8(segv["id"]);', source)
 
     def test_json_parser_uses_arduinojson7_style_key_checks(self) -> None:
         source = read(WLED_JSON_CPP)
@@ -1296,14 +1385,13 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             source,
             [
                 "bool WLEDJsonHandler::request_body_",
-                'content_type_contains(request, "application/json")',
-                'content_type_contains(request, "text/json")',
                 "request->contentLength()",
                 "httpd_req_recv(*request",
                 "handle_post_presets_(request, body)",
                 "handle_post_state_(request, body)",
             ],
         )
+        self.assertNotIn("content_type_contains", source)
         self.assertNotIn("handle_post_state_(request, this->post_body_)", source)
         self.assertNotIn("handle_post_presets_(request, this->post_body_)", source)
         self.assertNotIn("std::string post_body_", read(ROOT / "components" / "wled_bridge" / "wled_json.h"))
@@ -1501,7 +1589,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             source,
             [
-                "WLED_PALETTE_MAX = 53",
+                "WLED_PALETTE_MAX = 71",
                 "cv.Required(CONF_PALETTE): cv.templatable(cv.int_range(min=0, max=WLED_PALETTE_MAX))",
             ],
         )
@@ -1757,20 +1845,108 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
         self.assertEqual(len(two_d_entries), count_2d + count_audio_2d)
 
     def test_palette_count_matches_declared_constant(self) -> None:
-        palettes_h = read(ROOT / "components" / "wled_bridge" / "wled_palette.h")
-        palettes_cpp = read(ROOT / "components" / "wled_bridge" / "wled_palette.cpp")
+        palettes_h = read(WLED_PALETTE_H)
+        palettes_cpp = read(WLED_PALETTE_CPP)
 
         match = re.search(r"WLED_PALETTE_COUNT\s*=\s*(\d+)", palettes_h)
         self.assertIsNotNone(match, "WLED_PALETTE_COUNT not found in wled_palette.h")
         declared = int(match.group(1))
         table_entries = re.findall(r"/\*\s*\d+\s*\*/\s*\"[^\"]+\"", palettes_cpp)
 
-        self.assertEqual(declared, 54)
+        self.assertEqual(declared, 72)
         self.assertEqual(
             len(table_entries),
             declared,
             f"WLED_PALETTE_COUNT={declared} but table has {len(table_entries)} entries",
         )
+
+        expected_names = [
+            "Default",
+            "Random Cycle",
+            "Color 1",
+            "Colors 1&2",
+            "Color Gradient",
+            "Colors Only",
+            "Party",
+            "Cloud",
+            "Lava",
+            "Ocean",
+            "Forest",
+            "Rainbow",
+            "Rainbow Bands",
+            "Sunset",
+            "Rivendell",
+            "Breeze",
+            "Red & Blue",
+            "Yellowout",
+            "Analogous",
+            "Splash",
+            "Pastel",
+            "Sunset 2",
+            "Beach",
+            "Vintage",
+            "Departure",
+            "Landscape",
+            "Beech",
+            "Sherbet",
+            "Hult",
+            "Hult 64",
+            "Drywet",
+            "Jul",
+            "Grintage",
+            "Rewhi",
+            "Tertiary",
+            "Fire",
+            "Icefire",
+            "Cyane",
+            "Light Pink",
+            "Autumn",
+            "Magenta",
+            "Magred",
+            "Yelmag",
+            "Yelblu",
+            "Orange & Teal",
+            "Tiamat",
+            "April Night",
+            "Orangery",
+            "C9",
+            "Sakura",
+            "Aurora",
+            "Atlantica",
+            "C9 2",
+            "C9 New",
+            "Temperature",
+            "Aurora 2",
+            "Retro Clown",
+            "Candy",
+            "Toxy Reaf",
+            "Fairy Reaf",
+            "Semi Blue",
+            "Pink Candy",
+            "Red Reaf",
+            "Aqua Flash",
+            "Yelblu Hot",
+            "Lite Light",
+            "Red Flash",
+            "Blink Red",
+            "Red Shift",
+            "Red Tide",
+            "Candy2",
+            "Traffic Light",
+        ]
+        actual_names = re.findall(r"/\*\s*\d+\s*\*/\s*\"([^\"]+)\"", palettes_cpp)
+        self.assertEqual(actual_names, expected_names)
+
+        table_match = re.search(
+            r"const PaletteInfo WLED_PALETTES\[WLED_PALETTE_COUNT\] = \{(?P<body>.*?)\n\};",
+            palettes_cpp,
+            re.S,
+        )
+        self.assertIsNotNone(table_match, "palette table not found")
+        table_rows = re.findall(r"/\*\s*(\d+)\s*\*/\s*\"[^\"]+\",\s*([^}]+)\}", table_match.group("body"))
+        self.assertEqual(len(table_rows), declared)
+        missing_data = [int(index) for index, data_expr in table_rows if int(index) >= 6 and "nullptr" in data_expr]
+        self.assertEqual(missing_data, [])
 
     def test_json_combined_endpoint_includes_effects_and_palettes(self) -> None:
         source = read(WLED_JSON_CPP)

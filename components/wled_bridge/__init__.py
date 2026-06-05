@@ -11,6 +11,8 @@ from esphome.const import (
     CONF_RED,
     CONF_STATE,
     CONF_WHITE,
+    Framework,
+    PLATFORM_ESP32,
 )
 from esphome.core import CORE
 from pathlib import Path
@@ -138,7 +140,7 @@ ARTNET_PORT = 6454
 E131_MAX_UNIVERSE = 63999
 ARTNET_MAX_UNIVERSE = 32767
 WLED_MODE_MAX = 219
-WLED_PALETTE_MAX = 53
+WLED_PALETTE_MAX = 71
 
 # Per-bus config block
 BUS_SCHEMA = cv.Schema(
@@ -377,6 +379,8 @@ def _consume_wled_bridge_sockets(config):
 
 CONFIG_SCHEMA = cv.All(
     CONFIG_SCHEMA,
+    cv.only_on(PLATFORM_ESP32),
+    cv.only_with_framework(Framework.ESP_IDF),
     _validate,
     _consume_wled_bridge_sockets,
 )

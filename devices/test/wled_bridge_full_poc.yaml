@@ -97,7 +97,7 @@ external_components:
     components: [wled_bridge]
 
 i2s_audio:
-  i2s_lrclk_pin: GPIO3
+  i2s_lrclk_pin: GPIO6
   i2s_bclk_pin: GPIO4
 
 microphone:
@@ -158,7 +158,7 @@ wled_bridge:
   # Audio — enables WLED_BRIDGE_AUDIO + WLED_BRIDGE_FFT
   audio:
     microphone: my_mic
-    passive: true
+    passive: false
     fft: true
     agc: true
 

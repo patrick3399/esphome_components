@@ -16,6 +16,7 @@
 #endif
 #include <algorithm>
 #include <esp_random.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,13 +39,28 @@ static void send_json_status(web_server_idf::AsyncWebServerRequest *request, con
   httpd_resp_send(*request, body, HTTPD_RESP_USE_STRLEN);
 }
 
-static bool content_type_contains(web_server_idf::AsyncWebServerRequest *request, const char *needle) {
-  if (request == nullptr)
-    return false;
-  auto content_type = request->get_header("Content-Type");
-  if (!content_type.has_value())
-    return false;
-  return strcasestr(content_type.value().c_str(), needle) != nullptr;
+static const char *wled_arch() {
+#if defined(CONFIG_IDF_TARGET_ESP32)
+  return "esp32";
+#elif defined(CONFIG_IDF_TARGET_ESP32S2)
+  return "ESP32-S2";
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+  return "ESP32-S3";
+#elif defined(CONFIG_IDF_TARGET_ESP32C2)
+  return "ESP32-C2";
+#elif defined(CONFIG_IDF_TARGET_ESP32C3)
+  return "ESP32-C3";
+#elif defined(CONFIG_IDF_TARGET_ESP32C5)
+  return "ESP32-C5";
+#elif defined(CONFIG_IDF_TARGET_ESP32C6)
+  return "ESP32-C6";
+#elif defined(CONFIG_IDF_TARGET_ESP32H2)
+  return "ESP32-H2";
+#elif defined(CONFIG_IDF_TARGET_ESP32P4)
+  return "ESP32-P4";
+#else
+  return "esp32";
+#endif
 }
 
 static bool json_bool(JsonVariant value) {
@@ -120,22 +136,6 @@ static uint8_t clamp_segment_id(size_t id) {
   return static_cast<uint8_t>(id);
 }
 
-static uint32_t json_color(JsonVariant value, uint32_t fallback) {
-  if (value.is<JsonArray>()) {
-    JsonArray arr = value.as<JsonArray>();
-    if (arr.size() >= 3) {
-      uint8_t r = json_u8(arr[0]);
-      uint8_t g = json_u8(arr[1]);
-      uint8_t b = json_u8(arr[2]);
-      uint8_t w = arr.size() >= 4 ? json_u8(arr[3]) : 0;
-      return RGBW32(r, g, b, w);
-    }
-  }
-  if (value.is<uint32_t>())
-    return value.as<uint32_t>();
-  return fallback;
-}
-
 static int hex_nibble(char c) {
   if (c >= '0' && c <= '9')
     return c - '0';
@@ -169,6 +169,68 @@ static bool parse_hex_color(const char *text, uint32_t *out) {
                   static_cast<uint8_t>((value >> 8) & 0xFF), static_cast<uint8_t>(value & 0xFF));
   }
   return true;
+}
+
+static uint8_t clamp_u8_int(int value) {
+  if (value < 0)
+    return 0;
+  if (value > 255)
+    return 255;
+  return static_cast<uint8_t>(value);
+}
+
+static uint32_t kelvin_to_rgbw(uint32_t kelvin) {
+  float temp = static_cast<float>(kelvin) / 100.0f;
+  int r = 0;
+  int g = 0;
+  int b = 0;
+  if (temp <= 66.0f) {
+    r = 255;
+    g = static_cast<int>(roundf(99.4708025861f * logf(temp) - 161.1195681661f));
+    if (temp <= 19.0f) {
+      b = 0;
+    } else {
+      b = static_cast<int>(roundf(138.5177312231f * logf(temp - 10.0f) - 305.0447927307f));
+    }
+  } else {
+    r = static_cast<int>(roundf(329.698727446f * powf(temp - 60.0f, -0.1332047592f)));
+    g = static_cast<int>(roundf(288.1221695283f * powf(temp - 60.0f, -0.0755148492f)));
+    b = 255;
+  }
+  return RGBW32(clamp_u8_int(r), clamp_u8_int(g), clamp_u8_int(b), 0);
+}
+
+static uint32_t json_color(JsonVariant value, uint32_t fallback) {
+  if (value.is<JsonArray>()) {
+    JsonArray arr = value.as<JsonArray>();
+    if (arr.size() >= 3) {
+      uint8_t r = json_u8(arr[0]);
+      uint8_t g = json_u8(arr[1]);
+      uint8_t b = json_u8(arr[2]);
+      uint8_t w = arr.size() >= 4 ? json_u8(arr[3]) : 0;
+      return RGBW32(r, g, b, w);
+    }
+  }
+  if (value.is<JsonObject>()) {
+    JsonObject obj = value.as<JsonObject>();
+    uint8_t r = obj["r"].isNull() ? R(fallback) : json_u8(obj["r"]);
+    uint8_t g = obj["g"].isNull() ? G(fallback) : json_u8(obj["g"]);
+    uint8_t b = obj["b"].isNull() ? B(fallback) : json_u8(obj["b"]);
+    uint8_t w = obj["w"].isNull() ? W(fallback) : json_u8(obj["w"]);
+    return RGBW32(r, g, b, w);
+  }
+  if (value.is<const char *>()) {
+    uint32_t out = fallback;
+    const char *text = value.as<const char *>();
+    if (text != nullptr && text[0] == 'r' && text[1] == '\0')
+      return color_wheel(hw_random8());
+    if (parse_hex_color(text, &out))
+      return out;
+    return fallback;
+  }
+  if (value.is<uint32_t>())
+    return value.as<uint32_t>() == 0 ? 0 : kelvin_to_rgbw(value.as<uint32_t>());
+  return fallback;
 }
 
 static bool json_pixel_color(JsonVariant value, uint32_t *out) {
@@ -543,7 +605,7 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
       "\"channel\":%d"
       "},"
       "\"fs\":{\"u\":0,\"t\":0,\"pmt\":%u},"
-      "\"arch\":\"esp32s3\","
+      "\"arch\":\"%s\","
       "\"core\":\"idf\","
       "\"ip\":\"%s\","
       "\"freeheap\":%u,"
@@ -567,7 +629,7 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
 #else
       0,
 #endif
-      WLED_MODE_COUNT, WLED_PALETTE_COUNT, bssid_str, rssi, signal, channel, pmt, ip_str,
+      WLED_MODE_COUNT, WLED_PALETTE_COUNT, bssid_str, rssi, signal, channel, pmt, wled_arch(), ip_str,
       static_cast<uint32_t>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)), static_cast<uint32_t>(millis() / 1000u), mac,
       matrix_field.c_str());
 }
@@ -1294,15 +1356,11 @@ static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVarian
   if (seg["col"].is<JsonArray>()) {
     JsonArray cols = seg["col"].as<JsonArray>();
     for (size_t i = 0; i < cols.size() && i < 3; i++) {
-      if (cols[i].is<JsonArray>() && cols[i].size() >= 3) {
-        uint8_t r = json_u8(cols[i][0]);
-        uint8_t g = json_u8(cols[i][1]);
-        uint8_t b = json_u8(cols[i][2]);
-        uint8_t w = cols[i].size() >= 4 ? json_u8(cols[i][3]) : 0;
-        comp->segment_set_color(id, static_cast<uint8_t>(i), RGBW32(r, g, b, w));
-      } else if (cols[i].is<uint32_t>()) {
-        comp->segment_set_color(id, static_cast<uint8_t>(i), cols[i].as<uint32_t>());
-      }
+      WLEDBridgeComponent::SegmentReadView sv;
+      uint32_t fallback = comp->get_segment_view(id, sv) ? sv.colors[i] : 0;
+      uint32_t parsed = json_color(cols[i], fallback);
+      if (parsed != fallback || !cols[i].isNull())
+        comp->segment_set_color(id, static_cast<uint8_t>(i), parsed);
     }
   }
   if (!seg["i"].isNull())
@@ -1377,12 +1435,6 @@ bool WLEDJsonHandler::request_body_(web_server_idf::AsyncWebServerRequest *reque
   }
 
   if (request == nullptr || request->method() != HTTP_POST || request->contentLength() == 0)
-    return true;
-
-  // ESPHome's IDF web shim only calls handleBody() for non-IDF async stacks. For
-  // application/json it falls back to the normal handler with the body still
-  // unread, so WLED JSON endpoints need to read it from the raw IDF request.
-  if (!content_type_contains(request, "application/json") && !content_type_contains(request, "text/json"))
     return true;
 
   size_t total = request->contentLength();
@@ -1872,7 +1924,7 @@ void WLEDJsonHandler::handle_post_state_(web_server_idf::AsyncWebServerRequest *
       apply_segment_json(comp_, id, e, true);
     }
   } else if (segv.is<JsonObject>()) {
-    uint8_t id = segv["id"].isNull() ? 0 : json_u8(segv["id"]);
+    uint8_t id = segv["id"].isNull() ? comp_->get_main_segment() : json_u8(segv["id"]);
     apply_segment_json(comp_, id, segv, true);
   } else {
     // Flat root form — apply to main segment but leave on/bri to the global

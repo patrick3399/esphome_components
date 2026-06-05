@@ -134,6 +134,43 @@ struct EffectContext {
       return out;
     }
 
+    if (pal_id >= 3 && pal_id <= 5) {
+      uint32_t stops[4];
+      size_t stop_count = 0;
+      if (pal_id == 3) {
+        stops[0] = color(0);
+        stops[1] = color(0);
+        stops[2] = color(1);
+        stops[3] = color(1);
+        stop_count = 4;
+      } else if (pal_id == 4) {
+        stops[0] = color(2);
+        stops[1] = color(1);
+        stops[2] = color(0);
+        stop_count = 3;
+      } else {
+        stops[0] = color(0);
+        stops[1] = color(1);
+        stops[2] = color(2);
+        stops[3] = color(0);
+        stop_count = 4;
+      }
+
+      uint8_t scaled = stop_count > 1 ? static_cast<uint8_t>((static_cast<uint16_t>(index) * (stop_count - 1)) / 255) : 0;
+      if (scaled >= stop_count - 1)
+        scaled = stop_count - 2;
+      uint8_t local =
+          static_cast<uint8_t>((static_cast<uint16_t>(index) * (stop_count - 1)) - (static_cast<uint16_t>(scaled) * 255));
+      uint32_t a = stops[scaled];
+      uint32_t b = stops[scaled + 1];
+      uint32_t out = RGBW32(lerp8by8(R(a), R(b), local), lerp8by8(G(a), G(b), local), lerp8by8(B(a), B(b), local),
+                            lerp8by8(W(a), W(b), local));
+      if (brightness != 255)
+        out = RGBW32(scale8(R(out), brightness), scale8(G(out), brightness), scale8(B(out), brightness),
+                     scale8(W(out), brightness));
+      return out;
+    }
+
     if (pal_id == PAL_RAINBOW)
       return color_wheel(static_cast<uint8_t>(index + (now >> 3)));
     if (pal_id < WLED_PALETTE_COUNT && WLED_PALETTES[pal_id].data != nullptr)
