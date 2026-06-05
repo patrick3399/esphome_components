@@ -423,7 +423,7 @@ static std::string build_segment_object_json(const WLEDBridgeComponent::SegmentR
                         "\"on\":%s,"
                         "\"frz\":%s,"
                         "\"bri\":%u,"
-                        "\"cct\":127,"
+                        "\"cct\":%u,"
                         "\"set\":0,"
                         "\"col\":[[%u,%u,%u,%u],[%u,%u,%u,%u],[%u,%u,%u,%u]],"
                         "\"fx\":%u,"
@@ -442,7 +442,7 @@ static std::string build_segment_object_json(const WLEDBridgeComponent::SegmentR
                         "\"m12\":0"
                         "}",
                         id, v.start, v.stop, len, v.grouping, v.spacing, v.on ? "true" : "false",
-                        v.freeze ? "true" : "false", v.opacity, R(v.colors[0]), G(v.colors[0]), B(v.colors[0]),
+                        v.freeze ? "true" : "false", v.opacity, v.cct, R(v.colors[0]), G(v.colors[0]), B(v.colors[0]),
                         W(v.colors[0]), R(v.colors[1]), G(v.colors[1]), B(v.colors[1]), W(v.colors[1]), R(v.colors[2]),
                         G(v.colors[2]), B(v.colors[2]), W(v.colors[2]), v.mode, v.speed, v.intensity, v.palette,
                         v.custom1, v.custom2, v.custom3, v.check1 ? "true" : "false", v.check2 ? "true" : "false",
@@ -528,15 +528,15 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
   char mac[13];
   get_mac_address_into_buffer(mac);
 
-  // Light capability: 0x07 = RGB, 0x0F = RGBW
-  uint8_t lc = c->get_auto_white_mode() != 0 ? 0x0F : 0x07;
+  // WLED light capability bits: 0x01 RGB, 0x02 white, 0x04 CCT.
+  uint8_t lc = c->get_light_capability();
 
   // Per-segment light capabilities array
   std::string seglc = "[";
   for (uint8_t i = 0; i < c->get_segment_count(); i++) {
     if (i > 0)
       seglc += ",";
-    seglc += std::to_string(lc);
+    seglc += std::to_string(c->get_segment_light_capability(i));
   }
   seglc += "]";
 
@@ -585,7 +585,7 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
       "\"lc\":%u,"
       "\"rgbw\":%s,"
       "\"wv\":false,"
-      "\"cct\":false,"
+      "\"cct\":%s,"
       "\"seglc\":%s"
       "},"
       "\"str\":false,"
@@ -621,7 +621,7 @@ std::string build_info_json(const WLEDBridgeComponent *c) {
       "%s"
       "}",
       c->get_led_count(), c->get_current_ma(), WLED_FPS, c->get_max_ma(), WLEDBridgeComponent::get_max_segments(), lc,
-      lc > 0x07 ? "true" : "false", seglc.c_str(), c->get_udp_port(),
+      (lc & 0x02) ? "true" : "false", (lc & 0x04) ? "true" : "false", seglc.c_str(), c->get_udp_port(),
       (c->is_ddp_receiving() || c->is_e131_receiving() || c->is_artnet_receiving()) ? "true" : "false",
       c->is_ddp_receiving() ? "DDP" : (c->is_e131_receiving() ? "E1.31" : (c->is_artnet_receiving() ? "Art-Net" : "")),
 #ifdef USE_ESP32
@@ -777,10 +777,10 @@ std::string build_pins_json() {
 }
 
 static std::string build_preset_segment_json(uint8_t id, uint16_t start, uint16_t stop, uint16_t grouping,
-                                             uint16_t spacing, bool on, uint8_t opacity, const uint32_t colors[3],
-                                             uint8_t fx, uint8_t sx, uint8_t ix, uint8_t pal, uint8_t c1, uint8_t c2,
-                                             uint8_t c3, bool o1, bool o2, bool o3, bool reverse, bool mirror,
-                                             bool selected) {
+                                             uint16_t spacing, bool on, uint8_t opacity, uint8_t cct,
+                                             const uint32_t colors[3], uint8_t fx, uint8_t sx, uint8_t ix, uint8_t pal,
+                                             uint8_t c1, uint8_t c2, uint8_t c3, bool o1, bool o2, bool o3,
+                                             bool reverse, bool mirror, bool selected) {
   return string_sprintf("{"
                         "\"id\":%u,"
                         "\"start\":%u,"
@@ -789,6 +789,7 @@ static std::string build_preset_segment_json(uint8_t id, uint16_t start, uint16_
                         "\"spc\":%u,"
                         "\"on\":%s,"
                         "\"bri\":%u,"
+                        "\"cct\":%u,"
                         "\"col\":[[%u,%u,%u,%u],[%u,%u,%u,%u],[%u,%u,%u,%u]],"
                         "\"fx\":%u,"
                         "\"sx\":%u,"
@@ -804,9 +805,10 @@ static std::string build_preset_segment_json(uint8_t id, uint16_t start, uint16_
                         "\"rev\":%s,"
                         "\"mi\":%s"
                         "}",
-                        id, start, stop, grouping, spacing, on ? "true" : "false", opacity, R(colors[0]), G(colors[0]),
-                        B(colors[0]), W(colors[0]), R(colors[1]), G(colors[1]), B(colors[1]), W(colors[1]),
-                        R(colors[2]), G(colors[2]), B(colors[2]), W(colors[2]), fx, sx, ix, pal, c1, c2, c3,
+                        id, start, stop, grouping, spacing, on ? "true" : "false", opacity, cct, R(colors[0]),
+                        G(colors[0]), B(colors[0]), W(colors[0]), R(colors[1]), G(colors[1]), B(colors[1]),
+                        W(colors[1]), R(colors[2]), G(colors[2]), B(colors[2]), W(colors[2]), fx, sx, ix, pal, c1, c2,
+                        c3,
                         o1 ? "true" : "false", o2 ? "true" : "false", o3 ? "true" : "false",
                         selected ? "true" : "false", reverse ? "true" : "false", mirror ? "true" : "false");
 }
@@ -823,7 +825,7 @@ std::string build_presets_json(const WLEDBridgeComponent *c) {
     std::string seg_json = "[";
     seg_json += build_preset_segment_json(
         0, preset->segment_start, preset->segment_stop, preset->main_grouping, preset->main_spacing, preset->on != 0,
-        preset->main_opacity, preset->colors, preset->effect, preset->speed, preset->intensity, preset->palette,
+        preset->main_opacity, preset->main_cct, preset->colors, preset->effect, preset->speed, preset->intensity, preset->palette,
         preset->custom1, preset->custom2, preset->custom3, preset->check1 != 0, preset->check2 != 0,
         preset->check3 != 0, preset->reverse != 0, preset->mirror != 0, preset->main_segment == 0);
     uint8_t extra_count = std::min<uint8_t>(preset->extra_count, WLED_MAX_SEGMENTS - 1);
@@ -831,7 +833,7 @@ std::string build_presets_json(const WLEDBridgeComponent *c) {
       const WLEDExtraSegRecord &seg = preset->extras[i];
       seg_json += ",";
       seg_json += build_preset_segment_json(static_cast<uint8_t>(i + 1), seg.start, seg.stop, seg.grouping, seg.spacing,
-                                            seg.on != 0, seg.opacity, seg.colors, seg.mode, seg.speed, seg.intensity,
+                                            seg.on != 0, seg.opacity, seg.cct, seg.colors, seg.mode, seg.speed, seg.intensity,
                                             seg.palette, seg.custom1, seg.custom2, seg.custom3, seg.check1 != 0,
                                             seg.check2 != 0, seg.check3 != 0, seg.reverse != 0, seg.mirror != 0,
                                             preset->main_segment == i + 1);
@@ -915,6 +917,8 @@ static void fill_extra_record_from_json(WLEDExtraSegRecord *rec, JsonVariant seg
     rec->on = json_bool(seg["on"]) ? 1 : 0;
   if (!seg["bri"].isNull())
     rec->opacity = json_u8(seg["bri"], rec->opacity);
+  if (!seg["cct"].isNull())
+    rec->cct = json_u8(seg["cct"], rec->cct);
   if (!seg["fx"].isNull())
     rec->mode = json_u8(seg["fx"], rec->mode);
   if (!seg["sx"].isNull())
@@ -1002,6 +1006,7 @@ static WLEDPresetRecord preset_from_json(uint8_t preset_id, JsonVariant value) {
     tmp.spacing = preset.main_spacing;
     tmp.on = preset.on;
     tmp.opacity = preset.main_opacity;
+    tmp.cct = preset.main_cct;
     tmp.mode = preset.effect;
     tmp.speed = preset.speed;
     tmp.intensity = preset.intensity;
@@ -1023,6 +1028,7 @@ static WLEDPresetRecord preset_from_json(uint8_t preset_id, JsonVariant value) {
     preset.main_grouping = static_cast<uint8_t>(std::min<uint16_t>(tmp.grouping, 255));
     preset.main_spacing = static_cast<uint8_t>(std::min<uint16_t>(tmp.spacing, 255));
     preset.main_opacity = tmp.opacity;
+    preset.main_cct = tmp.cct;
     preset.effect = tmp.mode;
     preset.speed = tmp.speed;
     preset.intensity = tmp.intensity;
@@ -1345,6 +1351,8 @@ static void apply_segment_json(WLEDBridgeComponent *comp, uint8_t id, JsonVarian
     comp->segment_set_mirror(id, json_bool(seg["mi"]));
   if (!seg["frz"].isNull())
     comp->segment_set_freeze(id, json_bool(seg["frz"]));
+  if (!seg["cct"].isNull())
+    comp->segment_set_cct(id, json_u8(seg["cct"]));
   if (!seg["sel"].isNull()) {
     if (json_bool(seg["sel"])) {
       comp->set_main_segment(id);

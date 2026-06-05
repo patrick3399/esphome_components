@@ -368,6 +368,7 @@ void WLEDUdpSync::apply_packet_(const uint8_t *buf, size_t len) {
             this->comp_->segment_set_color(id, slot,
                                            RGBW32(buf[c_ofs + 0], buf[c_ofs + 1], buf[c_ofs + 2], buf[c_ofs + 3]));
           }
+          this->comp_->segment_set_cct(id, buf[ofs + 27]);
         }
         if (this->comp_->get_udp_receive_effects() && version > 11) {
           uint8_t checks = buf[ofs + 31];

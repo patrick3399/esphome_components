@@ -144,6 +144,7 @@ struct ExtraSegment {
   bool freeze{false};
   bool on{true};
   uint8_t opacity{255};
+  uint8_t cct{127};
   uint8_t mode{0};  // effect id
   EffectParams params{};
   SegmentState env{};

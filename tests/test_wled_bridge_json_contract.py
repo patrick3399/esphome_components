@@ -1019,6 +1019,61 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             ],
         )
 
+    def test_non_addressable_light_bus_uses_capability_safe_sync(self) -> None:
+        codegen = read(WLED_INIT_PY)
+        bridge_h = read(WLED_BRIDGE_H)
+        bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
+        publish_body = bridge_cpp.split("void WLEDBridgeComponent::publish_light_state() {", 1)[1].split(
+            "// ============================================================", 1
+        )[0]
+
+        assert_contains_all(
+            self,
+            codegen,
+            [
+                'CONF_TYPE = "type"',
+                '"monochromatic"',
+                '"rgbct"',
+                '"rgbww"',
+                '"cwww"',
+                "ADDRESSABLE_BUS_SCHEMA",
+                "LIGHTSTATE_BUS_SCHEMA",
+                "add_light_bus",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_h,
+            [
+                "enum class BusKind",
+                "LIGHTSTATE_PIXEL",
+                "void add_light_bus",
+                "light_values_to_rgbw_",
+                "light_values_to_cct_",
+                "set_pixel_cct_",
+            ],
+        )
+        assert_contains_all(
+            self,
+            bridge_cpp,
+            [
+                "bus.kind = BusKind::LIGHTSTATE_PIXEL",
+                "bus.len = 1",
+                "sync_lightstate_buses_to_frame_",
+                "light_values_to_cct_",
+                "ColorCapability::COLD_WARM_WHITE",
+                "ColorCapability::COLOR_TEMPERATURE",
+                "this->set_pixel_cct_(bus.start, cct, mark_dirty)",
+                "call.set_color_mode_if_supported",
+                "call.set_brightness_if_supported",
+                "call.set_warm_white_if_supported",
+                "call.set_cold_white_if_supported",
+                "call.set_publish(false)",
+                "call.set_save(false)",
+            ],
+        )
+        self.assertNotIn("set_rgbw", publish_body)
+
     def test_setup_allocation_failures_release_runtime_buffers(self) -> None:
         bridge_h = read(WLED_BRIDGE_H)
         bridge_cpp = read(ROOT / "components" / "wled_bridge" / "wled_bridge.cpp")
@@ -1160,6 +1215,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 '"tt"',
                 '"mainseg"',
                 '"col"',
+                '"cct"',
                 '"fx"',
                 '"pal"',
                 "method not allowed",
@@ -1169,7 +1225,8 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             bridge_source,
             [
-                "WLED_PRESET_MAGIC = 0x574C5036",
+                "WLED_PRESET_MAGIC = 0x574C5037",
+                "main_cct",
                 "set_default_preset_name_",
                 "copy_preset_name_",
                 '"Preset %u"',
@@ -1210,7 +1267,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
             self,
             source,
             [
-                "WLED_STATE_MAGIC = 0x574C5334",
+                "WLED_STATE_MAGIC = 0x574C5335",
                 "WLED_STATE_SAVE_DELAY_MS",
                 'fnv1a_hash("wled_bridge_state")',
                 "make_preference<WLEDStoredState>",
@@ -2047,6 +2104,7 @@ class WLEDBridgeJsonContractTest(unittest.TestCase):
                 "segment_set_on",
                 "segment_set_mirror",
                 "segment_set_opacity",
+                "segment_set_cct",
                 "segment_set_effect",
                 "segment_set_speed",
                 "segment_set_intensity",

@@ -78,6 +78,7 @@ WLEDCurrentSensor = wled_bridge_ns.class_(
 
 CONF_LIGHT_ID = "light_id"
 CONF_BUSES = "buses"
+CONF_TYPE = "type"
 CONF_MAX_MA = "max_ma"
 CONF_LED_MA = "led_ma"
 CONF_USE_TASK = "use_task"
@@ -134,6 +135,30 @@ AUTO_WHITE_MODES = {
     "max": 4,
 }
 
+BUS_TYPES = {
+    "addressable": "addressable",
+    "mono": "mono",
+    "monochromatic": "mono",
+    "on_off": "on_off",
+    "rgb": "rgb",
+    "rgbw": "rgbw",
+    "rgbww": "rgbww",
+    "rgbct": "rgbct",
+    "cct": "cct",
+    "cwww": "cct",
+    "cold_warm_white": "cct",
+}
+
+BUS_CAPABILITIES = {
+    "mono": 0x02,
+    "on_off": 0x00,
+    "rgb": 0x01,
+    "rgbw": 0x03,
+    "rgbww": 0x07,
+    "rgbct": 0x07,
+    "cct": 0x06,
+}
+
 DDP_PORT = 4048
 E131_PORT = 5568
 ARTNET_PORT = 6454
@@ -142,14 +167,35 @@ ARTNET_MAX_UNIVERSE = 32767
 WLED_MODE_MAX = 219
 WLED_PALETTE_MAX = 71
 
-# Per-bus config block
-BUS_SCHEMA = cv.Schema(
+ADDRESSABLE_BUS_SCHEMA = cv.Schema(
     {
+        cv.Optional(CONF_TYPE, default="addressable"): cv.one_of(
+            "addressable", lower=True
+        ),
         cv.Required(CONF_LIGHT_ID): cv.use_id(light.AddressableLightState),
         cv.Optional(CONF_MAX_MA, default=5000): cv.int_range(min=0),
         cv.Optional(CONF_LED_MA, default=55): cv.positive_int,
     }
 )
+
+LIGHTSTATE_BUS_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_TYPE): cv.enum(BUS_TYPES, lower=True),
+        cv.Required(CONF_LIGHT_ID): cv.use_id(light.LightState),
+        cv.Optional(CONF_MAX_MA, default=5000): cv.int_range(min=0),
+        cv.Optional(CONF_LED_MA, default=55): cv.positive_int,
+    }
+)
+
+
+def _validate_bus(value):
+    bus_type = str(value.get(CONF_TYPE, "addressable")).lower()
+    if BUS_TYPES.get(bus_type, bus_type) == "addressable":
+        return ADDRESSABLE_BUS_SCHEMA(value)
+    return LIGHTSTATE_BUS_SCHEMA(value)
+
+
+BUS_SCHEMA = cv.Schema(_validate_bus)
 
 # Nested realtime: section schema
 REALTIME_SCHEMA = cv.Schema(
@@ -559,7 +605,18 @@ async def to_code(config):
         # Multi-bus path: call add_bus() for each entry in order.
         for bus_cfg in config[CONF_BUSES]:
             light_state = await cg.get_variable(bus_cfg[CONF_LIGHT_ID])
-            cg.add(var.add_bus(light_state, bus_cfg[CONF_MAX_MA], bus_cfg[CONF_LED_MA]))
+            bus_type = bus_cfg.get(CONF_TYPE, "addressable")
+            if bus_type == "addressable":
+                cg.add(var.add_bus(light_state, bus_cfg[CONF_MAX_MA], bus_cfg[CONF_LED_MA]))
+            else:
+                cg.add(
+                    var.add_light_bus(
+                        light_state,
+                        bus_cfg[CONF_MAX_MA],
+                        bus_cfg[CONF_LED_MA],
+                        BUS_CAPABILITIES.get(bus_type, 0),
+                    )
+                )
     else:
         # Single light_id backward-compat path: one bus, global max_ma/led_ma.
         light_state = await cg.get_variable(config[CONF_LIGHT_ID])

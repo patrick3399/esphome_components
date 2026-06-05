@@ -34,8 +34,8 @@ void WLEDProxyEffect::start() {
 // WLEDBridgeComponent
 // ============================================================
 static const char *const TAG = "wled_bridge";
-static constexpr uint32_t WLED_PRESET_MAGIC = 0x574C5036;  // WLP6 (adds playlist presets)
-static constexpr uint32_t WLED_STATE_MAGIC = 0x574C5334;  // WLS4 (adds selected/main segment)
+static constexpr uint32_t WLED_PRESET_MAGIC = 0x574C5037;  // WLP7 (adds segment CCT)
+static constexpr uint32_t WLED_STATE_MAGIC = 0x574C5335;  // WLS5 (adds segment CCT)
 static constexpr uint32_t WLED_STATE_SAVE_DELAY_MS = 2000;
 static constexpr uint32_t WLED_MAX_ADDRESSABLE_LEDS = 65535;
 
@@ -93,10 +93,13 @@ void WLEDBridgeComponent::add_bus(light::LightState *state, uint32_t max_ma, uin
   }
 
   VirtualBus bus;
+  bus.kind = BusKind::ADDRESSABLE;
   bus.light_state = state;
   bus.strip = nullptr;  // resolved in setup() after strips are initialized
   bus.start = 0;  // calculated in setup()
   bus.len = 0;  // calculated in setup()
+  bus.capability = 0;  // inferred in setup()
+  bus.color_mode = light::ColorMode::UNKNOWN;
   bus.max_ma = max_ma;
   bus.led_ma = led_ma;
   this->buses_.push_back(bus);
@@ -105,6 +108,29 @@ void WLEDBridgeComponent::add_bus(light::LightState *state, uint32_t max_ma, uin
     // First bus → primary: used for HA sync and effect registration
     this->light_state_ = state;
   }
+}
+
+void WLEDBridgeComponent::add_light_bus(light::LightState *state, uint32_t max_ma, uint32_t led_ma,
+                                        uint8_t capability) {
+  if (state == nullptr) {
+    ESP_LOGE(TAG, "Ignoring null light bus");
+    return;
+  }
+
+  VirtualBus bus;
+  bus.kind = BusKind::LIGHTSTATE_PIXEL;
+  bus.light_state = state;
+  bus.strip = nullptr;
+  bus.start = 0;
+  bus.len = 0;
+  bus.capability = capability;
+  bus.color_mode = light::ColorMode::UNKNOWN;
+  bus.max_ma = max_ma;
+  bus.led_ma = led_ma;
+  this->buses_.push_back(bus);
+
+  if (this->light_state_ == nullptr)
+    this->light_state_ = state;
 }
 
 // ============================================================
@@ -125,23 +151,40 @@ void WLEDBridgeComponent::setup() {
       this->mark_failed();
       return;
     }
-    bus.strip = static_cast<light::AddressableLight *>(bus.light_state->get_output());
-    if (bus.strip == nullptr) {
-      ESP_LOGE(TAG, "Bus output is not ready or is not addressable");
-      this->mark_failed();
-      return;
-    }
     bus.start = virtual_pos;
-    bus.len = static_cast<uint32_t>(bus.strip->size());
-    virtual_pos += bus.len;
+    if (bus.kind == BusKind::ADDRESSABLE) {
+      bus.strip = static_cast<light::AddressableLight *>(bus.light_state->get_output());
+      if (bus.strip == nullptr) {
+        ESP_LOGE(TAG, "Bus output is not ready or is not addressable");
+        this->mark_failed();
+        return;
+      }
+      bus.len = static_cast<uint32_t>(bus.strip->size());
+      bus.capability = infer_light_capability_(bus.strip->get_traits());
 
-    // Each bus: disable ESPHome colour correction (bridge handles gamma itself)
-    // and claim pixel ownership.
-    bus.strip->set_correction(1.0f, 1.0f, 1.0f);
-    bus.strip->set_effect_active(true);
+      // Each addressable bus: disable ESPHome colour correction (bridge handles
+      // gamma itself) and claim pixel ownership.
+      bus.strip->set_correction(1.0f, 1.0f, 1.0f);
+      bus.strip->set_effect_active(true);
+    } else {
+      bus.strip = nullptr;
+      bus.len = 1;
+      const auto traits = bus.light_state->get_traits();
+      if (bus.capability == 0)
+        bus.capability = infer_light_capability_(traits);
+      bus.color_mode = preferred_color_mode_(traits);
+    }
+    virtual_pos += bus.len;
   }
   this->total_leds_ = virtual_pos;
-  this->light_ = this->buses_[0].strip;  // primary alias for WLEDProxyEffect
+  this->light_ = nullptr;
+  for (const auto &bus : this->buses_) {
+    if (bus.strip != nullptr) {
+      this->light_ = bus.strip;  // primary alias for WLEDProxyEffect
+      this->light_state_ = bus.light_state;
+      break;
+    }
+  }
 
   if (this->total_leds_ == 0) {
     ESP_LOGE(TAG, "All buses report 0 LEDs");
@@ -184,7 +227,20 @@ void WLEDBridgeComponent::setup() {
     ESP_LOGD(TAG, "Boot preset %u applied", this->boot_preset_);
   }
 
-  this->light_state_->add_remote_values_listener(this);
+  for (size_t i = 0; i < this->buses_.size(); i++) {
+    auto *state = this->buses_[i].light_state;
+    if (state == nullptr)
+      continue;
+    bool already_registered = false;
+    for (size_t j = 0; j < i; j++) {
+      if (this->buses_[j].light_state == state) {
+        already_registered = true;
+        break;
+      }
+    }
+    if (!already_registered)
+      state->add_remote_values_listener(this);
+  }
   if (this->state_loaded_) {
     this->publish_light_state();
   } else {
@@ -203,6 +259,7 @@ void WLEDBridgeComponent::setup() {
     return;
   }
   memset(this->full_frame_, 0, buf_bytes);
+  this->sync_lightstate_buses_to_frame_(false);
 
   this->transition_frame_ = static_cast<uint32_t *>(heap_caps_malloc(buf_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (this->transition_frame_ == nullptr)
@@ -310,14 +367,18 @@ void WLEDBridgeComponent::setup() {
     ESP_LOGD(TAG, "Render task started on core 1");
   }
 
-  // Register supported WLED effects as ESPHome proxy effects (primary bus only)
-  for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
-    uint8_t wled_id = effect_wled_id_for_index(i);
-    if (wled_id == WLED_EFFECT_UNSUPPORTED)
-      continue;
-    auto *proxy = new WLEDProxyEffect(WLED_EFFECTS[i].name, wled_id, this);  // NOLINT
-    proxy->init_internal(this->light_state_);
-    this->light_state_->add_effects({proxy});
+  // Register supported WLED effects as ESPHome proxy effects on the primary
+  // addressable bus. All-non-addressable bridge configs still render through
+  // the WLED API, but ESPHome cannot host AddressableLightEffect proxies there.
+  if (this->light_ != nullptr && this->light_state_ != nullptr) {
+    for (size_t i = 0; i < WLED_EFFECT_COUNT; i++) {
+      uint8_t wled_id = effect_wled_id_for_index(i);
+      if (wled_id == WLED_EFFECT_UNSUPPORTED)
+        continue;
+      auto *proxy = new WLEDProxyEffect(WLED_EFFECTS[i].name, wled_id, this);  // NOLINT
+      proxy->init_internal(this->light_state_);
+      this->light_state_->add_effects({proxy});
+    }
   }
 
   if (this->is_2d()) {
@@ -362,6 +423,7 @@ void WLEDBridgeComponent::load_state_() {
   this->main_grouping_ = recovered.main_grouping < 1 ? 1 : recovered.main_grouping;
   this->main_spacing_ = recovered.main_spacing;
   this->main_opacity_ = recovered.main_opacity;
+  this->main_cct_ = recovered.main_cct;
   this->apply_stored_extras_(recovered);
   this->main_segment_ = recovered.main_segment < this->get_segment_count() ? recovered.main_segment : 0;
   this->state_loaded_ = true;
@@ -385,6 +447,7 @@ void WLEDBridgeComponent::apply_stored_extras_(const WLEDStoredState &state) {
     seg.mirror = rec.mirror != 0;
     seg.on = rec.on != 0;
     seg.opacity = rec.opacity;
+    seg.cct = rec.cct;
     seg.mode = effect_wled_id_supported(rec.mode) ? rec.mode : 0;
     seg.params.speed = rec.speed;
     seg.params.intensity = rec.intensity;
@@ -408,6 +471,7 @@ void WLEDBridgeComponent::capture_extras_(WLEDStoredState *state) const {
   state->main_grouping = static_cast<uint8_t>(this->main_grouping_);
   state->main_spacing = static_cast<uint8_t>(this->main_spacing_);
   state->main_opacity = this->main_opacity_;
+  state->main_cct = this->main_cct_;
   state->main_segment = this->get_main_segment();
   state->extra_count = this->extra_count_;
   for (uint8_t i = 0; i < this->extra_count_; i++) {
@@ -421,6 +485,7 @@ void WLEDBridgeComponent::capture_extras_(WLEDStoredState *state) const {
     rec.mirror = seg.mirror ? 1 : 0;
     rec.on = seg.on ? 1 : 0;
     rec.opacity = seg.opacity;
+    rec.cct = seg.cct;
     rec.mode = seg.mode;
     rec.speed = seg.params.speed;
     rec.intensity = seg.params.intensity;
@@ -527,6 +592,7 @@ WLEDPresetRecord WLEDBridgeComponent::current_as_preset_() const {
   preset.main_grouping = static_cast<uint8_t>(this->main_grouping_);
   preset.main_spacing = static_cast<uint8_t>(this->main_spacing_);
   preset.main_opacity = this->main_opacity_;
+  preset.main_cct = this->main_cct_;
   preset.extra_count = this->extra_count_;
   preset.transition_ms = this->transition_ms_;
   preset.colors[0] = this->params_.colors[0];
@@ -543,6 +609,7 @@ WLEDPresetRecord WLEDBridgeComponent::current_as_preset_() const {
     rec.mirror = seg.mirror ? 1 : 0;
     rec.on = seg.on ? 1 : 0;
     rec.opacity = seg.opacity;
+    rec.cct = seg.cct;
     rec.mode = seg.mode;
     rec.speed = seg.params.speed;
     rec.intensity = seg.params.intensity;
@@ -598,6 +665,7 @@ void WLEDBridgeComponent::apply_preset_(const WLEDPresetRecord &preset) {
   this->main_grouping_ = preset.main_grouping < 1 ? 1 : preset.main_grouping;
   this->main_spacing_ = preset.main_spacing;
   this->main_opacity_ = preset.main_opacity;
+  this->main_cct_ = preset.main_cct;
   this->main_segment_ = preset.main_segment < this->get_segment_count() ? preset.main_segment : 0;
   this->transition_ms_ = preset.transition_ms;
   this->params_.colors[0] = preset.colors[0];
@@ -620,6 +688,7 @@ void WLEDBridgeComponent::apply_preset_(const WLEDPresetRecord &preset) {
     seg.mirror = rec.mirror != 0;
     seg.on = rec.on != 0;
     seg.opacity = rec.opacity;
+    seg.cct = rec.cct;
     seg.mode = effect_wled_id_supported(rec.mode) ? rec.mode : 0;
     seg.params.speed = rec.speed;
     seg.params.intensity = rec.intensity;
@@ -652,6 +721,7 @@ void WLEDBridgeComponent::on_light_remote_values_update() {
   if (this->suppress_light_sync_)
     return;
   this->sync_from_light_state_(true);
+  this->sync_lightstate_buses_to_frame_(true);
 }
 
 // ============================================================
@@ -756,6 +826,89 @@ void WLEDBridgeComponent::sync_from_light_state_(bool publish) {
     this->mark_dirty_();
 }
 
+uint32_t WLEDBridgeComponent::light_values_to_rgbw_(const light::LightColorValues &values, uint8_t capability) {
+  if (!values.is_on())
+    return 0;
+
+  uint8_t bri = unit_to_u8(values.get_brightness());
+  uint8_t r = 0;
+  uint8_t g = 0;
+  uint8_t b = 0;
+  uint8_t w = 0;
+
+  if (capability & 0x01) {
+    uint8_t color_bri = unit_to_u8(values.get_color_brightness());
+    r = scale8_linear(scale8_linear(unit_to_u8(values.get_red()), color_bri), bri);
+    g = scale8_linear(scale8_linear(unit_to_u8(values.get_green()), color_bri), bri);
+    b = scale8_linear(scale8_linear(unit_to_u8(values.get_blue()), color_bri), bri);
+  }
+
+  if (capability & 0x02) {
+    uint8_t white = unit_to_u8(values.get_white());
+    uint8_t cw = unit_to_u8(values.get_cold_white());
+    uint8_t ww = unit_to_u8(values.get_warm_white());
+    uint8_t white_level = std::max(white, std::max(cw, ww));
+    if (white_level == 0 && (capability & 0x01) == 0)
+      white_level = 255;
+    w = scale8_linear(white_level, bri);
+  }
+
+  return RGBW32(r, g, b, w);
+}
+
+uint8_t WLEDBridgeComponent::light_values_to_cct_(const light::LightColorValues &values,
+                                                  const light::LightTraits &traits, uint8_t fallback) {
+  const light::ColorMode mode = values.get_color_mode();
+  if (mode & light::ColorCapability::COLD_WARM_WHITE) {
+    float cw = values.get_cold_white();
+    float ww = values.get_warm_white();
+    float sum = cw + ww;
+    if (sum > 0.0f)
+      return unit_to_u8(cw / sum);
+  }
+
+  if (mode & light::ColorCapability::COLOR_TEMPERATURE) {
+    float min_mireds = traits.get_min_mireds();
+    float max_mireds = traits.get_max_mireds();
+    if (max_mireds > min_mireds) {
+      float ct = clamp(values.get_color_temperature(), min_mireds, max_mireds);
+      float cold_ratio = (max_mireds - ct) / (max_mireds - min_mireds);
+      return unit_to_u8(cold_ratio);
+    }
+  }
+
+  return fallback;
+}
+
+bool WLEDBridgeComponent::sync_lightstate_buses_to_frame_(bool mark_dirty) {
+  if (this->full_frame_ == nullptr)
+    return false;
+
+  bool changed = false;
+  for (const auto &bus : this->buses_) {
+    if (bus.kind != BusKind::LIGHTSTATE_PIXEL || bus.light_state == nullptr || bus.start >= this->total_leds_)
+      continue;
+    uint32_t color = light_values_to_rgbw_(bus.light_state->remote_values, bus.capability);
+    if (bus.capability & 0x04) {
+      uint8_t cct = light_values_to_cct_(bus.light_state->remote_values, bus.light_state->get_traits(),
+                                         this->get_pixel_cct_(bus.start));
+      if (this->set_pixel_cct_(bus.start, cct, mark_dirty))
+        changed = true;
+    }
+    if (this->full_frame_[bus.start] == color)
+      continue;
+    this->full_frame_[bus.start] = color;
+    changed = true;
+  }
+
+  if (changed) {
+    this->opacity_map_dirty_ = true;
+    if (mark_dirty)
+      this->mark_dirty_();
+  }
+  return changed;
+}
+
 // ============================================================
 // publish_light_state — outbound WLED UI / JSON state to ESPHome
 // ============================================================
@@ -764,19 +917,39 @@ void WLEDBridgeComponent::publish_light_state() {
     return;
 
   const uint32_t c = this->params_.colors[0];
+  const light::LightTraits traits = this->light_state_->get_traits();
+  uint8_t capability = infer_light_capability_(traits);
+  if (capability == 0)
+    capability = 0x01;
+
+  float r = static_cast<float>(R(c)) / 255.0f;
+  float g = static_cast<float>(G(c)) / 255.0f;
+  float b = static_cast<float>(B(c)) / 255.0f;
+  uint8_t white_u8 = W(c);
+  if ((capability & 0x02) && !(capability & 0x01))
+    white_u8 = std::max<uint8_t>(white_u8, std::max(R(c), std::max(G(c), B(c))));
+  float w = static_cast<float>(white_u8) / 255.0f;
+  float cw = (w * static_cast<float>(this->main_cct_)) / 255.0f;
+  float ww = (w * static_cast<float>(255 - this->main_cct_)) / 255.0f;
+
   auto call = this->light_state_->make_call();
   call.set_state(this->is_on_);
-  call.set_brightness(static_cast<float>(this->global_bri_) / 255.0f);
-  call.set_color_brightness(1.0f);
-  call.set_rgbw(static_cast<float>(R(c)) / 255.0f, static_cast<float>(G(c)) / 255.0f, static_cast<float>(B(c)) / 255.0f,
-                static_cast<float>(W(c)) / 255.0f);
+  call.set_color_mode_if_supported(preferred_color_mode_(traits));
+  call.set_brightness_if_supported(static_cast<float>(this->global_bri_) / 255.0f);
+  call.set_color_brightness_if_supported(fmaxf(r, fmaxf(g, b)));
+  call.set_red_if_supported(r);
+  call.set_green_if_supported(g);
+  call.set_blue_if_supported(b);
+  call.set_white_if_supported(w);
+  call.set_warm_white_if_supported(ww);
+  call.set_cold_white_if_supported(cw);
   const EffectDescriptor *effect = effect_for_wled_id(this->active_fx_);
   if (effect != nullptr) {
     uint32_t effect_index = this->light_state_->get_effect_index(effect->name);
     if (effect_index > 0)
       call.set_effect(effect_index);
   }
-  call.set_transition_length(0);
+  call.set_transition_length_if_supported(0);
 
   this->suppress_light_sync_ = true;
   call.perform();
@@ -936,10 +1109,93 @@ void WLEDBridgeComponent::reset_output_correction_() {
   }
 }
 
+uint8_t WLEDBridgeComponent::infer_light_capability_(const light::LightTraits &traits) {
+  uint8_t cap = 0;
+  if (traits.supports_color_capability(light::ColorCapability::RGB))
+    cap |= 0x01;
+  if (traits.supports_color_capability(light::ColorCapability::WHITE) ||
+      traits.supports_color_capability(light::ColorCapability::COLD_WARM_WHITE) ||
+      traits.supports_color_capability(light::ColorCapability::BRIGHTNESS))
+    cap |= 0x02;
+  if (traits.supports_color_capability(light::ColorCapability::COLOR_TEMPERATURE) ||
+      traits.supports_color_capability(light::ColorCapability::COLD_WARM_WHITE))
+    cap |= 0x04;
+  return cap;
+}
+
+light::ColorMode WLEDBridgeComponent::preferred_color_mode_(const light::LightTraits &traits) {
+  static const light::ColorMode ORDER[] = {
+      light::ColorMode::RGB_COLD_WARM_WHITE, light::ColorMode::RGB_COLOR_TEMPERATURE,
+      light::ColorMode::RGB_WHITE,           light::ColorMode::RGB,
+      light::ColorMode::COLD_WARM_WHITE,     light::ColorMode::COLOR_TEMPERATURE,
+      light::ColorMode::WHITE,               light::ColorMode::BRIGHTNESS,
+      light::ColorMode::ON_OFF,
+  };
+  for (auto mode : ORDER) {
+    if (traits.supports_color_mode(mode))
+      return mode;
+  }
+  return light::ColorMode::UNKNOWN;
+}
+
+uint8_t WLEDBridgeComponent::get_light_capability() const {
+  uint8_t cap = 0;
+  for (const auto &bus : this->buses_)
+    cap |= bus.capability;
+  return cap;
+}
+
+uint8_t WLEDBridgeComponent::get_segment_light_capability(uint8_t segment_id) const {
+  SegmentReadView view;
+  if (!this->get_segment_view(segment_id, view))
+    return this->get_light_capability();
+
+  uint8_t cap = 0;
+  for (const auto &bus : this->buses_) {
+    const uint32_t bus_stop = bus.start + bus.len;
+    if (view.start < bus_stop && view.stop > bus.start)
+      cap |= bus.capability;
+  }
+  return cap;
+}
+
 // ============================================================
 // compute_output_scale_ — brightness + ABL → single 0-255 multiplier
 // Does NOT modify full_frame_[] so unscaled values persist for next frame.
 // ============================================================
+uint8_t WLEDBridgeComponent::get_pixel_cct_(uint32_t index) const {
+  uint8_t cct = this->main_cct_;
+  if (index >= this->segment_start_ && index < this->segment_stop_)
+    cct = this->main_cct_;
+  for (uint8_t s = 0; s < this->extra_count_; s++) {
+    const ExtraSegment &seg = this->extra_segments_[s];
+    if (index >= seg.start && index < seg.stop)
+      cct = seg.cct;
+  }
+  return cct;
+}
+
+bool WLEDBridgeComponent::set_pixel_cct_(uint32_t index, uint8_t cct, bool mark_dirty) {
+  for (uint8_t s = 0; s < this->extra_count_; s++) {
+    ExtraSegment &seg = this->extra_segments_[s];
+    if (index < seg.start || index >= seg.stop)
+      continue;
+    if (seg.cct == cct)
+      return false;
+    seg.cct = cct;
+    if (mark_dirty)
+      this->mark_dirty_();
+    return true;
+  }
+
+  if (index < this->segment_start_ || index >= this->segment_stop_ || this->main_cct_ == cct)
+    return false;
+  this->main_cct_ = cct;
+  if (mark_dirty)
+    this->mark_dirty_();
+  return true;
+}
+
 uint8_t WLEDBridgeComponent::compute_output_scale_() {
   uint8_t effective_bri = this->global_bri_;
   if (this->brightness_factor_ < 100) {
@@ -1003,6 +1259,19 @@ uint8_t WLEDBridgeComponent::compute_output_scale_() {
 // ============================================================
 void WLEDBridgeComponent::flush_frame_to_buses_(uint8_t final_scale) {
   for (const auto &bus : this->buses_) {
+    if (bus.kind == BusKind::LIGHTSTATE_PIXEL) {
+      if (bus.len == 0 || bus.start >= this->total_leds_)
+        continue;
+      uint32_t c = this->full_frame_[bus.start];
+      if (this->auto_white_mode_ != 0)
+        c = apply_auto_white(c, this->auto_white_mode_);
+      uint8_t op = this->pixel_opacity_ != nullptr ? this->pixel_opacity_[bus.start] : 255;
+      uint8_t scale = scale8_linear(op, final_scale);
+      this->flush_lightstate_bus_(bus, RGBW32(scale8_linear(R(c), scale), scale8_linear(G(c), scale),
+                                              scale8_linear(B(c), scale), scale8_linear(W(c), scale)),
+                                  this->get_pixel_cct_(bus.start));
+      continue;
+    }
     if (bus.strip == nullptr)
       continue;
     for (uint32_t i = 0; i < bus.len; i++) {
@@ -1018,6 +1287,48 @@ void WLEDBridgeComponent::flush_frame_to_buses_(uint8_t final_scale) {
     }
     bus.strip->schedule_show();
   }
+}
+
+void WLEDBridgeComponent::flush_lightstate_bus_(const VirtualBus &bus, uint32_t color, uint8_t cct) {
+  if (bus.light_state == nullptr)
+    return;
+
+  float r = static_cast<float>(R(color)) / 255.0f;
+  float g = static_cast<float>(G(color)) / 255.0f;
+  float b = static_cast<float>(B(color)) / 255.0f;
+  uint8_t white_u8 = W(color);
+  if ((bus.capability & 0x02) && !(bus.capability & 0x01))
+    white_u8 = std::max<uint8_t>(white_u8, std::max(R(color), std::max(G(color), B(color))));
+  float w = static_cast<float>(white_u8) / 255.0f;
+  float color_brightness = fmaxf(r, fmaxf(g, b));
+  float brightness = fmaxf(color_brightness, w);
+
+  auto call = bus.light_state->make_call();
+  if (brightness <= 0.0f) {
+    call.set_state(false);
+  } else {
+    color_brightness /= brightness;
+    w /= brightness;
+    call.set_state(true);
+    call.set_color_mode_if_supported(bus.color_mode);
+    call.set_brightness_if_supported(brightness);
+    call.set_color_brightness_if_supported(color_brightness);
+    call.set_red_if_supported(r);
+    call.set_green_if_supported(g);
+    call.set_blue_if_supported(b);
+    call.set_white_if_supported(w);
+    float cw = (w * static_cast<float>(cct)) / 255.0f;
+    float ww = (w * static_cast<float>(255 - cct)) / 255.0f;
+    call.set_warm_white_if_supported(ww);
+    call.set_cold_white_if_supported(cw);
+  }
+  call.set_transition_length_if_supported(0);
+  call.set_publish(false);
+  call.set_save(false);
+
+  this->suppress_light_sync_ = true;
+  call.perform();
+  this->suppress_light_sync_ = false;
 }
 
 uint32_t WLEDBridgeComponent::get_live_pixel_color(uint32_t index) const {
@@ -1467,6 +1778,7 @@ bool WLEDBridgeComponent::get_segment_view(uint8_t id, SegmentReadView &out) con
     out.freeze = this->segment_freeze_;
     out.selected = this->get_main_segment() == 0;
     out.opacity = this->main_opacity_;
+    out.cct = this->main_cct_;
     out.mode = this->active_fx_;
     out.speed = this->params_.speed;
     out.intensity = this->params_.intensity;
@@ -1495,6 +1807,7 @@ bool WLEDBridgeComponent::get_segment_view(uint8_t id, SegmentReadView &out) con
   out.freeze = seg.freeze;
   out.selected = this->get_main_segment() == id;
   out.opacity = seg.opacity;
+  out.cct = seg.cct;
   out.mode = seg.mode;
   out.speed = seg.params.speed;
   out.intensity = seg.params.intensity;
@@ -1628,6 +1941,20 @@ void WLEDBridgeComponent::segment_set_opacity(uint8_t id, uint8_t opacity) {
     seg->opacity = opacity;
   }
   this->opacity_map_dirty_ = true;
+  this->mark_dirty_();
+}
+
+void WLEDBridgeComponent::segment_set_cct(uint8_t id, uint8_t cct) {
+  if (id == 0) {
+    if (this->main_cct_ == cct)
+      return;
+    this->main_cct_ = cct;
+  } else {
+    ExtraSegment *seg = this->resolve_extra_(id);
+    if (seg == nullptr || seg->cct == cct)
+      return;
+    seg->cct = cct;
+  }
   this->mark_dirty_();
 }
 

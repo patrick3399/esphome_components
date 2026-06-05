@@ -67,6 +67,7 @@ struct WLEDExtraSegRecord {
   uint8_t mirror{0};
   uint8_t on{1};
   uint8_t opacity{255};
+  uint8_t cct{127};
   uint8_t mode{0};
   uint8_t speed{128};
   uint8_t intensity{128};
@@ -102,6 +103,7 @@ struct WLEDPresetRecord {
   uint8_t main_grouping{1};
   uint8_t main_spacing{0};
   uint8_t main_opacity{255};
+  uint8_t main_cct{127};
   uint8_t extra_count{0};
   uint8_t playlist_count{0};
   uint8_t playlist_repeat{0};
@@ -125,6 +127,7 @@ struct WLEDStoredState {
   uint8_t main_grouping{1};
   uint8_t main_spacing{0};
   uint8_t main_opacity{255};
+  uint8_t main_cct{127};
   uint8_t main_segment{0};
   uint8_t extra_count{0};
   WLEDExtraSegRecord extras[WLED_MAX_SEGMENTS - 1]{};
@@ -145,6 +148,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   // add_bus() is called once per bus in declaration order.
   // The first call establishes the primary bus (HA sync / effect registration).
   void add_bus(light::LightState *state, uint32_t max_ma, uint32_t led_ma);
+  void add_light_bus(light::LightState *state, uint32_t max_ma, uint32_t led_ma, uint8_t capability);
 
   void set_use_task(bool use_task) {
     this->use_task_ = use_task;
@@ -434,6 +438,9 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint32_t get_bus_len(size_t bus_index) const {
     return bus_index < this->buses_.size() ? this->buses_[bus_index].len : 0;
   }
+  uint8_t get_bus_light_capability(size_t bus_index) const {
+    return bus_index < this->buses_.size() ? this->buses_[bus_index].capability : 0;
+  }
   uint32_t get_bus_max_ma(size_t bus_index) const {
     return bus_index < this->buses_.size() ? this->buses_[bus_index].max_ma : 0;
   }
@@ -449,6 +456,8 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint32_t get_current_ma() const {
     return this->current_ma_;
   }
+  uint8_t get_light_capability() const;
+  uint8_t get_segment_light_capability(uint8_t segment_id) const;
   uint32_t get_live_pixel_color(uint32_t index) const;
   bool set_pixel_override(uint8_t segment_id, uint32_t segment_offset, uint32_t color, bool mark_dirty = true);
   void mark_pixel_overrides_changed();
@@ -550,7 +559,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   struct SegmentReadView {
     uint16_t start, stop, grouping, spacing;
     bool on, reverse, mirror, freeze, selected;
-    uint8_t opacity, mode, speed, intensity, palette;
+    uint8_t opacity, cct, mode, speed, intensity, palette;
     uint8_t custom1, custom2, custom3;
     bool check1, check2, check3;
     uint32_t colors[3];
@@ -563,6 +572,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void segment_set_grouping(uint8_t id, uint16_t grouping, uint16_t spacing);
   void segment_set_on(uint8_t id, bool on);
   void segment_set_opacity(uint8_t id, uint8_t opacity);
+  void segment_set_cct(uint8_t id, uint8_t cct);
   void segment_set_effect(uint8_t id, uint8_t fx);
   void segment_set_speed(uint8_t id, uint8_t v);
   void segment_set_intensity(uint8_t id, uint8_t v);
@@ -652,11 +662,18 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
 
  protected:
   // One physical LED strip with its position in the virtual LED space.
+  enum class BusKind : uint8_t {
+    ADDRESSABLE,
+    LIGHTSTATE_PIXEL,
+  };
   struct VirtualBus {
+    BusKind kind{BusKind::ADDRESSABLE};
     light::LightState *light_state;  // ESPHome LightState (for correction/effect_active)
     light::AddressableLight *strip;  // addressable output (populated in setup)
     uint32_t start;  // virtual start index (sum of preceding bus lengths)
     uint32_t len;  // LED count of this strip
+    uint8_t capability;  // WLED lc bits: 0x01 RGB, 0x02 white, 0x04 CCT
+    light::ColorMode color_mode;  // preferred ESPHome mode for one-pixel LightState buses
     uint32_t max_ma;  // ABL budget for this bus (0 = unlimited)
     uint32_t led_ma;  // estimated mA per LED at full white
   };
@@ -683,6 +700,15 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   void reset_output_correction_();
   uint8_t compute_output_scale_();
   void flush_frame_to_buses_(uint8_t final_scale);
+  void flush_lightstate_bus_(const VirtualBus &bus, uint32_t color, uint8_t cct);
+  bool sync_lightstate_buses_to_frame_(bool mark_dirty);
+  static uint32_t light_values_to_rgbw_(const light::LightColorValues &values, uint8_t capability);
+  static uint8_t light_values_to_cct_(const light::LightColorValues &values, const light::LightTraits &traits,
+                                      uint8_t fallback);
+  uint8_t get_pixel_cct_(uint32_t index) const;
+  bool set_pixel_cct_(uint32_t index, uint8_t cct, bool mark_dirty);
+  static uint8_t infer_light_capability_(const light::LightTraits &traits);
+  static light::ColorMode preferred_color_mode_(const light::LightTraits &traits);
   void apply_transition_blend_(uint32_t now);
   void reset_segment_state_();
   void begin_transition_();
@@ -755,6 +781,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint16_t main_grouping_{1};
   uint16_t main_spacing_{0};
   uint8_t main_opacity_{255};
+  uint8_t main_cct_{127};
   uint8_t main_segment_{0};
   // ---- extra segments (id 1..) ----
   std::array<ExtraSegment, WLED_MAX_SEGMENTS - 1> extra_segments_{};
