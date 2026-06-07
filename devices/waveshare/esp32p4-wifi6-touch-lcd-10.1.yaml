@@ -1,0 +1,623 @@
+# Waveshare ESP32-P4-WIFI6-Touch-LCD-10.1
+# MCU: ESP32-P4, 32 MB flash, 32 MB PSRAM
+# Wi-Fi: ESP32-C6 co-processor through ESP-Hosted SDIO
+# Display: 10.1 inch 800x1280 MIPI-DSI panel
+# Touch: GT911/GT9271 on I2C
+# Audio: ES8311 speaker codec + ES7210 dual-mic ADC
+
+substitutions:
+  devicename: "ws-p4-lcd101"
+  upper_devicename: "WS-P4-LCD-10.1"
+
+esphome:
+  name: $devicename
+  friendly_name: $upper_devicename
+  min_version: "2026.4.0"
+  on_boot:
+    - priority: -100
+      then:
+        - light.turn_on:
+            id: display_backlight
+            brightness: 80%
+
+packages:
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+esp32:
+  board: esp32-p4-evboard
+  variant: esp32p4
+  flash_size: 32MB
+  cpu_frequency: 360MHz
+  framework:
+    type: esp-idf
+    advanced:
+      execute_from_psram: true
+      enable_idf_experimental_features: true
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+preferences:
+  flash_write_interval: 5min
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+  logs:
+    api.service: WARN
+    wifi: WARN
+
+api:
+  reboot_timeout: 6h
+  on_client_connected:
+    - lambda: id(init_in_progress) = false;
+    - script.execute: update_status_labels
+  on_client_disconnected:
+    - script.execute: update_status_labels
+
+wifi:
+  reboot_timeout: 6h
+  ap:
+  on_connect:
+    - script.execute: update_status_labels
+  on_disconnect:
+    - script.execute: update_status_labels
+
+captive_portal:
+
+debug:
+  update_interval: 10s
+
+globals:
+  - id: init_in_progress
+    type: bool
+    restore_value: no
+    initial_value: "true"
+  - id: voice_assistant_phase
+    type: int
+    restore_value: no
+    initial_value: "10"  # 10=not_ready 1=idle 2=listening 3=thinking 4=replying 11=error 12=muted
+  - id: last_touch_ms
+    type: uint32_t
+    restore_value: no
+    initial_value: "0"
+
+# MIPI-DSI PHY power.
+esp_ldo:
+  - voltage: 2.5V
+    channel: 3
+
+http_request:
+
+# ESP32-C6 Wi-Fi co-processor.
+esp32_hosted:
+  variant: ESP32C6
+  reset_pin: GPIO54
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  active_high: true
+
+update:
+  - platform: esp32_hosted
+    name: "ESP-Hosted Firmware"
+    entity_category: diagnostic
+    icon: mdi:chip
+    type: http
+    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json
+    update_interval: 6h
+
+i2c:
+  - id: main_i2c
+    sda: GPIO07
+    scl: GPIO08
+    frequency: 400kHz
+    scan: true
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO26
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    id: display_backlight
+    name: "Display Backlight"
+    icon: mdi:television
+    entity_category: config
+    output: backlight_pwm
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+    on_turn_off:
+      - delay: 300ms
+      - lvgl.pause:
+          show_snow: false
+    on_turn_on:
+      - lvgl.resume:
+
+display:
+  - platform: mipi_dsi
+    id: main_display
+    model: WAVESHARE-P4-NANO-10.1
+    reset_pin:
+      number: GPIO27
+    dimensions:
+      width: 800
+      height: 1280
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: main_i2c
+    update_interval: 50ms
+    display: main_display
+    transform:
+      swap_xy: false
+      mirror_x: false
+      mirror_y: false
+    on_touch:
+      - lambda: |-
+          id(last_touch_ms) = millis();
+          ESP_LOGI("touch", "x=%d y=%d", touch.x, touch.y);
+
+i2s_audio:
+  - id: audio_bus
+    i2s_mclk_pin: GPIO13
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO12
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: main_i2c
+    address: 0x18
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    i2c_id: main_i2c
+    address: 0x40
+
+switch:
+  - platform: gpio
+    id: audio_amplifier
+    name: "Speaker Enable"
+    icon: mdi:speaker
+    entity_category: config
+    pin: GPIO53
+    restore_mode: RESTORE_DEFAULT_ON
+
+  - platform: template
+    id: mic_mute
+    name: "Microphone Mute"
+    icon: mdi:microphone-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - microphone.mute:
+      - lambda: id(voice_assistant_phase) = 12;
+      - script.execute: update_status_labels
+    on_turn_off:
+      - microphone.unmute:
+      - lambda: id(voice_assistant_phase) = 1;
+      - script.execute: update_status_labels
+
+microphone:
+  - platform: i2s_audio
+    id: board_microphone
+    i2s_audio_id: audio_bus
+    i2s_din_pin: GPIO11
+    sample_rate: 16000
+    bits_per_sample: 16bit
+    adc_type: external
+
+speaker:
+  - platform: i2s_audio
+    id: board_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO9
+    audio_dac: es8311_dac
+    dac_type: external
+    channel: mono
+    buffer_duration: 100ms
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+media_player:
+  - platform: speaker
+    id: va_media_player
+    name: "Voice Assistant"
+    volume_initial: 0.7
+    announcement_pipeline:
+      speaker: board_speaker
+      format: FLAC
+      sample_rate: 48000
+      num_channels: 1
+
+voice_assistant:
+  id: va
+  microphone: board_microphone
+  media_player: va_media_player
+  use_wake_word: true
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 2.0
+  on_listening:
+    - lambda: id(voice_assistant_phase) = 2;
+    - script.execute: update_status_labels
+  on_stt_vad_end:
+    - lambda: id(voice_assistant_phase) = 3;
+    - script.execute: update_status_labels
+  on_tts_start:
+    - lambda: id(voice_assistant_phase) = 4;
+    - script.execute: update_status_labels
+  on_end:
+    - wait_until:
+        not:
+          speaker.is_playing:
+    - script.execute: set_idle_or_mute_phase
+    - script.execute: update_status_labels
+  on_error:
+    - if:
+        condition:
+          and:
+            - lambda: return !id(init_in_progress);
+            - lambda: return code != "duplicate_wake_up_detected";
+            - lambda: return code != "stt-no-text-recognized";
+        then:
+          - lambda: id(voice_assistant_phase) = 11;
+          - script.execute: update_status_labels
+          - delay: 2s
+          - script.execute: set_idle_or_mute_phase
+          - script.execute: update_status_labels
+  on_client_connected:
+    - lambda: id(init_in_progress) = false;
+    - script.execute: set_idle_or_mute_phase
+    - voice_assistant.start_continuous:
+    - script.execute: update_status_labels
+  on_client_disconnected:
+    - voice_assistant.stop:
+    - lambda: id(voice_assistant_phase) = 10;
+    - script.execute: update_status_labels
+
+binary_sensor:
+  - platform: gpio
+    id: boot_button
+    name: "Boot Button"
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    on_press:
+      - if:
+          condition:
+            and:
+              - lambda: return !id(init_in_progress);
+              - switch.is_off: mic_mute
+              - wifi.connected:
+              - api.connected:
+          then:
+            - voice_assistant.start:
+
+sensor:
+  - platform: sound_level
+    id: mic_level
+    microphone: board_microphone
+    passive: true
+    measurement_duration: 500ms
+    rms:
+      name: "Mic RMS Level"
+      id: mic_rms_level
+      on_value:
+        - script.execute: update_mic_labels
+    peak:
+      name: "Mic Peak Level"
+      id: mic_peak_level
+      on_value:
+        - script.execute: update_mic_labels
+
+  - platform: internal_temperature
+    id: chip_temp_sensor
+    name: "Chip Temp"
+    entity_category: diagnostic
+    update_interval: 60s
+    on_value:
+      - lvgl.label.update:
+          id: chip_temp_label
+          text: !lambda 'return str_sprintf("Chip %.1f C", x);'
+
+  - platform: debug
+    free:
+      name: "Heap Free"
+    block:
+      name: "Heap Max Block"
+    loop_time:
+      name: "Loop Time"
+    psram:
+      name: "Free PSRAM"
+
+  - id: !extend wifi_signal_sensor
+    on_value:
+      - lvgl.label.update:
+          id: wifi_label
+          text: !lambda 'return str_sprintf("%.0f dBm", x);'
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"
+
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch
+  rotation: 0
+  byte_order: little_endian
+  buffer_size: 25%
+  default_font: montserrat_34
+  bg_color: 0x05070A
+
+  style_definitions:
+    - id: panel_style
+      bg_color: 0x101923
+      bg_opa: COVER
+      border_color: 0x263545
+      border_width: 1
+      radius: 8
+      shadow_opa: TRANSP
+      pad_all: 22
+      scrollbar_mode: "OFF"
+    - id: transparent_style
+      bg_opa: TRANSP
+      border_opa: TRANSP
+      shadow_opa: TRANSP
+      pad_all: 0
+      scrollbar_mode: "OFF"
+
+  pages:
+    - id: main_page
+      bg_color: 0x05070A
+      widgets:
+        - obj:
+            styles: transparent_style
+            align: TOP_MID
+            width: 720
+            height: 92
+            y: 34
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              - label:
+                  id: connection_label
+                  text: "Booting"
+                  text_font: montserrat_26
+                  text_color: 0x9FB3C8
+              - label:
+                  id: wifi_label
+                  text: "-- dBm"
+                  text_font: montserrat_26
+                  text_color: 0x9FB3C8
+
+        - obj:
+            styles: transparent_style
+            align: TOP_MID
+            width: 720
+            height: 230
+            y: 155
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_row: 8
+            widgets:
+              - label:
+                  id: time_label
+                  text: "--:--"
+                  text_font: montserrat_48
+                  text_color: 0xFFFFFF
+                  text_align: CENTER
+              - label:
+                  id: date_label
+                  text: "----/--/--"
+                  text_font: montserrat_34
+                  text_color: 0x6F8498
+                  text_align: CENTER
+
+        - obj:
+            styles: panel_style
+            align: TOP_MID
+            width: 720
+            height: 250
+            y: 430
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: START
+              flex_align_cross: STRETCH
+              pad_row: 18
+            widgets:
+              - label:
+                  text: "Voice Assistant"
+                  text_font: montserrat_48
+                  text_color: 0xA7C7E7
+              - label:
+                  id: voice_status_label
+                  text: "Not Ready"
+                  text_font: montserrat_34
+                  text_color: 0xFFB86C
+              - label:
+                  id: chip_temp_label
+                  text: "Chip --.- C"
+                  text_font: montserrat_26
+                  text_color: 0x8EA4B8
+
+        - obj:
+            styles: panel_style
+            align: TOP_MID
+            width: 720
+            height: 300
+            y: 720
+            layout:
+              type: FLEX
+              flex_flow: COLUMN
+              flex_align_main: START
+              flex_align_cross: STRETCH
+              pad_row: 18
+            widgets:
+              - label:
+                  text: "Microphone"
+                  text_font: montserrat_48
+                  text_color: 0x7EE787
+              - bar:
+                  id: mic_rms_bar
+                  width: 100%
+                  height: 34
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  indicator:
+                    bg_color: 0x7EE787
+                  bg_color: 0x1F2B36
+              - bar:
+                  id: mic_peak_bar
+                  width: 100%
+                  height: 34
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  indicator:
+                    bg_color: 0x8AB4F8
+                  bg_color: 0x1F2B36
+              - label:
+                  id: mic_label
+                  text: "RMS --.- dB   Peak --.- dB"
+                  text_font: montserrat_26
+                  text_color: 0xAEBECD
+
+        - obj:
+            styles: transparent_style
+            align: BOTTOM_MID
+            width: 720
+            height: 70
+            y: -34
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+            widgets:
+              - label:
+                  text: "Waveshare ESP32-P4 10.1"
+                  text_font: montserrat_26
+                  text_color: 0x51606F
+              - label:
+                  text: "ESPHome"
+                  text_font: montserrat_26
+                  text_color: 0x51606F
+
+interval:
+  - interval: 1min
+    then:
+      - script.execute: update_clock_labels
+  - interval: 15s
+    then:
+      - if:
+          condition:
+            lambda: return millis() - id(last_touch_ms) > 60000;
+          then:
+            - light.turn_on:
+                id: display_backlight
+                brightness: 15%
+
+script:
+  - id: update_clock_labels
+    mode: restart
+    then:
+      - if:
+          condition:
+            time.has_time:
+              id: homeassistant_time
+          then:
+            - lvgl.label.update:
+                id: time_label
+                text: !lambda |-
+                  auto t = id(homeassistant_time).now();
+                  return t.strftime("%H:%M").c_str();
+            - lvgl.label.update:
+                id: date_label
+                text: !lambda |-
+                  auto t = id(homeassistant_time).now();
+                  return t.strftime("%Y/%m/%d").c_str();
+
+  - id: update_status_labels
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: connection_label
+          text: !lambda |-
+            if (id(init_in_progress)) return std::string("Booting");
+            if (!wifi::global_wifi_component->is_connected()) return std::string("No WiFi");
+            if (!api::global_api_server->is_connected()) return std::string("No HA");
+            return std::string("Connected");
+      - lvgl.label.update:
+          id: voice_status_label
+          text: !lambda |-
+            auto p = id(voice_assistant_phase);
+            if (p == 1) return std::string("Ready");
+            if (p == 2) return std::string("Listening");
+            if (p == 3) return std::string("Thinking");
+            if (p == 4) return std::string("Replying");
+            if (p == 11) return std::string("Error");
+            if (p == 12) return std::string("Muted");
+            return std::string("Not Ready");
+      - script.execute: update_clock_labels
+
+  - id: update_mic_labels
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: mic_label
+          text: !lambda |-
+            float rms = id(mic_rms_level).state;
+            float peak = id(mic_peak_level).state;
+            if (isnan(rms) || isnan(peak)) {
+              return std::string("RMS --.- dB   Peak --.- dB");
+            }
+            return str_sprintf("RMS %.1f dB   Peak %.1f dB", rms, peak);
+      - lvgl.bar.update:
+          id: mic_rms_bar
+          value: !lambda |-
+            float v = id(mic_rms_level).state;
+            if (isnan(v)) return 0;
+            return clamp<int>((int) roundf((v + 60.0f) * 1.6667f), 0, 100);
+      - lvgl.bar.update:
+          id: mic_peak_bar
+          value: !lambda |-
+            float v = id(mic_peak_level).state;
+            if (isnan(v)) return 0;
+            return clamp<int>((int) roundf((v + 60.0f) * 1.6667f), 0, 100);
+
+  - id: set_idle_or_mute_phase
+    then:
+      - if:
+          condition:
+            switch.is_off: mic_mute
+          then:
+            - lambda: id(voice_assistant_phase) = 1;
+          else:
+            - lambda: id(voice_assistant_phase) = 12;
