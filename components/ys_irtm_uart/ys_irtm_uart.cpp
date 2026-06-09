@@ -156,5 +156,69 @@ bool YSIrtmUartComponent::set_module_baudrate(YSIrtmBaudRate baud_id) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// YsIrtmInfrared — infrared platform implementation
+// ---------------------------------------------------------------------------
+#ifdef USE_IR_RF
+
+void YsIrtmInfrared::setup() {
+  // YS-IRTM is TX-only; RX is handled by ir_rf_proxy + remote_receiver.
+  // Do NOT call Infrared::setup() — it checks transmitter_/receiver_ pointers
+  // which are unused here (we drive UART directly).
+  this->traits_.set_supports_transmitter(true);
+  this->traits_.set_supports_receiver(false);
+}
+
+void YsIrtmInfrared::dump_config() {
+  ESP_LOGCONFIG(TAG, "YS-IRTM Infrared TX (NEC only):");
+  ESP_LOGCONFIG(TAG, "  Name: %s", this->get_name().c_str());
+}
+
+void YsIrtmInfrared::control(const infrared::InfraredCall &call) {
+  if (this->ys_ == nullptr) {
+    ESP_LOGW(TAG, "infrared: no ys_irtm_uart configured");
+    return;
+  }
+  if (!call.has_raw_timings()) {
+    ESP_LOGE(TAG, "infrared: no raw timings in call");
+    return;
+  }
+
+  // Decode raw timings from InfraredCall (supports packed / base64url / vector).
+  // We stage into RemoteTransmitData first so we can run NECProtocol::decode()
+  // regardless of which encoding HA sent.
+  remote_base::RemoteTransmitData tx_buf;
+  if (call.is_packed()) {
+    tx_buf.set_data_from_packed_sint32(call.get_packed_data(), call.get_packed_length(), call.get_packed_count());
+  } else if (call.is_base64url()) {
+    if (!tx_buf.set_data_from_base64url(call.get_base64url_data())) {
+      ESP_LOGE(TAG, "infrared: invalid base64url timings");
+      return;
+    }
+  } else {
+    tx_buf.set_data(call.get_raw_timings());
+  }
+
+  remote_base::RemoteReceiveData rx_data(tx_buf.get_data(), 25, remote_base::TOLERANCE_MODE_PERCENTAGE);
+  auto nec = remote_base::NECProtocol().decode(rx_data);
+  if (!nec.has_value()) {
+    ESP_LOGW(TAG, "infrared: could not decode NEC — YS-IRTM supports NEC only");
+    return;
+  }
+
+  // NEC address is 16-bit; map to YS-IRTM user_code bytes (lo byte first).
+  const uint8_t user_code_hi = static_cast<uint8_t>(nec->address & 0xFF);
+  const uint8_t user_code_lo = static_cast<uint8_t>((nec->address >> 8) & 0xFF);
+  const uint8_t key_code = static_cast<uint8_t>(nec->command & 0xFF);
+  // repeat_count ≥ 1 (1 = single transmission); convert to YS-IRTM repeat frames.
+  const uint8_t repeats = call.get_repeat_count() > 1 ? static_cast<uint8_t>(call.get_repeat_count() - 1) : 0;
+
+  ESP_LOGI(TAG, "infrared → NEC TX: address=0x%04X  command=0x%04X  repeats=%u", static_cast<unsigned>(nec->address),
+           static_cast<unsigned>(nec->command), repeats);
+  this->ys_->send_nec(user_code_hi, user_code_lo, key_code, repeats);
+}
+
+#endif  // USE_IR_RF
+
 }  // namespace ys_irtm_uart
 }  // namespace esphome

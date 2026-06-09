@@ -8,6 +8,12 @@
 
 #include <string>
 
+#ifdef USE_IR_RF
+#include "esphome/components/infrared/infrared.h"
+#include "esphome/components/remote_base/nec_protocol.h"
+#include "esphome/components/remote_base/remote_base.h"
+#endif
+
 namespace esphome {
 namespace ys_irtm_uart {
 
@@ -200,6 +206,28 @@ class IrReceiveTrigger : public Trigger<uint8_t, uint8_t, uint8_t> {
     parent->add_on_ir_receive_callback([this](uint8_t hi, uint8_t lo, uint8_t key) { this->trigger(hi, lo, key); });
   }
 };
+
+// ---------------------------------------------------------------------------
+// infrared platform: YsIrtmInfrared
+// Wraps YSIrtmUartComponent as an infrared::Infrared entity (TX-only, NEC).
+// HA sends raw timings → decode NEC → send via UART.
+// ---------------------------------------------------------------------------
+#ifdef USE_IR_RF
+class YsIrtmInfrared : public infrared::Infrared {
+ public:
+  void setup() override;
+  void dump_config() override;
+
+  void set_ys_irtm(YSIrtmUartComponent *ys) {
+    this->ys_ = ys;
+  }
+
+ protected:
+  void control(const infrared::InfraredCall &call) override;
+
+  YSIrtmUartComponent *ys_{nullptr};
+};
+#endif  // USE_IR_RF
 
 }  // namespace ys_irtm_uart
 }  // namespace esphome

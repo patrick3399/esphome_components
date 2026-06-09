@@ -18,22 +18,7 @@ api:
   encryption:
     key: !secret api_key
   services:
-    # HA IR/RF Proxy → ESPHome bridge.
-    # Call from Home Assistant to transmit an NEC IR command.
-    - service: ir_rf_proxy_tx_bridge
-      variables:
-        protocol: string
-        address: int
-        command: int
-        repeats: int
-      then:
-        - ys_irtm_uart.send_proxy_packet:
-            id: ys_irtm
-            protocol: !lambda 'return protocol;'
-            address:  !lambda 'return static_cast<uint32_t>(address);'
-            command:  !lambda 'return static_cast<uint32_t>(command);'
-            repeats:  !lambda 'return static_cast<uint8_t>(repeats);'
-
+    # Direct low-level NEC TX — useful for debugging without the infrared entity.
     - service: send_nec
       variables:
         user_code_hi: int
@@ -79,8 +64,30 @@ ys_irtm_uart:
   on_ir_receive:
     then:
       - logger.log:
-          format: "IR received: UserCode=0x%02X%02X  KeyCode=0x%02X"
+          format: "UART IR RX: UserCode=0x%02X%02X  KeyCode=0x%02X"
           args: ["user_code_hi", "user_code_lo", "key_code"]
+
+# GPIO IR receiver for HA infrared integration (RX path).
+# Pin GPIO34 is input-only on ESP32 — suitable for IR receiver module.
+# Most modules (TSOP38238, etc.) output active-low; inverted: true corrects this.
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO34
+    inverted: true
+  tolerance: 25%
+
+# HA infrared integration:
+#   TX — ys_irtm_uart platform: NEC commands sent via UART to YS-IRTM module.
+#   RX — ir_rf_proxy platform:  raw timings captured via GPIO remote_receiver.
+infrared:
+  - platform: ys_irtm_uart
+    name: "IR Transmitter"
+    ys_irtm_uart_id: ys_irtm
+
+  - platform: ir_rf_proxy
+    name: "IR Receiver"
+    remote_receiver_id: ir_rx
 
 button:
   - platform: template
