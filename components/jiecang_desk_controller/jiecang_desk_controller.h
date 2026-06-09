@@ -90,6 +90,8 @@ class JiecangDeskController : public Component, public uart::UARTDevice {
   float limit_max_{0.0f};
   bool limits_known_{false};
   uint32_t last_rx_ms_{0};
+  uint32_t boot_ms_{0};
+  bool initial_contact_{false};
 
   // Sensor sub-entities
   sensor::Sensor *height_sensor_{nullptr};

@@ -43,11 +43,15 @@ static constexpr uint8_t TX_CMD_STOP = 0x2B;
 
 static constexpr uint32_t WAKE_IDLE_MS = 5000;
 static constexpr uint32_t WAKE_DELAY_MS = 100;
+// After boot, wait this long for the desk to reply before flagging a warning.
+// Queries are sent at ~0.5–0.9 s; a real desk responds within 1–2 s.
+static constexpr uint32_t NO_DATA_WARN_MS = 10000;
 
 // ─── Component lifecycle ──────────────────────────────────────────────────────
 
 void JiecangDeskController::setup() {
-  this->last_rx_ms_ = millis();
+  this->boot_ms_ = millis();
+  this->last_rx_ms_ = this->boot_ms_;
 
   this->set_timeout(500, [this]() {
     this->write_raw_(TX_CMD_QUERY_PHYS_LIMITS);
@@ -65,10 +69,19 @@ void JiecangDeskController::loop() {
       break;
     this->handle_byte_(b);
   }
+
+  // No-data watchdog: if the desk hasn't responded to our boot queries within
+  // NO_DATA_WARN_MS, surface a warning so misconfigured wiring is visible in HA.
+  // Cleared on the first valid frame received (see handle_message_).
+  if (!this->initial_contact_ && millis() - this->boot_ms_ > NO_DATA_WARN_MS) {
+    ESP_LOGW(TAG, "No data received from desk — check UART wiring and baud rate (9600 8N1)");
+    this->status_set_warning();
+  }
 }
 
 void JiecangDeskController::dump_config() {
   ESP_LOGCONFIG(TAG, "Jiecang Desk Controller:");
+  this->check_uart_settings(9600);
   ESP_LOGCONFIG(TAG, "  Height: %.1f cm", this->current_height_);
   if (this->limits_known_) {
     ESP_LOGCONFIG(TAG, "  Physical limits: min=%.1f cm  max=%.1f cm", this->physical_min_, this->physical_max_);
@@ -145,6 +158,10 @@ void JiecangDeskController::handle_message_() {
   }
 
   this->last_rx_ms_ = millis();
+  if (!this->initial_contact_) {
+    this->initial_contact_ = true;
+    this->status_clear_warning();
+  }
 
   ESP_LOGV(TAG, "RX cmd=0x%02X param_cnt=%u", cmd, param_cnt);
 
