@@ -74,7 +74,10 @@ void JiecangDeskController::loop() {
   // NO_DATA_WARN_MS, surface a warning so misconfigured wiring is visible in HA.
   // Cleared on the first valid frame received (see handle_message_).
   if (!this->initial_contact_ && millis() - this->boot_ms_ > NO_DATA_WARN_MS) {
-    ESP_LOGW(TAG, "No data received from desk — check UART wiring and baud rate (9600 8N1)");
+    if (!this->no_data_warned_) {
+      ESP_LOGW(TAG, "No data received from desk — check UART wiring and baud rate (9600 8N1)");
+      this->no_data_warned_ = true;
+    }
     this->status_set_warning();
   }
 }
@@ -133,7 +136,7 @@ void JiecangDeskController::handle_byte_(uint8_t b) {
 
 void JiecangDeskController::handle_message_() {
   if (this->rx_len_ < 3) {
-    ESP_LOGV(TAG, "Frame too short (%u bytes)", this->rx_len_);
+    ESP_LOGW(TAG, "Frame too short (%u bytes) — ignoring", this->rx_len_);
     return;
   }
 
