@@ -103,6 +103,8 @@ void JiecangDeskController::handle_byte_(uint8_t b) {
       break;
 
     case ParseState::BUFFERING:
+      // 0x7E is treated as frame terminator; if the desk ever embeds 0x7E in a
+      // payload the frame will end early. Known Jiecang commands don't do this.
       if (b == FRAME_END) {
         this->handle_message_();
         this->parse_state_ = ParseState::WAIT_FIRST_F2;
