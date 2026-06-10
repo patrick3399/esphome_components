@@ -1,0 +1,77 @@
+esphome:
+  name: mcu90640-poc
+  friendly_name: MCU90640 PoC
+
+esp32:
+  board: esp32-c3-devkitm-1
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_4MB: "y"
+
+logger:
+  level: DEBUG
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [mcu90640]
+    refresh: 0s
+
+# GY-MCU90640 wiring: module TX -> GPIO6 (rx_pin), module RX -> GPIO5 (tx_pin)
+uart:
+  id: uart_thermal
+  rx_pin: GPIO6
+  tx_pin: GPIO5
+  baud_rate: 115200
+
+mcu90640:
+  id: thermal_cam
+  name: "MCU90640 Thermal Camera"
+  uart_id: uart_thermal
+  update_interval: 1s
+  idle_update_interval: 30s
+  jpeg_quality: 60
+  output_width: 64   # 2x native 32 cols
+  output_height: 48  # 2x native 24 rows
+  rotation: 0
+  mirror_horizontal: true
+  emissivity: 1.0
+
+sensor:
+  - platform: mcu90640
+    mcu90640_id: thermal_cam
+    avg_temperature:
+      name: "Thermal Avg Temp"
+    min_temperature:
+      name: "Thermal Min Temp"
+    max_temperature:
+      name: "Thermal Max Temp"
+    ambient_temperature:
+      name: "Thermal Ambient Temp"
+    centroid_x:
+      name: "Thermal Centroid X"
+    centroid_y:
+      name: "Thermal Centroid Y"
+
+binary_sensor:
+  - platform: mcu90640
+    mcu90640_id: thermal_cam
+    presence:
+      name: "Room Presence"
+      threshold: 3.0
+      min_pixels: 5
+    hot_spot:
+      name: "Hot Spot Alert"
+      threshold: 50.0
+  - platform: status
+    name: "Status"
