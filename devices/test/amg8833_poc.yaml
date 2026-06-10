@@ -28,6 +28,7 @@ i2c:
   scan: false
 
 amg8833:
+  id: thermal_cam
   name: "AMG8833 Thermal Camera"
   address: 0x69
   update_interval: 1s
@@ -35,11 +36,15 @@ amg8833:
   jpeg_quality: 60
   output_width: 64
   output_height: 64
-  avg_temperature:
-    name: "Thermal Avg Temp"
-  min_temperature:
-    name: "Thermal Min Temp"
-  max_temperature:
-    name: "Thermal Max Temp"
-  thermistor_temperature:
-    name: "Thermal Sensor Temp"
+
+sensor:
+  - platform: amg8833
+    amg8833_id: thermal_cam
+    avg_temperature:
+      name: "Thermal Avg Temp"
+    min_temperature:
+      name: "Thermal Min Temp"
+    max_temperature:
+      name: "Thermal Max Temp"
+    thermistor_temperature:
+      name: "Thermal Sensor Temp"
