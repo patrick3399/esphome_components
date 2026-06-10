@@ -3,15 +3,20 @@ esphome:
   friendly_name: AMG8833 PoC
 
 esp32:
-  board: esp32-s3-devkitc-1
+  board: esp32-c3-devkitm-1
   framework:
     type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESPTOOLPY_FLASHSIZE_4MB: "y"
 
 logger:
   level: DEBUG
-  baud_rate: 0
+  hardware_uart: USB_SERIAL_JTAG
 
 api:
+
+ota:
+  - platform: esphome
 
 wifi:
   ssid: !secret wifi_ssid
@@ -23,8 +28,8 @@ external_components:
     refresh: 0s
 
 i2c:
-  sda: GPIO41
-  scl: GPIO42
+  sda: GPIO6
+  scl: GPIO5
   scan: false
 
 amg8833:
@@ -32,10 +37,10 @@ amg8833:
   name: "AMG8833 Thermal Camera"
   address: 0x69
   update_interval: 1s
-  idle_update_interval: 30s
+  idle_update_interval: 5s
   jpeg_quality: 60
-  output_width: 64
-  output_height: 64
+  output_width: 32
+  output_height: 32
 
 sensor:
   - platform: amg8833

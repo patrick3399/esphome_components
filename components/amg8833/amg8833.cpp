@@ -149,8 +149,18 @@ void AMG8833Component::setup() {
 void AMG8833Component::loop() {
   uint32_t now = millis();
   bool has_requesters = (this->single_requesters_ != 0) || (this->stream_requesters_ != 0);
-  uint32_t interval = has_requesters ? this->update_interval_ : this->idle_update_interval_;
-
+  // Sensor and binary_sensor consumers must poll at update_interval regardless of camera
+  // activity; presence detection breaks if throttled to the 60s idle rate. The idle interval
+  // is only used when the component is in pure camera-only mode with no active requesters.
+  bool has_consumers = false;
+#ifdef USE_SENSOR
+  has_consumers = this->avg_temp_sensor_ || this->min_temp_sensor_ || this->max_temp_sensor_ ||
+                  this->thermistor_sensor_ || this->centroid_x_sensor_ || this->centroid_y_sensor_;
+#endif
+#ifdef USE_BINARY_SENSOR
+  has_consumers = has_consumers || this->presence_sensor_ || this->hot_spot_sensor_;
+#endif
+  uint32_t interval = (has_consumers || has_requesters) ? this->update_interval_ : this->idle_update_interval_;
   if (now - this->last_update_ < interval) {
     return;
   }

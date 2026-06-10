@@ -29,10 +29,10 @@ CONFIG_SCHEMA = (
         {
             cv.GenerateID(): cv.declare_id(AMG8833Component),
             cv.Optional(CONF_UPDATE_INTERVAL, default="1s"): cv.update_interval,
-            cv.Optional(CONF_IDLE_UPDATE_INTERVAL, default="15s"): cv.update_interval,
+            cv.Optional(CONF_IDLE_UPDATE_INTERVAL, default="60s"): cv.update_interval,
             cv.Optional(CONF_JPEG_QUALITY, default=80): cv.int_range(min=6, max=63),
-            cv.Optional(CONF_OUTPUT_WIDTH, default=64): cv.int_range(min=8, max=320),
-            cv.Optional(CONF_OUTPUT_HEIGHT, default=64): cv.int_range(min=8, max=320),
+            cv.Optional(CONF_OUTPUT_WIDTH, default=32): cv.int_range(min=8, max=320),
+            cv.Optional(CONF_OUTPUT_HEIGHT, default=32): cv.int_range(min=8, max=320),
         }
     )
     .extend(i2c.i2c_device_schema(0x69))
