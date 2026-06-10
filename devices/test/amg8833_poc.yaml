@@ -69,3 +69,5 @@ binary_sensor:
     hot_spot:
       name: "Hot Spot Alert"
       threshold: 50.0  # absolute °C threshold; any pixel at or above triggers
+  - platform: status
+    name: "Status"
