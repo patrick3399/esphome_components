@@ -15,7 +15,6 @@ Components live under [components/](components/).
 | `ed047tc1` | ED047TC1 4.7 inch e-paper display driver using EPDIY. | M5Stack Paper S3 LVGL e-paper UI. |
 | `esp_sr_wake_word` | Experimental ESP-SR wake word component. | CoreS3 SE ESP-SR voice assistant variant. |
 | `i2s_audio` | Local override of ESPHome `i2s_audio` speaker support. | M5Stack Cardputer speaker `output_gain`. |
-| `pca9505` | I2C GPIO expander. | Available, not used by the current demo YAMLs. |
 | `qmi8658` | QMI8658 6-axis IMU sensor. | Waveshare ESP32-S3 Matrix and Touch AMOLED demos. |
 | `ys_irtm_uart` | YS-IRTM UART infrared transceiver. NEC TX/RX, HA IR/RF Proxy bridge. | Generic ESP32 demo. |
 
@@ -41,7 +40,7 @@ Demo YAMLs live under [devices/](devices/).
 | WLED Bridge Realtime PoC | [devices/test/wled_bridge_realtime_poc.yaml](devices/test/wled_bridge_realtime_poc.yaml) | ESP32-S3 realtime receiver coverage for WLED notifier, DDP, E1.31, and Art-Net with boot preset and brightness factor. | `wled_bridge` |
 | WLED Bridge Audio PoC | [devices/test/wled_bridge_audio_poc.yaml](devices/test/wled_bridge_audio_poc.yaml) | ESP32-S3, I2S microphone, sound reactive effects — volume + FFT GEQ + beat detection + AGC. | `wled_bridge` |
 | WLED Bridge Entities PoC | [devices/test/wled_bridge_entities_poc.yaml](devices/test/wled_bridge_entities_poc.yaml) | ESP32-S3, HA select/number entities — palette select, effect select, speed and intensity numbers for dashboard control. | `wled_bridge` |
-| Custom Components Smoke | [devices/test/custom_components_smoke.yaml](devices/test/custom_components_smoke.yaml) | ESP32-S3 compile smoke coverage for IMU sensors, I2C expanders, keypad scanner, and YS-IRTM UART actions. | `74hc138_keypad`, `aw9523`, `bmi270`, `pca9505`, `qmi8658`, `ys_irtm_uart` |
+| Custom Components Smoke | [devices/test/custom_components_smoke.yaml](devices/test/custom_components_smoke.yaml) | ESP32-S3 compile smoke coverage for IMU sensors, I2C expanders, keypad scanner, and YS-IRTM UART actions. | `74hc138_keypad`, `aw9523`, `bmi270`, `qmi8658`, `ys_irtm_uart` |
 | YS-IRTM UART Bridge | [devices/generic/ys-irtm-demo.yaml](devices/generic/ys-irtm-demo.yaml) | NEC IR transmit/receive, HA IR/RF Proxy bridge service, raw hex send. | `ys_irtm_uart` |
 | Guition ESP32-S3-4848S040 | TBD | Display, touch, relays. | TBD |
 | Guition JC3636K518 | TBD | QSPI display, touch, audio, encoder. | TBD |

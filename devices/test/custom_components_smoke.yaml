@@ -40,7 +40,6 @@ external_components:
       - 74hc138_keypad
       - aw9523
       - bmi270
-      - pca9505
       - qmi8658
       - ys_irtm_uart
 
@@ -60,10 +59,6 @@ aw9523:
   address: 0x59
   imax_divider: 1
   latch_inputs: true
-
-pca9505:
-  id: pca9505_hub
-  address: 0x20
 
 ys_irtm_uart:
   id: ir_bridge
@@ -130,15 +125,6 @@ binary_sensor:
       mode:
         input: true
       inverted: true
-  - platform: gpio
-    name: "PCA9505 Smoke Input"
-    pin:
-      pca9505: pca9505_hub
-      number: 0
-      mode:
-        input: true
-      inverted: true
-
 switch:
   - platform: gpio
     name: "AW9523 Smoke Output"
@@ -147,14 +133,6 @@ switch:
       number: 1
       mode:
         output: true
-  - platform: gpio
-    name: "PCA9505 Smoke Output"
-    pin:
-      pca9505: pca9505_hub
-      number: 1
-      mode:
-        output: true
-
 sensor:
   - platform: bmi270
     address: 0x68
