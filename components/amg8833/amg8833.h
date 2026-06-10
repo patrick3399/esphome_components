@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -12,6 +13,10 @@
 
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
+#endif
+
+#ifdef USE_BINARY_SENSOR
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
 
 namespace esphome {
@@ -95,6 +100,30 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   void set_thermistor_sensor(sensor::Sensor *s) {
     this->thermistor_sensor_ = s;
   }
+  void set_centroid_x_sensor(sensor::Sensor *s) {
+    this->centroid_x_sensor_ = s;
+  }
+  void set_centroid_y_sensor(sensor::Sensor *s) {
+    this->centroid_y_sensor_ = s;
+  }
+#endif
+
+#ifdef USE_BINARY_SENSOR
+  void set_presence_sensor(binary_sensor::BinarySensor *s) {
+    this->presence_sensor_ = s;
+  }
+  void set_hot_spot_sensor(binary_sensor::BinarySensor *s) {
+    this->hot_spot_sensor_ = s;
+  }
+  void set_presence_threshold(float t) {
+    this->presence_threshold_ = t;
+  }
+  void set_presence_min_pixels(uint8_t n) {
+    this->presence_min_pixels_ = n;
+  }
+  void set_hot_spot_threshold(float t) {
+    this->hot_spot_threshold_ = t;
+  }
 #endif
 
  protected:
@@ -102,7 +131,7 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   bool read_pixels_(float pixels[AMG8833_PIXEL_COUNT]);
   bool read_thermistor_(float &temp);
   bool encode_jpeg_(size_t &out_size);
-  void render_rgb_(const float pixels[AMG8833_PIXEL_COUNT]);
+  void render_rgb_(const float pixels[AMG8833_PIXEL_COUNT], float min_t, float max_t);
   static float bilinear_sample_(const float *grid, float x, float y);
   static void iron_color_(float t, uint8_t &r, uint8_t &g, uint8_t &b);
 
@@ -127,6 +156,18 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   sensor::Sensor *min_temp_sensor_{nullptr};
   sensor::Sensor *max_temp_sensor_{nullptr};
   sensor::Sensor *thermistor_sensor_{nullptr};
+  sensor::Sensor *centroid_x_sensor_{nullptr};
+  sensor::Sensor *centroid_y_sensor_{nullptr};
+#endif
+
+#ifdef USE_BINARY_SENSOR
+  binary_sensor::BinarySensor *presence_sensor_{nullptr};
+  binary_sensor::BinarySensor *hot_spot_sensor_{nullptr};
+  float presence_threshold_{3.0f};
+  float hot_spot_threshold_{50.0f};
+  uint8_t presence_min_pixels_{2};
+  std::array<float, AMG8833_PIXEL_COUNT> background_{};
+  bool background_initialized_{false};
 #endif
 };
 

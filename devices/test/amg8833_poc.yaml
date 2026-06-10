@@ -48,3 +48,18 @@ sensor:
       name: "Thermal Max Temp"
     thermistor_temperature:
       name: "Thermal Sensor Temp"
+    centroid_x:
+      name: "Thermal Centroid X"
+    centroid_y:
+      name: "Thermal Centroid Y"
+
+binary_sensor:
+  - platform: amg8833
+    amg8833_id: thermal_cam
+    presence:
+      name: "Room Presence"
+      threshold: 3.0   # °C above background EMA to count a pixel as "hot"
+      min_pixels: 2    # minimum hot pixels required to declare presence
+    hot_spot:
+      name: "Hot Spot Alert"
+      threshold: 50.0  # absolute °C threshold; any pixel at or above triggers

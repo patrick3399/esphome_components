@@ -65,6 +65,9 @@ static size_t jpeg_write_cb(void *arg, size_t index, const void *data, size_t le
 
 AMG8833CameraImage::AMG8833CameraImage(const uint8_t *data, size_t length, uint8_t requesters)
     : length_(length), requesters_(requesters) {
+  // Per-frame heap allocation is unavoidable here: multiple API connections may
+  // hold shared_ptr references to different images simultaneously, so a single
+  // static buffer cannot be used.
   this->data_ = new uint8_t[length];
   if (this->data_ != nullptr) {
     memcpy(this->data_, data, length);
@@ -167,6 +170,18 @@ void AMG8833Component::dump_config() {
   LOG_SENSOR("  ", "Min Temperature", this->min_temp_sensor_);
   LOG_SENSOR("  ", "Max Temperature", this->max_temp_sensor_);
   LOG_SENSOR("  ", "Thermistor", this->thermistor_sensor_);
+  LOG_SENSOR("  ", "Centroid X", this->centroid_x_sensor_);
+  LOG_SENSOR("  ", "Centroid Y", this->centroid_y_sensor_);
+#endif
+#ifdef USE_BINARY_SENSOR
+  LOG_BINARY_SENSOR("  ", "Presence", this->presence_sensor_);
+  if (this->presence_sensor_ != nullptr) {
+    ESP_LOGCONFIG(TAG, "    Threshold: %.1f°C, Min pixels: %u", this->presence_threshold_, this->presence_min_pixels_);
+  }
+  LOG_BINARY_SENSOR("  ", "Hot Spot", this->hot_spot_sensor_);
+  if (this->hot_spot_sensor_ != nullptr) {
+    ESP_LOGCONFIG(TAG, "    Threshold: %.1f°C", this->hot_spot_threshold_);
+  }
 #endif
 }
 
@@ -202,7 +217,8 @@ void AMG8833Component::read_and_publish_() {
     return;
   }
 
-#ifdef USE_SENSOR
+  // Always compute min/max/avg — cheap (64 iterations) and shared by sensors,
+  // presence detection, centroid, and camera auto-range.
   float sum = 0.0f;
   float min_t = pixels[0];
   float max_t = pixels[0];
@@ -215,8 +231,9 @@ void AMG8833Component::read_and_publish_() {
       max_t = pixels[i];
     }
   }
-  float avg_t = sum / AMG8833_PIXEL_COUNT;
+  float avg_t = sum / static_cast<float>(AMG8833_PIXEL_COUNT);
 
+#ifdef USE_SENSOR
   if (this->avg_temp_sensor_ != nullptr) {
     this->avg_temp_sensor_->publish_state(avg_t);
   }
@@ -232,15 +249,81 @@ void AMG8833Component::read_and_publish_() {
       this->thermistor_sensor_->publish_state(therm_t);
     }
   }
+
+  // Thermal centroid: weighted average position using (temp - min) as weight.
+  // Gives the "center of mass" of the hot region (range 0.0–7.0 in pixel units).
+  if (this->centroid_x_sensor_ != nullptr || this->centroid_y_sensor_ != nullptr) {
+    float total_weight = 0.0f;
+    float cx = 0.0f;
+    float cy = 0.0f;
+    for (int row = 0; row < 8; row++) {
+      for (int col = 0; col < 8; col++) {
+        float w = pixels[row * 8 + col] - min_t;
+        total_weight += w;
+        cx += w * static_cast<float>(col);
+        cy += w * static_cast<float>(row);
+      }
+    }
+    if (total_weight > 0.0f) {
+      if (this->centroid_x_sensor_ != nullptr) {
+        this->centroid_x_sensor_->publish_state(cx / total_weight);
+      }
+      if (this->centroid_y_sensor_ != nullptr) {
+        this->centroid_y_sensor_->publish_state(cy / total_weight);
+      }
+    }
+  }
 #endif
 
+#ifdef USE_BINARY_SENSOR
+  // Adaptive background EMA presence detection.
+  // Background tracks the empty-room baseline; a human body creates a local
+  // temperature rise well above that baseline even in warm ambient conditions.
+  if (this->presence_sensor_ != nullptr) {
+    if (!this->background_initialized_) {
+      for (uint16_t i = 0; i < AMG8833_PIXEL_COUNT; i++) {
+        this->background_[i] = pixels[i];
+      }
+      this->background_initialized_ = true;
+    } else {
+      uint8_t above = 0;
+      for (uint16_t i = 0; i < AMG8833_PIXEL_COUNT; i++) {
+        if (pixels[i] - this->background_[i] > this->presence_threshold_) {
+          above++;
+        }
+      }
+      bool presence = above >= this->presence_min_pixels_;
+      // Slow alpha when occupied prevents the background from drifting toward
+      // body temperature; fast alpha when empty recovers quickly from transients.
+      float alpha = presence ? 0.01f : 0.1f;
+      for (uint16_t i = 0; i < AMG8833_PIXEL_COUNT; i++) {
+        this->background_[i] += alpha * (pixels[i] - this->background_[i]);
+      }
+      this->presence_sensor_->publish_state(presence);
+    }
+  }
+
+  if (this->hot_spot_sensor_ != nullptr) {
+    bool hot = false;
+    for (uint16_t i = 0; i < AMG8833_PIXEL_COUNT; i++) {
+      if (pixels[i] >= this->hot_spot_threshold_) {
+        hot = true;
+        break;
+      }
+    }
+    this->hot_spot_sensor_->publish_state(hot);
+  }
+#endif
+
+  // Camera JPEG — only encode when there are active requesters to avoid
+  // unnecessary CPU load at the idle update rate.
   uint8_t single = this->single_requesters_.load();
   uint8_t stream = this->stream_requesters_.load();
   if (single == 0 && stream == 0) {
     return;
   }
 
-  this->render_rgb_(pixels);
+  this->render_rgb_(pixels, min_t, max_t);
 
   size_t jpeg_len = 0;
   if (!this->encode_jpeg_(jpeg_len)) {
@@ -293,20 +376,9 @@ bool AMG8833Component::read_thermistor_(float &temp) {
   return true;
 }
 
-void AMG8833Component::render_rgb_(const float pixels[AMG8833_PIXEL_COUNT]) {
-  // Auto-range: map actual min..max to 0..1
-  float min_t = pixels[0];
-  float max_t = pixels[0];
-  for (uint16_t i = 1; i < AMG8833_PIXEL_COUNT; i++) {
-    if (pixels[i] < min_t) {
-      min_t = pixels[i];
-    }
-    if (pixels[i] > max_t) {
-      max_t = pixels[i];
-    }
-  }
-  // Guard against flat scenes (all pixels same temperature)
+void AMG8833Component::render_rgb_(const float pixels[AMG8833_PIXEL_COUNT], float min_t, float max_t) {
   float range = max_t - min_t;
+  // Guard against flat scenes (all pixels at identical temperature)
   if (range < 0.1f) {
     range = 0.1f;
   }
@@ -317,7 +389,7 @@ void AMG8833Component::render_rgb_(const float pixels[AMG8833_PIXEL_COUNT]) {
 
   for (int py = 0; py < this->output_height_; py++) {
     for (int px = 0; px < this->output_width_; px++) {
-      // Map output coords to 8x8 grid (0..7 range)
+      // Map output pixel coords to 8×8 source grid (0..7 range)
       float src_x = (w > 1.0f) ? (px * 7.0f / (w - 1.0f)) : 0.0f;
       float src_y = (h > 1.0f) ? (py * 7.0f / (h - 1.0f)) : 0.0f;
       float temp = bilinear_sample_(pixels, src_x, src_y);
@@ -330,9 +402,10 @@ void AMG8833Component::render_rgb_(const float pixels[AMG8833_PIXEL_COUNT]) {
       }
       uint8_t r, g, b;
       iron_color_(t, r, g, b);
-      *dst++ = r;
-      *dst++ = g;
+      // fmt2jpg_cb with PIXFORMAT_RGB888 expects bytes in B, G, R order
       *dst++ = b;
+      *dst++ = g;
+      *dst++ = r;
     }
   }
 }
