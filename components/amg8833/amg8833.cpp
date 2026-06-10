@@ -171,8 +171,8 @@ void AMG8833Component::loop() {
 void AMG8833Component::dump_config() {
   ESP_LOGCONFIG(TAG, "AMG8833:");
   LOG_I2C_DEVICE(this);
-  ESP_LOGCONFIG(TAG, "  Output: %ux%u, JPEG quality: %u", this->output_width_, this->output_height_,
-                this->jpeg_quality_);
+  ESP_LOGCONFIG(TAG, "  Output: %ux%u, JPEG quality: %u, Rotation: %u°", this->output_width_, this->output_height_,
+                this->jpeg_quality_, this->rotation_);
   ESP_LOGCONFIG(TAG, "  Update interval: %u ms, Idle interval: %u ms", this->update_interval_,
                 this->idle_update_interval_);
 #ifdef USE_SENSOR
@@ -402,6 +402,26 @@ void AMG8833Component::render_rgb_(const float pixels[AMG8833_PIXEL_COUNT], floa
       // Map output pixel coords to 8×8 source grid (0..7 range)
       float src_x = (w > 1.0f) ? (px * 7.0f / (w - 1.0f)) : 0.0f;
       float src_y = (h > 1.0f) ? (py * 7.0f / (h - 1.0f)) : 0.0f;
+      switch (this->rotation_) {
+        case 90: {
+          float tmp = src_x;
+          src_x = src_y;
+          src_y = 7.0f - tmp;
+          break;
+        }
+        case 180:
+          src_x = 7.0f - src_x;
+          src_y = 7.0f - src_y;
+          break;
+        case 270: {
+          float tmp = src_x;
+          src_x = 7.0f - src_y;
+          src_y = tmp;
+          break;
+        }
+        default:
+          break;
+      }
       float temp = bilinear_sample_(pixels, src_x, src_y);
       float t = (temp - min_t) / range;
       if (t < 0.0f) {

@@ -86,6 +86,9 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
     this->output_width_ = width;
     this->output_height_ = height;
   }
+  void set_rotation(uint16_t rotation) {
+    this->rotation_ = rotation;
+  }
 
 #ifdef USE_SENSOR
   void set_avg_temperature_sensor(sensor::Sensor *s) {
@@ -136,7 +139,8 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   static void iron_color_(float t, uint8_t &r, uint8_t &g, uint8_t &b);
 
   uint32_t update_interval_{1000};
-  uint32_t idle_update_interval_{15000};
+  uint32_t idle_update_interval_{60000};
+  uint16_t rotation_{0};
   uint32_t last_update_{0};
   uint8_t jpeg_quality_{80};
   uint16_t output_width_{64};

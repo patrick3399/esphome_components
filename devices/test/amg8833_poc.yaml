@@ -41,6 +41,7 @@ amg8833:
   jpeg_quality: 60
   output_width: 32
   output_height: 32
+  rotation: 0
 
 sensor:
   - platform: amg8833

@@ -14,6 +14,7 @@ CONF_JPEG_QUALITY = "jpeg_quality"
 CONF_OUTPUT_WIDTH = "output_width"
 CONF_OUTPUT_HEIGHT = "output_height"
 CONF_IDLE_UPDATE_INTERVAL = "idle_update_interval"
+CONF_ROTATION = "rotation"
 
 amg8833_ns = cg.esphome_ns.namespace("amg8833")
 AMG8833Component = amg8833_ns.class_("AMG8833Component", cg.Component, cg.EntityBase)
@@ -33,6 +34,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_JPEG_QUALITY, default=80): cv.int_range(min=6, max=63),
             cv.Optional(CONF_OUTPUT_WIDTH, default=32): cv.int_range(min=8, max=320),
             cv.Optional(CONF_OUTPUT_HEIGHT, default=32): cv.int_range(min=8, max=320),
+            cv.Optional(CONF_ROTATION, default=0): cv.one_of(0, 90, 180, 270, int=True),
         }
     )
     .extend(i2c.i2c_device_schema(0x69))
@@ -50,6 +52,7 @@ async def to_code(config):
     cg.add(var.set_idle_update_interval(config[CONF_IDLE_UPDATE_INTERVAL]))
     cg.add(var.set_jpeg_quality(config[CONF_JPEG_QUALITY]))
     cg.add(var.set_output_size(config[CONF_OUTPUT_WIDTH], config[CONF_OUTPUT_HEIGHT]))
+    cg.add(var.set_rotation(config[CONF_ROTATION]))
 
     add_idf_component(name="espressif/esp32-camera", ref="2.1.5")
     cg.add_define("USE_CAMERA")
