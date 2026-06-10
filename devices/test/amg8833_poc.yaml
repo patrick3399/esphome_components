@@ -1,0 +1,45 @@
+esphome:
+  name: amg8833-poc
+  friendly_name: AMG8833 PoC
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+  baud_rate: 0
+
+api:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    components: [amg8833]
+    refresh: 0s
+
+i2c:
+  sda: GPIO41
+  scl: GPIO42
+  scan: false
+
+amg8833:
+  name: "AMG8833 Thermal Camera"
+  address: 0x69
+  update_interval: 1s
+  idle_update_interval: 30s
+  jpeg_quality: 60
+  output_width: 64
+  output_height: 64
+  avg_temperature:
+    name: "Thermal Avg Temp"
+  min_temperature:
+    name: "Thermal Min Temp"
+  max_temperature:
+    name: "Thermal Max Temp"
+  thermistor_temperature:
+    name: "Thermal Sensor Temp"
