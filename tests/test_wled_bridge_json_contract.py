@@ -33,8 +33,8 @@ WLED_WS_CPP = ROOT / "components" / "wled_bridge" / "wled_ws.cpp"
 WLED_INIT_PY = ROOT / "components" / "wled_bridge" / "__init__.py"
 WLED_COMPONENT_README = ROOT / "components" / "wled_bridge" / "README.md"
 PROJECT_README = ROOT / "README.md"
-WLED_AUDIO_POC = ROOT / "devices" / "test" / "wled_bridge_audio_poc.yaml"
-WLED_FULL_POC = ROOT / "devices" / "test" / "wled_bridge_full_poc.yaml"
+WLED_AUDIO_POC = ROOT / "devices" / "generic" / "wled_bridge_audio_poc.yaml"
+WLED_FULL_POC = ROOT / "devices" / "generic" / "wled_bridge_full_poc.yaml"
 
 
 def read(path: Path) -> str:

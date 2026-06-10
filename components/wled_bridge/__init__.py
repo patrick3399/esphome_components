@@ -1,7 +1,7 @@
 from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import light, number, select, sensor, switch, web_server_base
+from esphome.components import light, number, select, sensor, switch
 from esphome.components.socket import SocketType, consume_sockets
 from esphome.const import (
     CONF_BLUE,
@@ -9,7 +9,6 @@ from esphome.const import (
     CONF_GREEN,
     CONF_ID,
     CONF_RED,
-    CONF_STATE,
     CONF_WHITE,
     Framework,
     PLATFORM_ESP32,
