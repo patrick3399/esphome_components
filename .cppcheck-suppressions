@@ -1,2 +1,4 @@
 missingInclude
 missingIncludeSystem
+unknownMacro
+invalidPointerCast:components/wled_bridge/wled_effects.cpp
