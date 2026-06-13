@@ -78,7 +78,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install ESPHome
-        run: pip install esphome
+        run: pip install esphome==2026.5.3
 
       - name: Generate dummy secrets
         run: |
@@ -101,6 +101,10 @@ jobs:
                      'source:\n      type: local\n      path: ' + rel.replace(os.sep, '/'), t)
           open(p, 'w').write(t)
           " "$yaml"
+            echo "--- Validating $yaml ---"
+            esphome config "$yaml" > /dev/null
+          done
+          for yaml in tests/test-esp32s3-idf.yaml tests/test-esp32s3-esp-sr.yaml; do
             echo "--- Validating $yaml ---"
             esphome config "$yaml" > /dev/null
           done

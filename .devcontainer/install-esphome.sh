@@ -6,7 +6,7 @@ mkdir -p "${HOME}/.esphome-language-server"
 
 case "${ESPHOME_CHANNEL:-stable}" in
   stable)
-    python -m pip install --upgrade esphome
+    python -m pip install --upgrade "esphome==${ESPHOME_VERSION:-2026.5.3}"
     ;;
   beta)
     python -m pip install --upgrade --pre esphome

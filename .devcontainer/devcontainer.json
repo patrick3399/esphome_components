@@ -20,7 +20,8 @@
     }
   },
   "containerEnv": {
-    "ESPHOME_CHANNEL": "stable"
+    "ESPHOME_CHANNEL": "stable",
+    "ESPHOME_VERSION": "2026.5.3"
   },
   "postCreateCommand": "bash .devcontainer/install-esphome.sh",
   "remoteUser": "vscode"

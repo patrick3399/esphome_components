@@ -3,11 +3,11 @@
 #ifdef USE_ESP32
 
 #include "esphome/components/microphone/microphone_source.h"
+#include "esphome/components/ring_buffer/ring_buffer.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/helpers.h"
-#include "esphome/core/ring_buffer.h"
 
 #ifdef USE_OTA_STATE_LISTENER
 #include "esphome/components/ota/ota_backend.h"
@@ -133,7 +133,7 @@ class EspSrWakeWord : public Component
   Trigger<std::string> wake_word_detected_trigger_;
   State state_{State::STOPPED};
 
-  std::weak_ptr<RingBuffer> ring_buffer_;
+  std::weak_ptr<ring_buffer::RingBuffer> ring_buffer_;
   std::vector<EspSrWakeWordModel *> wake_word_models_;
 
   bool pending_start_{false};

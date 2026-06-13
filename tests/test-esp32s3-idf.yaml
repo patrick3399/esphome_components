@@ -38,11 +38,6 @@ aw9523:
   id: aw9523_hub
   address: 0x59
 
-# PCA9505: GPIO I/O Expander (I2C)
-pca9505:
-  id: pca9505_hub
-  address: 0x20
-
 sensor:
   # BMI270: IMU Accelerometer/Gyroscope (I2C)
   - platform: bmi270
