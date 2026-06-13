@@ -44,6 +44,9 @@ class MCU90640CameraImage : public camera::CameraImage {
   size_t get_data_length() override {
     return this->length_;
   }
+  bool valid() const {
+    return this->data_ != nullptr;
+  }
   bool was_requested_by(camera::CameraRequester requester) const override;
 
  protected:
@@ -160,6 +163,8 @@ class MCU90640Component : public camera::Camera, public uart::UARTDevice {
   void publish_frame_();
   void render_rgb_(float min_t, float max_t);
   bool encode_jpeg_(size_t &out_size);
+  uint16_t rendered_width_() const;
+  uint16_t rendered_height_() const;
   static float bilinear_sample_(const float *grid, int cols, int rows, float x, float y);
   static void iron_color_(float t, uint8_t &r, uint8_t &g, uint8_t &b);
 

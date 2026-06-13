@@ -1,0 +1,28 @@
+esphome:
+  name: test-i2s-audio
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+  baud_rate: 0
+
+external_components:
+  - source: ../components
+    components: [i2s_audio]
+
+i2s_audio:
+  id: audio_bus
+  i2s_lrclk_pin: GPIO4
+  i2s_bclk_pin: GPIO5
+
+speaker:
+  - platform: i2s_audio
+    id: audio_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO6
+    dac_type: external
+    channel: mono
+    volume_multiplier: 2.0

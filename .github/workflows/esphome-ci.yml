@@ -97,7 +97,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Run WLED bridge contract tests
+      - name: Run component contract tests
         run: python -m unittest discover -s tests -p 'test_*.py'
 
   config-validate:
@@ -124,9 +124,15 @@ jobs:
             'ota_password: "ci-dummy-ota"' \
             > devices/generic/secrets.yaml
 
-      - name: Validate all test YAMLs
+      - name: Validate component fixtures
         run: |
-          for yaml in devices/generic/wled_bridge_*.yaml; do
+          for yaml in \
+            devices/generic/wled_bridge_*.yaml \
+            devices/generic/custom_components_smoke.yaml \
+            devices/generic/amg8833_poc.yaml \
+            devices/generic/mcu90640_poc.yaml \
+            devices/generic/jiecang_desk_test.yaml \
+            devices/generic/ys-irtm-demo.yaml; do
             python -c "
           import re, sys, os
           p = sys.argv[1]
@@ -139,11 +145,41 @@ jobs:
             echo "--- Validating $yaml ---"
             esphome config "$yaml" > /dev/null
           done
-          for yaml in tests/test-esp32s3-idf.yaml tests/test-esp32s3-esp-sr.yaml; do
+          for yaml in \
+            tests/test-esp32s3-idf.yaml \
+            tests/test-esp32s3-esp-sr.yaml \
+            tests/test-i2s-audio.yaml \
+            devices/generic/nrf52_generic.yaml; do
             echo "--- Validating $yaml ---"
             esphome config "$yaml" > /dev/null
           done
           echo "All test YAMLs passed config validation."
 
-  # CI intentionally avoids firmware builds.
-  # Device YAMLs and firmware builds are verified locally while rewrites are in progress.
+  compile-smoke:
+    name: Firmware Compile Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install ESPHome
+        run: pip install esphome==2026.5.3
+
+      - name: Use local custom components
+        run: |
+          python -c "
+          import re
+          p = 'devices/generic/custom_components_smoke.yaml'
+          t = open(p).read()
+          t = re.sub(r'source:\s*github://patrick3399/esphome_components',
+                     'source:\n      type: local\n      path: ../../components', t)
+          open(p, 'w').write(t)
+          "
+
+      - name: Compile representative custom components
+        run: esphome compile devices/generic/custom_components_smoke.yaml

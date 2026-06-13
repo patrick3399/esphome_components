@@ -68,14 +68,20 @@ AMG8833CameraImage::AMG8833CameraImage(const uint8_t *data, size_t length, uint8
   // Per-frame heap allocation is unavoidable here: multiple API connections may
   // hold shared_ptr references to different images simultaneously, so a single
   // static buffer cannot be used.
-  this->data_ = new uint8_t[length];
+  RAMAllocator<uint8_t> allocator;
+  this->data_ = allocator.allocate(length);
   if (this->data_ != nullptr) {
     memcpy(this->data_, data, length);
+  } else {
+    this->length_ = 0;
   }
 }
 
 AMG8833CameraImage::~AMG8833CameraImage() {
-  delete[] this->data_;
+  if (this->data_ != nullptr) {
+    RAMAllocator<uint8_t> allocator;
+    allocator.deallocate(this->data_, this->length_);
+  }
 }
 
 bool AMG8833CameraImage::was_requested_by(camera::CameraRequester requester) const {
@@ -125,8 +131,11 @@ void AMG8833Component::setup() {
     this->mark_failed();
     return;
   }
-  // AMG8833 datasheet: wait >= 2 ms after reset; 50 ms is safe
-  delay(50);
+  // AMG8833 datasheet requires at least 2 ms after reset.
+  this->set_timeout(50, [this]() { this->finish_setup_(); });
+}
+
+void AMG8833Component::finish_setup_() {
   if (!this->write_byte(REG_FPSC, FPSC_10FPS)) {
     ESP_LOGE(TAG, "Failed to set frame rate");
     this->mark_failed();
@@ -143,10 +152,13 @@ void AMG8833Component::setup() {
   }
 
   this->last_update_ = millis();
+  this->setup_complete_ = true;
   ESP_LOGD(TAG, "AMG8833 setup complete, output %ux%u", this->output_width_, this->output_height_);
 }
 
 void AMG8833Component::loop() {
+  if (!this->setup_complete_)
+    return;
   uint32_t now = millis();
   bool has_requesters = (this->single_requesters_ != 0) || (this->stream_requesters_ != 0);
   // Sensor and binary_sensor consumers must poll at update_interval regardless of camera
@@ -342,9 +354,15 @@ void AMG8833Component::read_and_publish_() {
 
   uint8_t requesters = single | stream;
   auto image = std::make_shared<AMG8833CameraImage>(this->jpeg_buf_, jpeg_len, requesters);
+  if (!image->valid()) {
+    ESP_LOGW(TAG, "Failed to allocate %u-byte camera frame", static_cast<unsigned>(jpeg_len));
+    this->status_set_warning();
+    return;
+  }
 
   // Reset single-shot requesters; stream requesters remain until stop_stream()
   this->single_requesters_ = 0;
+  this->status_clear_warning();
 
   this->current_image_ = image;
   for (auto *listener : this->listeners_) {

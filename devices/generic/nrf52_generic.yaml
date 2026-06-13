@@ -6,15 +6,4 @@ nrf52:
   board: adafruit_feather_nrf52840
 
 logger:
-
-api:
-  encryption:
-    key: !secret api_key
-
-ota:
-  - platform: esphome
-    password: !secret ota_password
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  level: DEBUG

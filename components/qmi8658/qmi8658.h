@@ -129,7 +129,8 @@ class QMI8658Component : public PollingComponent, public i2c::I2CDevice {
 
  protected:
   void configure_();
-  bool send_ctrl9_cmd_(uint8_t cmd);
+  void poll_ctrl9_cmd_();
+  void finish_configuration_(bool ctrl9_ok);
 
   AccelRange accel_range_{ACCEL_RANGE_4G};
   GyroRange gyro_range_{GYRO_RANGE_256DPS};
@@ -138,6 +139,7 @@ class QMI8658Component : public PollingComponent, public i2c::I2CDevice {
   LpfMode accel_lpf_mode_{LPF_DISABLED};
   LpfMode gyro_lpf_mode_{LPF_DISABLED};
   bool setup_complete_{false};
+  uint8_t ctrl9_poll_attempts_{0};
 
   sensor::Sensor *accel_x_{nullptr};
   sensor::Sensor *accel_y_{nullptr};

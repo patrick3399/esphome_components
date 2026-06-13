@@ -21,9 +21,7 @@ ota:
     password: !secret ota_password
 
 external_components:
-  - source:
-      type: local
-      path: ../../components
+  - source: ../../components
     components: [jiecang_desk_controller]
 
 uart:

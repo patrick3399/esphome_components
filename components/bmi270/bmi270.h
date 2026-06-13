@@ -46,7 +46,8 @@ class BMI270Component : public PollingComponent, public i2c::I2CDevice {
 
  protected:
   bool load_config_file_();
-  void apply_power_save_mode_();
+  bool apply_power_save_mode_();
+  bool write_checked_(uint8_t reg, const uint8_t *data, size_t length, const char *operation);
 
   sensor::Sensor *accel_x_sensor_{nullptr};
   sensor::Sensor *accel_y_sensor_{nullptr};

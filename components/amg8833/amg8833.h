@@ -35,6 +35,9 @@ class AMG8833CameraImage : public camera::CameraImage {
   size_t get_data_length() override {
     return this->length_;
   }
+  bool valid() const {
+    return this->data_ != nullptr;
+  }
   bool was_requested_by(camera::CameraRequester requester) const override;
 
  protected:
@@ -130,6 +133,7 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
 #endif
 
  protected:
+  void finish_setup_();
   void read_and_publish_();
   bool read_pixels_(float pixels[AMG8833_PIXEL_COUNT]);
   bool read_thermistor_(float &temp);
@@ -154,6 +158,7 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   uint8_t *rgb_buf_{nullptr};
   uint8_t *jpeg_buf_{nullptr};
   size_t rgb_buf_size_{0};
+  bool setup_complete_{false};
 
 #ifdef USE_SENSOR
   sensor::Sensor *avg_temp_sensor_{nullptr};

@@ -1,4 +1,7 @@
 #include "jiecang_desk_controller.h"
+
+#include <algorithm>
+
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -46,6 +49,7 @@ static constexpr uint32_t WAKE_DELAY_MS = 100;
 // After boot, wait this long for the desk to reply before flagging a warning.
 // Queries are sent at ~0.5–0.9 s; a real desk responds within 1–2 s.
 static constexpr uint32_t NO_DATA_WARN_MS = 10000;
+static constexpr size_t RX_BYTES_PER_LOOP = 256;
 
 // ─── Component lifecycle ──────────────────────────────────────────────────────
 
@@ -63,7 +67,8 @@ void JiecangDeskController::setup() {
 }
 
 void JiecangDeskController::loop() {
-  while (this->available()) {
+  size_t budget = RX_BYTES_PER_LOOP;
+  while (budget-- > 0 && this->available()) {
     uint8_t b;
     if (!this->read_byte(&b))
       break;
@@ -399,6 +404,11 @@ void JiecangDeskController::save_preset(uint8_t preset) {
 }
 
 void JiecangDeskController::goto_height(float height_cm) {
+  if (this->limits_known_) {
+    height_cm = std::max(this->limit_min_, std::min(height_cm, this->limit_max_));
+  } else {
+    height_cm = std::max(0.0f, std::min(height_cm, 300.0f));
+  }
   if (millis() - this->last_rx_ms_ >= WAKE_IDLE_MS) {
     ESP_LOGD(TAG, "Desk idle — sending wake-up before goto_height");
     this->write_raw_(TX_CMD_STOP);
@@ -413,6 +423,7 @@ void JiecangDeskController::goto_height_pct(float pct) {
     ESP_LOGW(TAG, "goto_height_pct: limits not yet known");
     return;
   }
+  pct = std::max(0.0f, std::min(pct, 100.0f));
   this->goto_height(this->limit_min_ + (this->limit_max_ - this->limit_min_) * pct / 100.0f);
 }
 

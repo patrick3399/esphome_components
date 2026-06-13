@@ -40,24 +40,37 @@ void QMI8658Component::setup() {
   this->set_timeout(150, [this]() { this->configure_(); });
 }
 
-bool QMI8658Component::send_ctrl9_cmd_(uint8_t cmd) {
-  if (this->write_register(QMI8658_REG_CTRL9, &cmd, 1) != i2c::ERROR_OK)
-    return false;
-  if (cmd == 0x00)
-    return true;
-  // Poll STATUSINT bit7 (Ctrl9CmdDone), max 50ms
+void QMI8658Component::poll_ctrl9_cmd_() {
   uint8_t status = 0;
-  for (int i = 0; i < 50; i++) {
-    delay(1);
-    if (this->read_register(QMI8658_REG_STATUSINT, &status, 1) != i2c::ERROR_OK)
-      return false;
-    if (status & 0x80) {
-      uint8_t ack = 0x00;
-      this->write_register(QMI8658_REG_CTRL9, &ack, 1);
-      return true;
-    }
+  if (this->read_register(QMI8658_REG_STATUSINT, &status, 1) != i2c::ERROR_OK) {
+    ESP_LOGW(TAG, "I2C error polling CTRL9 completion");
+    this->finish_configuration_(false);
+    return;
   }
-  return false;
+  if (status & 0x80) {
+    uint8_t ack = 0x00;
+    if (this->write_register(QMI8658_REG_CTRL9, &ack, 1) != i2c::ERROR_OK) {
+      ESP_LOGW(TAG, "I2C error acknowledging CTRL9 completion");
+      this->finish_configuration_(false);
+      return;
+    }
+    this->finish_configuration_(true);
+    return;
+  }
+
+  if (++this->ctrl9_poll_attempts_ >= 50) {
+    ESP_LOGW(TAG, "CTRL9 AHB clock gating disable timed out; sync sampling may be degraded");
+    this->finish_configuration_(false);
+    return;
+  }
+  this->set_timeout(1, [this]() { this->poll_ctrl9_cmd_(); });
+}
+
+void QMI8658Component::finish_configuration_(bool ctrl9_ok) {
+  if (!ctrl9_ok)
+    this->status_set_warning();
+  this->setup_complete_ = true;
+  ESP_LOGI(TAG, "QMI8658 setup complete");
 }
 
 void QMI8658Component::configure_() {
@@ -122,14 +135,19 @@ void QMI8658Component::configure_() {
 
   // Disable AHB clock gating — datasheet requires this after enabling syncSmpl (CTRL7 bit7)
   uint8_t ahb_val = 0x00;
-  if (this->write_register(QMI8658_REG_CAL1_L, &ahb_val, 1) == i2c::ERROR_OK) {
-    if (!this->send_ctrl9_cmd_(0x08)) {
-      ESP_LOGW(TAG, "CTRL9 AHB clock gating disable timed out — syncSmpl may still work");
-    }
+  if (this->write_register(QMI8658_REG_CAL1_L, &ahb_val, 1) != i2c::ERROR_OK) {
+    ESP_LOGW(TAG, "I2C error preparing CTRL9 AHB clock gating command");
+    this->finish_configuration_(false);
+    return;
   }
-
-  this->setup_complete_ = true;
-  ESP_LOGI(TAG, "QMI8658 setup complete");
+  uint8_t ctrl9_cmd = 0x08;
+  if (this->write_register(QMI8658_REG_CTRL9, &ctrl9_cmd, 1) != i2c::ERROR_OK) {
+    ESP_LOGW(TAG, "I2C error sending CTRL9 AHB clock gating command");
+    this->finish_configuration_(false);
+    return;
+  }
+  this->ctrl9_poll_attempts_ = 0;
+  this->set_timeout(1, [this]() { this->poll_ctrl9_cmd_(); });
 }
 
 void QMI8658Component::update() {

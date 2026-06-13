@@ -41,7 +41,10 @@ void BMI270Component::setup() {
 
   // Soft reset; datasheet specifies 2 ms POR time after reset
   uint8_t val = BMI270_CMD_SOFT_RESET;
-  this->write_register(BMI270_REG_CMD, &val, 1);
+  if (!this->write_checked_(BMI270_REG_CMD, &val, 1, "soft reset")) {
+    this->mark_failed();
+    return;
+  }
   delay(2);
 
   uint8_t chip_id = 0;
@@ -59,20 +62,32 @@ void BMI270Component::setup() {
 
   // Enable accelerometer, gyroscope, temperature sensor
   val = 0x0E;
-  this->write_register(BMI270_REG_PWR_CTRL, &val, 1);
+  if (!this->write_checked_(BMI270_REG_PWR_CTRL, &val, 1, "power control")) {
+    this->mark_failed();
+    return;
+  }
   delay(2);
 
   // Accel: ODR=100 Hz, BWP=normal, performance mode, ±2 g → 16384 LSB/g
   uint8_t acc_conf = 0xA8, acc_range = 0x00;
-  this->write_register(BMI270_REG_ACC_CONF, &acc_conf, 1);
-  this->write_register(BMI270_REG_ACC_RANGE, &acc_range, 1);
+  if (!this->write_checked_(BMI270_REG_ACC_CONF, &acc_conf, 1, "accelerometer configuration") ||
+      !this->write_checked_(BMI270_REG_ACC_RANGE, &acc_range, 1, "accelerometer range")) {
+    this->mark_failed();
+    return;
+  }
 
   // Gyro: ODR=100 Hz, BWP=normal, performance mode, ±2000 dps → 16.4 LSB/dps
   uint8_t gyr_conf = 0xA8, gyr_range = 0x00;
-  this->write_register(BMI270_REG_GYR_CONF, &gyr_conf, 1);
-  this->write_register(BMI270_REG_GYR_RANGE, &gyr_range, 1);
+  if (!this->write_checked_(BMI270_REG_GYR_CONF, &gyr_conf, 1, "gyroscope configuration") ||
+      !this->write_checked_(BMI270_REG_GYR_RANGE, &gyr_range, 1, "gyroscope range")) {
+    this->mark_failed();
+    return;
+  }
 
-  this->apply_power_save_mode_();
+  if (!this->apply_power_save_mode_()) {
+    this->mark_failed();
+    return;
+  }
   this->setup_complete_ = true;
   ESP_LOGI(TAG, "BMI270 setup complete");
 }
@@ -80,11 +95,13 @@ void BMI270Component::setup() {
 bool BMI270Component::load_config_file_() {
   // Disable advanced power save before uploading config blob
   uint8_t val = 0x00;
-  this->write_register(BMI270_REG_PWR_CONF, &val, 1);
+  if (!this->write_checked_(BMI270_REG_PWR_CONF, &val, 1, "disable advanced power save"))
+    return false;
   delay(1);
 
   // Halt config load
-  this->write_register(BMI270_REG_INIT_CTRL, &val, 1);
+  if (!this->write_checked_(BMI270_REG_INIT_CTRL, &val, 1, "halt config load"))
+    return false;
   delay(2);
 
   const size_t config_len = sizeof(bmi270_config_file);
@@ -107,7 +124,8 @@ bool BMI270Component::load_config_file_() {
 
   // Signal config load complete
   val = 0x01;
-  this->write_register(BMI270_REG_INIT_CTRL, &val, 1);
+  if (!this->write_checked_(BMI270_REG_INIT_CTRL, &val, 1, "complete config load"))
+    return false;
 
   // Poll INTERNAL_STATUS until bits[3:0] == 0x01 (init_ok); timeout ~150 ms
   uint8_t status = 0;
@@ -132,9 +150,16 @@ bool BMI270Component::load_config_file_() {
   return true;
 }
 
-void BMI270Component::apply_power_save_mode_() {
+bool BMI270Component::apply_power_save_mode_() {
   uint8_t val = (this->power_save_mode_ == POWER_SAVE_MODE_LOW_POWER) ? 0x03 : 0x00;
-  this->write_register(BMI270_REG_PWR_CONF, &val, 1);
+  return this->write_checked_(BMI270_REG_PWR_CONF, &val, 1, "power save mode");
+}
+
+bool BMI270Component::write_checked_(uint8_t reg, const uint8_t *data, size_t length, const char *operation) {
+  if (this->write_register(reg, data, length) == i2c::ERROR_OK)
+    return true;
+  ESP_LOGE(TAG, "I2C write failed during %s (register 0x%02X)", operation, reg);
+  return false;
 }
 
 void BMI270Component::update() {

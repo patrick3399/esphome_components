@@ -41,9 +41,9 @@ mcu90640:
   update_interval: 1s
   idle_update_interval: 30s
   jpeg_quality: 60
-  output_width: 64   # 2x native 32 cols
-  output_height: 48  # 2x native 24 rows
-  rotation: 0
+  output_width: 32
+  output_height: 24
+  rotation: 90       # JPEG output is 24x32 after rotation
   mirror_horizontal: true
   emissivity: 1.0
 

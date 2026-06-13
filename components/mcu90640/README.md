@@ -31,9 +31,9 @@ mcu90640:
   update_interval: 1s        # optional, default 1 s
   idle_update_interval: 60s  # optional, default 60 s
   jpeg_quality: 80           # optional, default 80 (range 6–63)
-  output_width: 64           # optional, default 64 (range 8–320)
-  output_height: 48          # optional, default 48 (range 8–240)
-  rotation: 0                # optional: 0, 90, 180, 270
+  output_width: 32           # source-oriented width before rotation
+  output_height: 24          # source-oriented height before rotation
+  rotation: 90               # JPEG output becomes 24x32
   mirror_horizontal: false   # optional, default false
   mirror_vertical: false     # optional, default false
   emissivity: 1.0            # optional, default 1.0 (range 0.1–1.0)
@@ -72,6 +72,8 @@ binary_sensor:
   shiny metal ≈ 0.1, human skin ≈ 0.98).
 - `idle_update_interval` reduces UART traffic when HA is not subscribed to the
   camera stream.
+- A 90° or 270° rotation swaps the JPEG dimensions. The native 32x24 image
+  becomes 24x32; a configured 64x48 output becomes 48x64.
 - Centroid sensors report the pixel-coordinate center of mass of the hottest region.
 
 ## Demo

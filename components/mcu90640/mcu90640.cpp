@@ -61,14 +61,20 @@ MCU90640CameraImage::MCU90640CameraImage(const uint8_t *data, size_t length, uin
     : length_(length), requesters_(requesters) {
   // Per-frame heap allocation is unavoidable: concurrent API connections may hold
   // shared_ptr references to different images simultaneously.
-  this->data_ = new uint8_t[length];
+  RAMAllocator<uint8_t> allocator;
+  this->data_ = allocator.allocate(length);
   if (this->data_ != nullptr) {
     memcpy(this->data_, data, length);
+  } else {
+    this->length_ = 0;
   }
 }
 
 MCU90640CameraImage::~MCU90640CameraImage() {
-  delete[] this->data_;
+  if (this->data_ != nullptr) {
+    RAMAllocator<uint8_t> allocator;
+    allocator.deallocate(this->data_, this->length_);
+  }
 }
 
 bool MCU90640CameraImage::was_requested_by(camera::CameraRequester requester) const {
@@ -110,7 +116,7 @@ void MCU90640CameraImageReader::return_image() {
 void MCU90640Component::setup() {
   this->rx_buf_ = new uint8_t[MCU90640_FRAME_SIZE];
   this->pixels_ = new float[MCU90640_PIXEL_COUNT];
-  this->rgb_buf_size_ = this->output_width_ * this->output_height_ * 3;
+  this->rgb_buf_size_ = this->rendered_width_() * this->rendered_height_() * 3;
   this->rgb_buf_ = new uint8_t[this->rgb_buf_size_];
   this->jpeg_buf_ = new uint8_t[MCU90640_JPEG_BUF_SIZE];
 
@@ -252,9 +258,8 @@ void MCU90640Component::decode_frame_() {
 void MCU90640Component::dump_config() {
   ESP_LOGCONFIG(TAG, "GY-MCU90640:");
   ESP_LOGCONFIG(TAG, "  Native resolution: %ux%u", MCU90640_COLS, MCU90640_ROWS);
-  ESP_LOGCONFIG(TAG, "  Output: %ux%u (%.1fx), JPEG quality: %u, Rotation: %u°", this->output_width_,
-                this->output_height_, static_cast<float>(this->output_width_) / MCU90640_COLS, this->jpeg_quality_,
-                this->rotation_);
+  ESP_LOGCONFIG(TAG, "  Output: %ux%u, JPEG quality: %u, Rotation: %u°", this->rendered_width_(),
+                this->rendered_height_(), this->jpeg_quality_, this->rotation_);
   ESP_LOGCONFIG(TAG, "  Mirror: horizontal=%s, vertical=%s", YESNO(this->mirror_horizontal_),
                 YESNO(this->mirror_vertical_));
   ESP_LOGCONFIG(TAG, "  Emissivity: %.2f", this->emissivity_);
@@ -408,7 +413,13 @@ void MCU90640Component::publish_frame_() {
 
   uint8_t requesters = single | stream;
   auto image = std::make_shared<MCU90640CameraImage>(this->jpeg_buf_, jpeg_len, requesters);
+  if (!image->valid()) {
+    ESP_LOGW(TAG, "Failed to allocate %u-byte camera frame", static_cast<unsigned>(jpeg_len));
+    this->status_set_warning();
+    return;
+  }
   this->single_requesters_ = 0;
+  this->status_clear_warning();
   this->current_image_ = image;
   for (auto *listener : this->listeners_) {
     listener->on_camera_image(image);
@@ -423,34 +434,34 @@ void MCU90640Component::render_rgb_(float min_t, float max_t) {
     range = 0.1f;
   }
 
-  float w = static_cast<float>(this->output_width_);
-  float h = static_cast<float>(this->output_height_);
+  const uint16_t rendered_width = this->rendered_width_();
+  const uint16_t rendered_height = this->rendered_height_();
+  const float w = static_cast<float>(rendered_width);
+  const float h = static_cast<float>(rendered_height);
   uint8_t *dst = this->rgb_buf_;
 
-  for (int py = 0; py < this->output_height_; py++) {
-    for (int px = 0; px < this->output_width_; px++) {
-      // Map output pixel to source grid (0..31 x, 0..23 y)
-      float src_x = (w > 1.0f) ? (px * (MCU90640_COLS - 1.0f) / (w - 1.0f)) : 0.0f;
-      float src_y = (h > 1.0f) ? (py * (MCU90640_ROWS - 1.0f) / (h - 1.0f)) : 0.0f;
-
+  for (uint16_t py = 0; py < rendered_height; py++) {
+    for (uint16_t px = 0; px < rendered_width; px++) {
+      const float nx = w > 1.0f ? static_cast<float>(px) / (w - 1.0f) : 0.0f;
+      const float ny = h > 1.0f ? static_cast<float>(py) / (h - 1.0f) : 0.0f;
+      float src_x;
+      float src_y;
       switch (this->rotation_) {
-        case 90: {
-          float tmp = src_x;
-          src_x = src_y;
-          src_y = (MCU90640_COLS - 1.0f) - tmp;
+        case 90:
+          src_x = ny * (MCU90640_COLS - 1.0f);
+          src_y = (1.0f - nx) * (MCU90640_ROWS - 1.0f);
           break;
-        }
         case 180:
-          src_x = (MCU90640_COLS - 1.0f) - src_x;
-          src_y = (MCU90640_ROWS - 1.0f) - src_y;
+          src_x = (1.0f - nx) * (MCU90640_COLS - 1.0f);
+          src_y = (1.0f - ny) * (MCU90640_ROWS - 1.0f);
           break;
-        case 270: {
-          float tmp = src_x;
-          src_x = (MCU90640_ROWS - 1.0f) - src_y;
-          src_y = tmp;
+        case 270:
+          src_x = (1.0f - ny) * (MCU90640_COLS - 1.0f);
+          src_y = nx * (MCU90640_ROWS - 1.0f);
           break;
-        }
         default:
+          src_x = nx * (MCU90640_COLS - 1.0f);
+          src_y = ny * (MCU90640_ROWS - 1.0f);
           break;
       }
 
@@ -465,6 +476,14 @@ void MCU90640Component::render_rgb_(float min_t, float max_t) {
       *dst++ = r;
     }
   }
+}
+
+uint16_t MCU90640Component::rendered_width_() const {
+  return this->rotation_ == 90 || this->rotation_ == 270 ? this->output_height_ : this->output_width_;
+}
+
+uint16_t MCU90640Component::rendered_height_() const {
+  return this->rotation_ == 90 || this->rotation_ == 270 ? this->output_width_ : this->output_height_;
 }
 
 float MCU90640Component::bilinear_sample_(const float *grid, int cols, int rows, float x, float y) {
@@ -501,8 +520,8 @@ void MCU90640Component::iron_color_(float t, uint8_t &r, uint8_t &g, uint8_t &b)
 bool MCU90640Component::encode_jpeg_(size_t &out_size) {
 #ifdef USE_ESP32
   JpegWriteCtx ctx{this->jpeg_buf_, MCU90640_JPEG_BUF_SIZE, 0};
-  bool ok = fmt2jpg_cb(this->rgb_buf_, this->rgb_buf_size_, this->output_width_, this->output_height_, PIXFORMAT_RGB888,
-                       this->jpeg_quality_, jpeg_write_cb, &ctx);
+  bool ok = fmt2jpg_cb(this->rgb_buf_, this->rgb_buf_size_, this->rendered_width_(), this->rendered_height_(),
+                       PIXFORMAT_RGB888, this->jpeg_quality_, jpeg_write_cb, &ctx);
   if (!ok || ctx.written == 0) {
     ESP_LOGE(TAG, "JPEG encoding failed");
     return false;
