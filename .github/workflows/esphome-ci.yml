@@ -87,11 +87,11 @@ jobs:
             'wifi_password: "ci-dummy-password"' \
             'api_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="' \
             'ota_password: "ci-dummy-ota"' \
-            > devices/test/secrets.yaml
+            > devices/generic/secrets.yaml
 
       - name: Validate all test YAMLs
         run: |
-          for yaml in devices/test/wled_bridge_*.yaml; do
+          for yaml in devices/generic/wled_bridge_*.yaml; do
             python -c "
           import re, sys, os
           p = sys.argv[1]
