@@ -36,15 +36,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
       - name: Install clang-format
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y clang-format
+        # Pinned to ESPHome's official version so CI == local hook == upstream.
+        run: pip install clang-format==13.0.1
 
       - name: Run clang-format check
         run: |
-          find components/ -name '*.cpp' -o -name '*.h' | \
-            xargs clang-format --dry-run --Werror
+          find components/ \( -name '*.cpp' -o -name '*.h' \) -print0 | \
+            xargs -0 clang-format --dry-run --Werror
 
   contract-tests:
     name: Contract Tests

@@ -23,3 +23,7 @@ venv/
 
 # WLED UI download cache (rebuilt by tools/gen_wled_ui.py)
 tools/wled_ui_cache/
+
+# Claude Code instruction/memory files (local dev aids, not shipped)
+CLAUDE.md
+**/CLAUDE.md

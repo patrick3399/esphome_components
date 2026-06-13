@@ -29,7 +29,7 @@ void YSIrtmUartComponent::loop() {
   while (this->available() >= 3) {
     uint8_t buf[3];
     this->read_array(buf, 3);
-    ESP_LOGI(TAG, "IR RX: UserCode=0x%02X%02X  KeyCode=0x%02X", buf[0], buf[1], buf[2]);
+    ESP_LOGD(TAG, "IR RX: UserCode=0x%02X%02X  KeyCode=0x%02X", buf[0], buf[1], buf[2]);
     this->ir_receive_callback_.call(buf[0], buf[1], buf[2]);
   }
 
@@ -39,7 +39,7 @@ void YSIrtmUartComponent::loop() {
     auto &tx = *this->pending_;
     if (millis() - tx.last_sent_ms >= NEC_REPEAT_INTERVAL_MS) {
       this->send_command_(0xF1, tx.user_code_hi, tx.user_code_lo, tx.key_code);
-      ESP_LOGI(TAG, "NEC TX repeat: UserCode=0x%02X%02X  KeyCode=0x%02X  (%u remaining)", tx.user_code_hi,
+      ESP_LOGD(TAG, "NEC TX repeat: UserCode=0x%02X%02X  KeyCode=0x%02X  (%u remaining)", tx.user_code_hi,
                tx.user_code_lo, tx.key_code, tx.remaining);
       if (tx.remaining == 0) {
         this->pending_.reset();
