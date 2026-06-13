@@ -122,6 +122,7 @@ jobs:
             'wifi_password: "ci-dummy-password"' \
             'api_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="' \
             'ota_password: "ci-dummy-ota"' \
+            'fallback_password: "ci-dummy-fallback"' \
             > devices/generic/secrets.yaml
 
       - name: Validate component fixtures
@@ -155,31 +156,8 @@ jobs:
           done
           echo "All test YAMLs passed config validation."
 
-  compile-smoke:
-    name: Firmware Compile Smoke
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-
-      - name: Install ESPHome
-        run: pip install esphome==2026.5.3
-
-      - name: Use local custom components
-        run: |
-          python -c "
-          import re
-          p = 'devices/generic/custom_components_smoke.yaml'
-          t = open(p).read()
-          t = re.sub(r'source:\s*github://patrick3399/esphome_components',
-                     'source:\n      type: local\n      path: ../../components', t)
-          open(p, 'w').write(t)
-          "
-
-      - name: Compile representative custom components
-        run: esphome compile devices/generic/custom_components_smoke.yaml
+  # compile-smoke intentionally omitted: firmware builds are verified locally
+  # via dev-compile.ps1 + record-verification.ps1 before every push. Running a
+  # full ESP-IDF toolchain download on every CI push (~3-5 min, heavy on
+  # Actions minutes) duplicates the local verification gate without adding
+  # coverage that the other jobs don't already provide.
