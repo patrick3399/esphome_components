@@ -8,7 +8,7 @@ Custom ESPHome components and device YAMLs.
 | --- | --- | --- |
 | `amg8833` | Panasonic AMG8833 8×8 thermal camera — JPEG camera, temp sensors, presence detection | [README](components/amg8833/README.md) |
 | `mcu90640` | GY-MCU90640 32×24 thermal camera module (MLX90640 + STM32) over UART | [README](components/mcu90640/README.md) |
-| `wled_bridge` | WLED v16-compatible bridge for ESPHome addressable LED strips | [README](components/wled_bridge/README.md) |
+| `wled_bridge` | WLED v16-compatible bridge for ESPHome addressable LED strips — fixed 220 WLED mode slots with supported-effect mapping | [README](components/wled_bridge/README.md) |
 | `74hc138_keypad` | Keyboard matrix scanner for 74HC138 decoder-based designs | [README](components/74hc138_keypad/README.md) |
 | `aw9523` | AW9523B I2C GPIO expander with GPIO and LED-driver support | [README](components/aw9523/README.md) |
 | `bmi270` | Bosch BMI270 6-axis IMU sensor | [README](components/bmi270/README.md) |
@@ -41,3 +41,19 @@ Custom ESPHome components and device YAMLs.
 | ESP32-S3 ETH | [esp32s3-eth.yaml](devices/waveshare/esp32s3-eth.yaml) | W5500 Ethernet, camera | none |
 | ESP32-S3 GEEK | [esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ST7789 display, WiFi diagnostics | none |
 | ESP32-P4 WiFi6 Touch LCD 10.1 | [esp32p4-wifi6-touch-lcd-10.1.yaml](devices/waveshare/esp32p4-wifi6-touch-lcd-10.1.yaml) | P4+C6, MIPI-DSI, voice assistant | none |
+| ESP32-S3-ETH-8DI-8RO | TBD | Ethernet, digital inputs, relay outputs, RS485 | TBD |
+| ESP32-S3-Relay-6CH | TBD | Relay outputs, RS485 | TBD |
+
+### Guition
+
+| Device | YAML | Key features | Local components |
+| --- | --- | --- | --- |
+| ESP32-S3-4848S040 | TBD | Display, touch, relays | TBD |
+| JC3636K518 | TBD | QSPI display, touch, audio, encoder | TBD |
+| JC3636W518 | TBD | QSPI display, touch, audio | TBD |
+
+### Wireless-Tag
+
+| Device | YAML | Key features | Local components |
+| --- | --- | --- | --- |
+| WT32-SC01 | TBD | Display, touch, RS485, audio | TBD |

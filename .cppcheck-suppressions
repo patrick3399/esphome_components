@@ -1,15 +1,2 @@
-# cppcheck suppressions for the CI static-analysis job (see esphome-ci.yml).
-# One suppression per line. Forms:
-#   <id>                         suppress everywhere
-#   <id>:components/foo/bar.cpp  suppress in one file
-#   <id>:components/foo/bar.cpp:42  suppress at one line
-# Prefer inline `// cppcheck-suppress <id>` at the call site for one-off cases;
-# use this file for whole-file or project-wide false positives.
-#
-# Keep this list small and justified. If you find yourself suppressing a real
-# category wholesale, fix the code or narrow the check set instead.
-
-# Header resolution is intentionally not provided (no compile DB) -- already
-# passed as --suppress flags too, listed here for documentation.
 missingInclude
 missingIncludeSystem
