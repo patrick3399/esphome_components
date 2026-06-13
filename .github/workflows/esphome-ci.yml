@@ -12,7 +12,7 @@ jobs:
   # ─── Quick checks ────────────────────────────────────────────────────────────
 
   lint:
-    name: Python Lint (flake8)
+    name: Python Lint (ruff + flake8)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -23,8 +23,13 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install flake8
-        run: pip install flake8
+      - name: Install linters
+        run: pip install ruff==0.15.12 flake8
+
+      # ruff catches what flake8 misses (pyflakes-class checks, unused imports,
+      # some bugbear patterns). Config in .ruff.toml. ESPHome core uses ruff too.
+      - name: Run ruff
+        run: ruff check components/
 
       - name: Run flake8
         run: flake8 components/
@@ -49,6 +54,36 @@ jobs:
         run: |
           find components/ \( -name '*.cpp' -o -name '*.h' \) -print0 | \
             xargs -0 clang-format --dry-run --Werror
+
+  cppcheck:
+    name: C++ Static Analysis (cppcheck)
+    runs-on: ubuntu-latest
+    # Substitutes for clang-tidy, which cannot target xtensa (ESP32-S3) with stock
+    # LLVM. cppcheck tolerates missing headers / unknown flags, so it runs without a
+    # compile DB. Conservative check set (no noisy "style"/"information"); extend
+    # .cppcheck-suppressions for false positives rather than widening the set.
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: |
+          cppcheck --version
+          cppcheck \
+            --enable=warning,performance,portability \
+            --std=c++20 \
+            --platform=unix32 \
+            --inline-suppr \
+            --suppressions-list=.cppcheck-suppressions \
+            --suppress=missingInclude \
+            --suppress=missingIncludeSystem \
+            --suppress=unmatchedSuppression \
+            --error-exitcode=1 \
+            --quiet \
+            components/
 
   contract-tests:
     name: Contract Tests

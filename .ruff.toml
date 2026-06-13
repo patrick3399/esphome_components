@@ -1,0 +1,14 @@
+# Ruff config for the custom-component Python (schemas + codegen).
+# Complements flake8 with pyflakes/pycodestyle-class checks; line length matches
+# the C++ column limit and .flake8 (120). Kept to E/F/W so it does not flood
+# existing code — widen the select set deliberately, not by accident.
+line-length = 120
+
+[lint]
+select = ["E", "F", "W"]
+# E203: whitespace before ':' — false positive on slices, same as .flake8.
+ignore = ["E203"]
+
+[lint.per-file-ignores]
+# Codegen __init__.py files re-export symbols; star/unused-in-__init__ is idiomatic.
+"**/__init__.py" = ["F401"]
