@@ -235,7 +235,7 @@ struct EffectContext {
     if (i < 0)
       return 0;
     int32_t base = map_pixel(i);
-    if (base < 0 || base >= static_cast<int32_t>(frame_len))
+    if (base < start || base >= stop || base >= static_cast<int32_t>(frame_len))
       return 0;
     return frame_buf[base];
   }

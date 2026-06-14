@@ -640,13 +640,17 @@ void WLEDBridgeComponent::set_default_preset_name_(WLEDPresetRecord *preset, uin
 }
 
 void WLEDBridgeComponent::apply_preset_(const WLEDPresetRecord &preset) {
-  bool effect_changed = preset.effect != this->active_fx_;
+  // Validate the stored effect id the same way extra segments are below — a
+  // preset from untrusted /presets.json (or a corrupt NVS record) could carry
+  // an unsupported id that would otherwise be applied unchecked.
+  uint8_t effect = effect_wled_id_supported(preset.effect) ? preset.effect : 0;
+  bool effect_changed = effect != this->active_fx_;
   bool segment_changed = preset.segment_start != this->segment_start_ || preset.segment_stop != this->segment_stop_ ||
                          (preset.reverse != 0) != this->segment_reverse_ ||
                          (preset.mirror != 0) != this->segment_mirror_;
   this->is_on_ = preset.on != 0;
   this->global_bri_ = preset.brightness;
-  this->active_fx_ = preset.effect;
+  this->active_fx_ = effect;
   this->params_.speed = preset.speed;
   this->params_.intensity = preset.intensity;
   this->params_.custom1 = preset.custom1;

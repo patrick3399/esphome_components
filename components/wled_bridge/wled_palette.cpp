@@ -9,6 +9,18 @@ uint32_t palette_color(const WLEDPalette16 &pal, uint8_t index, uint8_t brightne
   const PaletteEntry *lo = &pal[0];
   const PaletteEntry *hi = &pal[15];
 
+  // Below the first stop: avoid the (index - lo->pos) underflow in the blend
+  // math when a palette does not begin at pos 0.
+  if (index <= pal[0].pos) {
+    uint8_t r = pal[0].r, g = pal[0].g, b = pal[0].b;
+    if (brightness != 255) {
+      r = scale8(r, brightness);
+      g = scale8(g, brightness);
+      b = scale8(b, brightness);
+    }
+    return RGBW32(r, g, b, 0);
+  }
+
   for (int i = 0; i < 15; i++) {
     if (pal[i].pos <= index && pal[i + 1].pos > index) {
       lo = &pal[i];

@@ -1259,6 +1259,15 @@ static bool apply_segment_pixels_json(WLEDBridgeComponent *comp, uint8_t id, Jso
     return true;
   }
 
+  // Clamp ranges to the segment length so a malicious or malformed "stop" can't
+  // spin this loop for billions of iterations (each set_pixel_override builds a
+  // SegmentReadView and scans every extra segment). WLED bounds the same loop
+  // implicitly via its cheap setRawPixelColor().
+  WLEDBridgeComponent::SegmentReadView seg_view;
+  uint32_t seg_len = comp->get_segment_view(id, seg_view) && seg_view.stop > seg_view.start
+                         ? static_cast<uint32_t>(seg_view.stop - seg_view.start)
+                         : 0u;
+
   bool changed = false;
   uint32_t start = 0;
   uint32_t stop = 0;
@@ -1285,6 +1294,8 @@ static bool apply_segment_pixels_json(WLEDBridgeComponent *comp, uint8_t id, Jso
       continue;
     if (index_state < 2 || stop <= start)
       stop = start + 1;
+    if (stop > seg_len)
+      stop = seg_len;
     for (uint32_t p = start; p < stop; p++)
       changed |= comp->set_pixel_override(id, p, color);
     index_state = 0;
