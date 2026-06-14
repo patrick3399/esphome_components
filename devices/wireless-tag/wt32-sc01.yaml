@@ -1,0 +1,244 @@
+# ─── Wireless-Tag WT32-SC01 ─────────────────────────────────────────────────
+# MCU:      ESP32-D0WD (WROVER-B module), 4 MB Flash, 8 MB QSPI PSRAM
+# Display:  3.5" IPS 480×320 ST7796S, 4-wire SPI
+#           CLK=GPIO14  MOSI=GPIO13  MISO=GPIO12  CS=GPIO15  DC=GPIO21  RST=GPIO22
+# Backlight: LEDC PWM, GPIO23
+# Touch:    FT6336U, I2C 0x38, SDA=GPIO18, SCL=GPIO19, INT=GPIO39
+# Ext I2C:  SDA=GPIO33, SCL=GPIO32  (expansion header)
+#
+# NOT S3: no variant/flash_size, psram quad (not octal), no sdkconfig_options.
+# internal_temperature is available on the ESP32 family.
+# ─────────────────────────────────────────────────────────────────────────────
+substitutions:
+  devicename: "wt32-sc01"
+  upper_devicename: "WT32-SC01"
+  comment: "Wireless-Tag 3.5\" 480x320 touch display"
+
+esphome:
+  name: ${devicename}
+  friendly_name: ${upper_devicename}
+  comment: ${comment}
+  min_version: "2026.4.0"
+  on_boot:
+    priority: -100
+    then:
+      - lambda: 'id(last_touch_ms) = millis();'
+      - light.turn_on:
+          id: backlight
+          brightness: 80%
+
+esp32:
+  board: esp-wrover-kit
+  framework:
+    type: esp-idf
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+packages:
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+external_components:
+  - source: github://patrick3399/esphome_components
+    refresh: 0s
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+
+api:
+  reboot_timeout: 4h
+  encryption:
+    key: !secret api_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 4h
+  ap:
+
+captive_portal:
+
+debug:
+  update_interval: 10s
+
+# ─── Globals ─────────────────────────────────────────────────────────────────
+globals:
+  - id: last_touch_ms
+    type: uint32_t
+    restore_value: false
+    initial_value: '0'
+
+# ─── I2C ─────────────────────────────────────────────────────────────────────
+i2c:
+  - id: i2c_touch
+    sda: GPIO18
+    scl: GPIO19
+    scan: false
+    frequency: 400kHz
+  - id: i2c_main
+    sda: GPIO33
+    scl: GPIO32
+    scan: true
+    frequency: 400kHz
+
+# ─── Backlight ───────────────────────────────────────────────────────────────
+output:
+  - platform: ledc
+    pin: GPIO23
+    id: backlight_output
+
+light:
+  - platform: monochromatic
+    name: "Backlight"
+    id: backlight
+    output: backlight_output
+    icon: "mdi:television"
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+    on_turn_off:
+      - delay: 300ms
+      - lvgl.pause:
+    on_turn_on:
+      - lvgl.resume:
+
+# ─── SPI + Display (ST7796, 4-wire SPI) ──────────────────────────────────────
+spi:
+  clk_pin: GPIO14
+  mosi_pin: GPIO13
+  miso_pin: GPIO12
+
+display:
+  - platform: ili9xxx
+    id: main_display
+    model: ST7796
+    cs_pin: GPIO15
+    dc_pin: GPIO21
+    reset_pin: GPIO22
+    invert_colors: false
+    auto_clear_enabled: false
+    update_interval: never
+
+# ─── Touchscreen (FT6336U, INT=GPIO39) ───────────────────────────────────────
+# swap_xy: true aligns portrait raw axes to landscape display coordinates.
+# mirror_y: false — keeping archive settings; flip to true if Y is inverted.
+# y_max: 319 matches the 320-row landscape height.
+touchscreen:
+  - platform: ft63x6
+    id: touch
+    i2c_id: i2c_touch
+    interrupt_pin: GPIO39
+    transform:
+      swap_xy: true
+      mirror_x: false
+      mirror_y: false
+    calibration:
+      x_min: 0
+      x_max: 479
+      y_min: 0
+      y_max: 319
+    on_touch:
+      - globals.set:
+          id: last_touch_ms
+          value: !lambda 'return millis();'
+      - if:
+          condition:
+            lvgl.is_paused:
+          then:
+            - light.turn_on:
+                id: backlight
+                brightness: 80%
+
+# ─── LVGL (default mode, landscape via rotation: 90) ─────────────────────────
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch
+  rotation: 90
+
+# ─── Intervals ────────────────────────────────────────────────────────────────
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            and:
+              - light.is_on: backlight
+              - lambda: 'return (millis() - id(last_touch_ms)) >= (uint32_t)(id(display_timeout).state * 1000);'
+          then:
+            - light.turn_off: backlight
+
+# ─── Sensors ─────────────────────────────────────────────────────────────────
+sensor:
+  - platform: internal_temperature
+    name: "Internal Temperature"
+    update_interval: 60s
+    entity_category: "diagnostic"
+
+  - id: !extend wifi_signal_sensor
+    update_interval: 60s
+
+  - platform: copy
+    source_id: wifi_signal_sensor
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: "diagnostic"
+    device_class: ""
+
+  - platform: debug
+    free:
+      name: "Heap Free"
+      entity_category: "diagnostic"
+    block:
+      name: "Heap Max Block"
+      entity_category: "diagnostic"
+    min_free:
+      name: "Heap Min Free"
+      entity_category: "diagnostic"
+    fragmentation:
+      name: "Heap Fragmentation"
+      entity_category: "diagnostic"
+    loop_time:
+      name: "Loop Time"
+      entity_category: "diagnostic"
+    psram:
+      name: "Free PSRAM"
+      entity_category: "diagnostic"
+    cpu_frequency:
+      name: "CPU Frequency"
+      entity_category: "diagnostic"
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+      entity_category: "diagnostic"
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: "diagnostic"
+  - platform: wifi_info
+    ip_address:
+      name: "Device IP Address"
+      entity_category: "diagnostic"
+    ssid:
+      name: "Device Connected SSID"
+      entity_category: "diagnostic"
+
+number:
+  - platform: template
+    name: "Display Timeout"
+    id: display_timeout
+    optimistic: true
+    unit_of_measurement: "s"
+    initial_value: 30
+    restore_value: true
+    min_value: 10
+    max_value: 180
+    step: 5
+    entity_category: config
