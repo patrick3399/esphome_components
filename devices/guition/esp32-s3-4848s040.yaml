@@ -1,0 +1,223 @@
+# ─── Guition ESP32-S3-4848S040 ────────────────────────────────────────────────
+# MCU:      ESP32-S3-N16R8 · 16 MB Flash · 8 MB Octal PSRAM
+# Display:  ST7701S · mipi_rgb GUITION-4848S040 model (all pins pre-configured)
+#           SPI init: CLK=GPIO48  MOSI=GPIO47  CS=GPIO39
+#           BL=GPIO38
+# Touch:    GT911 · I2C 0x5D · SDA=GPIO19  SCL=GPIO45
+#           Interrupt pin not confirmed; touchscreen runs in polling mode
+# Relay:    4-ch · GPIO unconfirmed (ref: openHASP #603 / ref/guition/esp32-s3-4848s040.md)
+# Init:     ST7701S sequence + MDT colour fix [0xCD,0x00] built into ESPHome model
+# Source:   community.home-assistant.io/t/guition-4-480x480-esp32-s3-4848s040/729271
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  devicename: "guition-4848s040"
+  upper_devicename: "Guition 4848S040"
+
+esphome:
+  name: $devicename
+  friendly_name: $upper_devicename
+  min_version: "2024.12.0"
+  on_boot:
+    - priority: -100
+      then:
+        - light.turn_on:
+            id: backlight
+            brightness: 80%
+
+packages:
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+
+api:
+  reboot_timeout: 4h
+  encryption:
+    key: !secret api_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 4h
+
+# ─── SPI (ST7701S init — CLK/MOSI only; CS=GPIO39 is pre-configured in model) ─
+spi:
+  clk_pin: GPIO48
+  mosi_pin: GPIO47
+
+# ─── I2C (GT911 touch) ────────────────────────────────────────────────────────
+i2c:
+  id: main_i2c
+  sda: GPIO19
+  scl: GPIO45
+  scan: true
+  frequency: 400kHz
+
+# ─── Backlight ────────────────────────────────────────────────────────────────
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: GPIO38
+    frequency: 100Hz
+
+light:
+  - platform: monochromatic
+    name: "Backlight"
+    id: backlight
+    icon: "mdi:television"
+    entity_category: config
+    output: backlight_output
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+# ─── Display (ST7701S 480×480 — mipi_rgb, all pins/init built into the model) ─
+# GUITION-4848S040 model includes: pins DE/HSYNC/VSYNC/PCLK/data, full ST7701S
+# init sequence, MDT colour fix [0xCD,0x00], and 18-bit pixel mode.
+display:
+  - platform: mipi_rgb
+    model: GUITION-4848S040
+    id: main_display
+    auto_clear_enabled: false
+    update_interval: never
+
+# ─── Touchscreen (GT911) ──────────────────────────────────────────────────────
+touchscreen:
+  - platform: gt911
+    id: touch_main
+    i2c_id: main_i2c
+
+# ─── Relays (GPIO TBD) ────────────────────────────────────────────────────────
+# 4-ch relay GPIO is not confirmed from schematics.
+# Fill in GPIO numbers and uncomment once verified (ref: openHASP #603).
+#
+# switch:
+#   - platform: gpio
+#     id: relay_1
+#     name: "Relay 1"
+#     pin: GPIOXX
+#   - platform: gpio
+#     id: relay_2
+#     name: "Relay 2"
+#     pin: GPIOXX
+#   - platform: gpio
+#     id: relay_3
+#     name: "Relay 3"
+#     pin: GPIOXX
+#   - platform: gpio
+#     id: relay_4
+#     name: "Relay 4"
+#     pin: GPIOXX
+
+# GPIO0 is display data pin R4 — Boot Button not available on this board.
+
+# ─── Sensors ──────────────────────────────────────────────────────────────────
+sensor:
+  - platform: internal_temperature
+    name: "Chip Temp"
+    id: chip_temp
+    update_interval: 60s
+    on_value:
+      - lvgl.label.update:
+          id: temp_label
+          text: !lambda 'return str_sprintf("%.1f °C", x);'
+
+# ─── LVGL UI (480×480) ───────────────────────────────────────────────────────
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: font_large
+    size: 48
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: font_medium
+    size: 28
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 300
+    id: font_small
+    size: 20
+
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch_main
+  buffer_size: 15%
+  bg_color: 0x000000
+  default_font: font_medium
+
+  pages:
+    - id: main_page
+      bg_color: 0x0A0A14
+      widgets:
+        - label:
+            id: title_label
+            align: TOP_MID
+            y: 30
+            text: "Guition 4848S040"
+            text_font: font_medium
+            text_color: 0x5C85D6
+
+        - label:
+            id: status_label
+            align: CENTER
+            y: -40
+            text: "Booting..."
+            text_font: font_large
+            text_color: 0xFFFFFF
+
+        - label:
+            id: temp_label
+            align: CENTER
+            y: 40
+            text: "-- °C"
+            text_font: font_medium
+            text_color: 0xFF9E64
+
+        - label:
+            align: BOTTOM_MID
+            y: -20
+            text: "ESP32-S3-N16R8 · 16MB · 8MB PSRAM"
+            text_font: font_small
+            text_color: 0x404060
+
+script:
+  - id: draw_status
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: status_label
+          text: !lambda |-
+            if (!wifi::global_wifi_component->is_connected()) return std::string("No WiFi");
+            if (!api::global_api_server->is_connected()) return std::string("No HA");
+            return std::string("Connected");
+
+interval:
+  - interval: 10s
+    then:
+      - script.execute: draw_status

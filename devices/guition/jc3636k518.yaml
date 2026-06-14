@@ -1,0 +1,254 @@
+# ─── Guition JC3636K518 ───────────────────────────────────────────────────────
+# MCU:      ESP32-S3R8 · 16 MB Flash · 8 MB Quad PSRAM
+# Display:  ST77916 · QSPI · 1.8" round 360×360
+#           CLK=GPIO13  CS=GPIO14  D0=GPIO15  D1=GPIO16  D2=GPIO17  D3=GPIO18
+#           RST=GPIO21  BL=GPIO47
+# Touch:    CST816S · I2C · SDA=GPIO11  SCL=GPIO12  INT=GPIO9  RST=GPIO10
+# Encoder:  Rotary knob · A=GPIO8  B=GPIO7
+# Mic:      I2S MEMS · WS=GPIO45  BCLK=GPIO42  SD=GPIO46
+#
+# ⚠ DAC/Speaker NOT configured: GPIO16/17/18/21 are shared between QSPI display
+#   bus (D1–D3, RST) and PCM5100A I2S DAC (WS, DOUT, BCLK, MCLK) on the second
+#   on-board ESP32.  ESPHome cannot own those pins for two peripherals — omit DAC.
+#   Microphone (GPIO42/45/46) is independent and works normally.
+#
+# Source:   github.com/orgs/esphome/discussions/3253
+#           ref/guition/jc3636k518.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  devicename: "guition-k518"
+  upper_devicename: "Guition JC3636K518"
+
+esphome:
+  name: $devicename
+  friendly_name: $upper_devicename
+  min_version: "2024.12.0"
+  on_boot:
+    - priority: -100
+      then:
+        - light.turn_on:
+            id: backlight
+            brightness: 80%
+
+packages:
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+
+api:
+  reboot_timeout: 4h
+  encryption:
+    key: !secret api_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 4h
+
+# ─── QSPI Display bus (ST77916) ───────────────────────────────────────────────
+spi:
+  id: qspi_bus
+  type: quad
+  clk_pin: GPIO13
+  data_pins:
+    - GPIO15
+    - GPIO16
+    - GPIO17
+    - GPIO18
+
+# ─── Display (ST77916 QSPI round 360×360) ─────────────────────────────────────
+# ST77916 is not a named model in qspi_dbi; use JC3636W518 — same controller,
+# same init sequence.  Only the QSPI bus pins and CS/RST differ from W518.
+display:
+  - platform: qspi_dbi
+    model: JC3636W518
+    id: main_display
+    spi_id: qspi_bus
+    cs_pin: GPIO14
+    reset_pin: GPIO21
+    dimensions:
+      width: 360
+      height: 360
+    update_interval: never
+    auto_clear_enabled: false
+
+# ─── Backlight ────────────────────────────────────────────────────────────────
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: GPIO47
+
+light:
+  - platform: monochromatic
+    name: "Backlight"
+    id: backlight
+    icon: "mdi:television"
+    entity_category: config
+    output: backlight_output
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+# ─── I2C (CST816S touch) ──────────────────────────────────────────────────────
+i2c:
+  id: main_i2c
+  sda: GPIO11
+  scl: GPIO12
+  scan: true
+  frequency: 400kHz
+
+# ─── Touchscreen (CST816S) ────────────────────────────────────────────────────
+touchscreen:
+  - platform: cst816
+    id: touch_main
+    i2c_id: main_i2c
+    interrupt_pin: GPIO9
+    reset_pin: GPIO10
+
+# ─── Rotary Encoder (Knob) ────────────────────────────────────────────────────
+sensor:
+  - platform: rotary_encoder
+    name: "Knob"
+    id: knob_encoder
+    pin_a: GPIO8
+    pin_b: GPIO7
+    resolution: 1
+    on_value:
+      - lvgl.label.update:
+          id: knob_label
+          text: !lambda 'return str_sprintf("Knob: %d", (int)x);'
+
+  - platform: internal_temperature
+    name: "Chip Temp"
+    id: chip_temp
+    update_interval: 60s
+    on_value:
+      - lvgl.label.update:
+          id: temp_label
+          text: !lambda 'return str_sprintf("%.1f °C", x);'
+
+# ─── I2S Microphone ───────────────────────────────────────────────────────────
+i2s_audio:
+  - id: i2s_mic_bus
+    i2s_lrclk_pin: GPIO45
+    i2s_bclk_pin: GPIO42
+
+microphone:
+  - platform: i2s_audio
+    id: mic_main
+    i2s_audio_id: i2s_mic_bus
+    i2s_din_pin: GPIO46
+    adc_type: external
+    pdm: false
+
+# ─── Sensors / Controls ───────────────────────────────────────────────────────
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Boot Button"
+    on_press:
+      - logger.log: "Boot button pressed"
+
+# ─── LVGL UI (360×360 round) ──────────────────────────────────────────────────
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: font_large
+    size: 42
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: font_medium
+    size: 24
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 300
+    id: font_small
+    size: 18
+
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch_main
+  buffer_size: 25%
+  bg_color: 0x000000
+  default_font: font_medium
+
+  pages:
+    - id: main_page
+      bg_color: 0x0A0A14
+      widgets:
+        - label:
+            id: status_label
+            align: TOP_MID
+            y: 50
+            text: "Booting..."
+            text_font: font_medium
+            text_color: 0x9FB3C8
+
+        - label:
+            id: knob_label
+            align: CENTER
+            y: -20
+            text: "Knob: 0"
+            text_font: font_large
+            text_color: 0xFFFFFF
+
+        - label:
+            id: temp_label
+            align: CENTER
+            y: 50
+            text: "-- °C"
+            text_font: font_medium
+            text_color: 0xFF9E64
+
+        - label:
+            align: BOTTOM_MID
+            y: -40
+            text: "JC3636K518"
+            text_font: font_small
+            text_color: 0x404060
+
+script:
+  - id: draw_status
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: status_label
+          text: !lambda |-
+            if (!wifi::global_wifi_component->is_connected()) return std::string("No WiFi");
+            if (!api::global_api_server->is_connected()) return std::string("No HA");
+            return std::string("Connected");
+
+interval:
+  - interval: 10s
+    then:
+      - script.execute: draw_status

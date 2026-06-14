@@ -1,0 +1,282 @@
+# ─── Guition JC3636W518 ───────────────────────────────────────────────────────
+# MCU:      ESP32-S3R8 · 16 MB Flash · 8 MB Octal PSRAM
+# Display:  ST77916 · QSPI · 1.8" round 360×360
+#           CLK=GPIO9   CS=GPIO10  D0=GPIO11  D1=GPIO12  D2=GPIO13  D3=GPIO14
+#           RST=GPIO47  BL=GPIO15
+# Touch:    CST816S/T · I2C · SDA=GPIO7  SCL=GPIO8  INT=GPIO41  RST=GPIO40
+# Mic:      I2S MEMS · WS=GPIO45  BCLK=GPIO42  SD=GPIO46
+#           V1: pdm: false   V2: pdm: true  (flip if no audio)
+# DAC:      PCM5100A · I2S → 3.5 mm headphone only (no internal speaker)
+#           WS=GPIO16  BCLK=GPIO18  MCLK=GPIO21  DOUT=GPIO17  MUTE=GPIO48
+# TF Card:  SD-MMC 1-bit · D0=GPIO2  CLK=GPIO3  CMD=GPIO4
+# Wireless: Qi charging (no GPIO control from ESP32-S3)
+# Source:   community.home-assistant.io/t/guition-1-8-360x360-esp32-s3-jc3636w518/750515
+#           github.com/clowrey/esphome-guition-360x360-jc3636w518
+#           ref/guition/jc3636w518.md
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  devicename: "guition-w518"
+  upper_devicename: "Guition JC3636W518"
+
+esphome:
+  name: $devicename
+  friendly_name: $upper_devicename
+  min_version: "2024.12.0"
+  on_boot:
+    - priority: -100
+      then:
+        - light.turn_on:
+            id: backlight
+            brightness: 80%
+
+packages:
+  ha: !include ../../packages/common-ha.yaml
+  wifi: !include ../../packages/common-wifi.yaml
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_SPIRAM_RODATA: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+
+api:
+  reboot_timeout: 4h
+  encryption:
+    key: !secret api_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 4h
+
+# ─── QSPI Display bus (ST77916) ───────────────────────────────────────────────
+spi:
+  id: qspi_bus
+  type: quad
+  clk_pin: GPIO9
+  data_pins:
+    - GPIO11
+    - GPIO12
+    - GPIO13
+    - GPIO14
+
+# ─── Display (JC3636W518 QSPI round 360×360) ─────────────────────────────────
+display:
+  - platform: qspi_dbi
+    model: JC3636W518
+    id: main_display
+    spi_id: qspi_bus
+    cs_pin: GPIO10
+    reset_pin: GPIO47
+    dimensions:
+      width: 360
+      height: 360
+    update_interval: never
+    auto_clear_enabled: false
+
+# ─── Backlight ────────────────────────────────────────────────────────────────
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: GPIO15
+
+  - platform: gpio
+    id: dac_mute
+    pin: GPIO48
+
+light:
+  - platform: monochromatic
+    name: "Backlight"
+    id: backlight
+    icon: "mdi:television"
+    entity_category: config
+    output: backlight_output
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+# ─── I2C (CST816S touch) ──────────────────────────────────────────────────────
+i2c:
+  id: main_i2c
+  sda: GPIO7
+  scl: GPIO8
+  scan: true
+  frequency: 400kHz
+
+# ─── Touchscreen (CST816S/T) ──────────────────────────────────────────────────
+touchscreen:
+  - platform: cst816
+    id: touch_main
+    i2c_id: main_i2c
+    interrupt_pin: GPIO41
+    reset_pin: GPIO40
+
+# ─── I2S Microphone (V1: pdm: false; V2: pdm: true) ──────────────────────────
+i2s_audio:
+  - id: i2s_mic_bus
+    i2s_lrclk_pin: GPIO45
+    i2s_bclk_pin: GPIO42
+
+  - id: i2s_dac_bus
+    i2s_lrclk_pin: GPIO16
+    i2s_bclk_pin: GPIO18
+    i2s_mclk_pin: GPIO21
+
+microphone:
+  - platform: i2s_audio
+    id: mic_main
+    i2s_audio_id: i2s_mic_bus
+    i2s_din_pin: GPIO46
+    adc_type: external
+    pdm: false      # V1 board; change to true for V2 (PDM microphone variant)
+
+# ─── DAC / Headphone output (PCM5100A) ────────────────────────────────────────
+# PCM5100A outputs to 3.5 mm jack only — requires active/powered speakers for
+# audible volume.  MUTE (GPIO48) must be LOW to enable output.
+speaker:
+  - platform: i2s_audio
+    id: spk_main
+    i2s_audio_id: i2s_dac_bus
+    dac_type: external
+    i2s_dout_pin: GPIO17
+    channel: stereo
+
+# ─── TF Card ─────────────────────────────────────────────────────────────────
+# D0=GPIO2  CLK=GPIO3  CMD=GPIO4 (SD-MMC 1-bit)
+# sd_mmc_card component not yet in ESPHome 2026.5.x — add when available.
+
+# ─── Sensors / Controls ───────────────────────────────────────────────────────
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Boot Button"
+    on_press:
+      - logger.log: "Boot button pressed"
+
+sensor:
+  - platform: internal_temperature
+    name: "Chip Temp"
+    id: chip_temp
+    update_interval: 60s
+    on_value:
+      - lvgl.label.update:
+          id: temp_label
+          text: !lambda 'return str_sprintf("%.1f °C", x);'
+
+  - platform: sound_level
+    microphone: mic_main
+    passive: true
+    measurement_duration: 500ms
+    rms:
+      name: "Mic RMS"
+      id: mic_rms
+
+# ─── LVGL UI (360×360 round) ──────────────────────────────────────────────────
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: font_large
+    size: 42
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: font_medium
+    size: 24
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 300
+    id: font_small
+    size: 18
+
+lvgl:
+  displays:
+    - main_display
+  touchscreens:
+    - touch_main
+  rotation: 180
+  buffer_size: 25%
+  bg_color: 0x000000
+  default_font: font_medium
+
+  pages:
+    - id: main_page
+      bg_color: 0x0A0A14
+      widgets:
+        - label:
+            id: status_label
+            align: TOP_MID
+            y: 50
+            text: "Booting..."
+            text_font: font_medium
+            text_color: 0x9FB3C8
+
+        - label:
+            id: temp_label
+            align: CENTER
+            y: -20
+            text: "-- °C"
+            text_font: font_large
+            text_color: 0xFFFFFF
+
+        - label:
+            id: mic_label
+            align: CENTER
+            y: 50
+            text: "Mic: --"
+            text_font: font_medium
+            text_color: 0x7EE787
+
+        - label:
+            align: BOTTOM_MID
+            y: -40
+            text: "JC3636W518"
+            text_font: font_small
+            text_color: 0x404060
+
+script:
+  - id: draw_status
+    mode: restart
+    then:
+      - lvgl.label.update:
+          id: status_label
+          text: !lambda |-
+            if (!wifi::global_wifi_component->is_connected()) return std::string("No WiFi");
+            if (!api::global_api_server->is_connected()) return std::string("No HA");
+            return std::string("Connected");
+
+interval:
+  - interval: 10s
+    then:
+      - script.execute: draw_status
+  - interval: 2s
+    then:
+      - if:
+          condition:
+            not:
+              lambda: return isnan(id(mic_rms).state);
+          then:
+            - lvgl.label.update:
+                id: mic_label
+                text: !lambda 'return str_sprintf("Mic: %.1f dB", id(mic_rms).state);'

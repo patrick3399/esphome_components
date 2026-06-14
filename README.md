@@ -44,16 +44,16 @@ Custom ESPHome components and device YAMLs.
 | ESP32-S3-ETH-8DI-8RO | TBD | Ethernet, digital inputs, relay outputs, RS485 | TBD |
 | ESP32-S3-Relay-6CH | TBD | Relay outputs, RS485 | TBD |
 
-### Guition
+### Guition — [devices/guition/](devices/guition/README.md)
 
 | Device | YAML | Key features | Local components |
 | --- | --- | --- | --- |
-| ESP32-S3-4848S040 | TBD | Display, touch, relays | TBD |
-| JC3636K518 | TBD | QSPI display, touch, audio, encoder | TBD |
-| JC3636W518 | TBD | QSPI display, touch, audio | TBD |
+| ESP32-S3-4848S040 | [esp32-s3-4848s040.yaml](devices/guition/esp32-s3-4848s040.yaml) | ST7701S RGB 4" 480×480, GT911 touch, 4-ch relay (GPIO TBD), LVGL | none |
+| JC3636K518 | [jc3636k518.yaml](devices/guition/jc3636k518.yaml) | ST77916 QSPI 1.8" round 360×360, CST816S touch, rotary encoder, I2S mic, LVGL | none |
+| JC3636W518 | [jc3636w518.yaml](devices/guition/jc3636w518.yaml) | ST77916 QSPI 1.8" round 360×360, CST816S touch, I2S mic, PCM5100A DAC, TF card, Qi charge, LVGL | none |
 
-### Wireless-Tag
+### Wireless-Tag — [devices/wireless-tag/](devices/wireless-tag/)
 
 | Device | YAML | Key features | Local components |
 | --- | --- | --- | --- |
-| WT32-SC01 | TBD | Display, touch, RS485, audio | TBD |
+| WT32-SC01 | [wt32-sc01.yaml](devices/wireless-tag/wt32-sc01.yaml) | ST7796 3.5" 480×320, FT6336U touch, LVGL demo | none |
