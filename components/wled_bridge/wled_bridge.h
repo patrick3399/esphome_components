@@ -462,6 +462,12 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   bool set_pixel_override(uint8_t segment_id, uint32_t segment_offset, uint32_t color, bool mark_dirty = true);
   void mark_pixel_overrides_changed();
   void clear_pixel_overrides();
+  // Request an immediate (this-loop-tick) render — used by realtime receivers on
+  // a DDP PUSH so the pushed frame displays without waiting for the next frame tick.
+  // Coalesced: multiple requests in one tick render once.
+  void request_realtime_render() {
+    this->realtime_render_pending_ = true;
+  }
   uint32_t get_state_version() const {
     return this->state_version_;
   }
@@ -804,6 +810,7 @@ class WLEDBridgeComponent : public Component, public light::LightRemoteValuesLis
   uint32_t *pixel_override_colors_{nullptr};
   uint8_t *pixel_override_mask_{nullptr};
   bool pixel_overrides_active_{false};
+  bool realtime_render_pending_{false};  // set by request_realtime_render(), consumed in loop()
   uint32_t *transition_frame_{nullptr};  // snapshot taken at transition start
   uint32_t transition_start_ms_{0};
   uint32_t transition_duration_ms_{0};

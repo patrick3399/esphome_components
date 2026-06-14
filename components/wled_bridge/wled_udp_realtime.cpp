@@ -192,9 +192,14 @@ void WLEDDdpReceiver::process_packet_(const uint8_t *buf, size_t len, uint32_t s
     this->receiving_ = true;
   }
 
-  if ((flags & DDP_FLAGS_PUSH) || !this->push_seen_) {
-    if (flags & DDP_FLAGS_PUSH)
-      this->push_seen_ = true;
+  // DDP PUSH → display the (possibly multi-packet) frame immediately instead of
+  // waiting for the next frame tick. If the sender never uses PUSH, fall back to
+  // rendering each packet so the stream isn't stalled.
+  if (flags & DDP_FLAGS_PUSH) {
+    this->push_seen_ = true;
+    this->comp_->request_realtime_render();
+  } else if (!this->push_seen_) {
+    this->comp_->request_realtime_render();
   }
 }
 

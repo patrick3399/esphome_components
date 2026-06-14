@@ -763,6 +763,16 @@ void WLEDBridgeComponent::loop() {
   this->artnet_receiver_.loop();
 #endif
 
+  // A realtime PUSH (DDP) asks to display the pushed frame immediately rather
+  // than waiting for the next frame tick. Coalesced to one render per loop tick.
+  if (this->realtime_render_pending_) {
+    this->realtime_render_pending_ = false;
+    if (!this->use_task_) {
+      this->render_frame_();
+      this->last_frame_ms_ = millis();
+    }
+  }
+
   // Broadcast state change via SSE, WebSocket, and UDP
   if (this->state_dirty_) {
     if (this->sse_handler_ != nullptr)

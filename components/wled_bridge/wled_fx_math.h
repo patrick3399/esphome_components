@@ -41,8 +41,13 @@ inline uint8_t triwave8(uint8_t v) {
 }
 
 // ---------- cubic wave ----------
+// FastLED: cubicwave8(in) = ease8InOutCubic(triwave8(in)).
 inline uint8_t cubicwave8(uint8_t v) {
-  return scale8(scale8(v, v), v) + scale8(scale8(255 - v, 255 - v), v);
+  uint8_t i = triwave8(v);
+  uint8_t ii = scale8(i, i);
+  uint8_t iii = scale8(ii, i);
+  uint16_t r1 = (3u * static_cast<uint16_t>(ii)) - (2u * static_cast<uint16_t>(iii));
+  return (r1 & 0x100) ? 255 : static_cast<uint8_t>(r1);
 }
 
 // ---------- scale16 ----------
@@ -50,10 +55,15 @@ inline uint16_t scale16(uint16_t v, uint16_t s) {
   return static_cast<uint16_t>((static_cast<uint32_t>(v) * s) >> 16);
 }
 
-// ---------- Perlin noise (Ken Perlin's improved 1D, ported from FastLED) ----------
-// Returns 0..255 noise value for position x (fixed-point 16.8)
-uint8_t inoise8(uint16_t x, uint16_t y = 0, uint16_t z = 0);
-uint16_t inoise16(uint32_t x, uint32_t y = 0, uint32_t z = 0);
+// ---------- Perlin noise (faithful FastLED 3.6.0 gradient-noise port) ----------
+// Overloads match FastLED's 1-D / 2-D / 3-D entry points (defined in wled_fx_math.cpp).
+// Output: inoise8 → 0..255, inoise16 → 0..65535.
+uint8_t inoise8(uint16_t x);
+uint8_t inoise8(uint16_t x, uint16_t y);
+uint8_t inoise8(uint16_t x, uint16_t y, uint16_t z);
+uint16_t inoise16(uint32_t x);
+uint16_t inoise16(uint32_t x, uint32_t y);
+uint16_t inoise16(uint32_t x, uint32_t y, uint32_t z);
 
 // ---------- map ----------
 inline int32_t map_range(int32_t x, int32_t in_lo, int32_t in_hi, int32_t out_lo, int32_t out_hi) {
