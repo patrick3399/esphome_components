@@ -147,9 +147,11 @@ void JiecangDeskController::handle_message_() {
 
   const uint8_t cmd = this->rx_buf_[0];
   const uint8_t param_cnt = this->rx_buf_[1];
+  const size_t expected_len = 3u + param_cnt;
 
-  if (this->rx_len_ < static_cast<uint8_t>(3 + param_cnt)) {
-    ESP_LOGW(TAG, "Frame truncated: cmd=0x%02X expected %u bytes got %u", cmd, 3 + param_cnt, this->rx_len_);
+  if (expected_len > this->rx_buf_.size() || this->rx_len_ < expected_len) {
+    ESP_LOGW(TAG, "Invalid frame length: cmd=0x%02X params=%u expected=%u got=%u", cmd, param_cnt,
+             static_cast<unsigned>(expected_len), this->rx_len_);
     return;
   }
 
