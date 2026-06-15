@@ -1,17 +1,20 @@
 # ESP-SR Wake Word
 
-Experimental ESPHome external component for Espressif ESP-SR WakeNet wake-word
+ESPHome external component for Espressif ESP-SR WakeNet wake-word
 detection on ESP32-S3 / ESP-IDF.
 
 ## Configuration
 
 ```yaml
 esp_sr_wake_word:
+  id: wake_engine
   microphone: i2s_mic
   stop_after_detection: true
   models:
     - id: esp_sr_nihaoxiaozhi
       model: wn9_nihaoxiaozhi_tts
+      wake_word: "Ni Hao Xiao Zhi"
+      internal: false
   on_wake_word_detected:
     - voice_assistant.start:
         wake_word: !lambda return wake_word;
@@ -25,6 +28,8 @@ models:
   - wn9_nihaoxiaozhi_tts
   - id: esp_sr_hiesp_small
     model: wn9s_hiesp
+    wake_word: "Hi ESP"
+    internal: false
 ```
 
 All configured models are included in `srmodels.bin`. At runtime the component
@@ -37,6 +42,39 @@ that model and disables the others. If detection is already running, the
 component stops the inference task, unloads the current model, enables the new
 model, and starts detection again. `disable_model` disables the selected model;
 detection cannot start while no model is enabled.
+
+### Actions And Conditions
+
+```yaml
+button:
+  - platform: template
+    name: "Start Wake Word"
+    on_press:
+      - esp_sr_wake_word.start: wake_engine
+
+  - platform: template
+    name: "Stop Wake Word"
+    on_press:
+      - esp_sr_wake_word.stop: wake_engine
+
+  - platform: template
+    name: "Enable Hi ESP"
+    on_press:
+      - esp_sr_wake_word.enable_model: esp_sr_hiesp_small
+
+  - platform: template
+    name: "Disable Hi ESP"
+    on_press:
+      - esp_sr_wake_word.disable_model: esp_sr_hiesp_small
+
+binary_sensor:
+  - platform: template
+    name: "Wake Word Running"
+    lambda: return id(wake_engine).is_running();
+    # Automation conditions are also available:
+    # - esp_sr_wake_word.is_running: wake_engine
+    # - esp_sr_wake_word.model_is_enabled: esp_sr_hiesp_small
+```
 
 ```yaml
 select:
