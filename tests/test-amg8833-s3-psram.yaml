@@ -1,0 +1,28 @@
+esphome:
+  name: test-amg8833-s3-psram
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+  ignore_not_found: false
+
+logger:
+  baud_rate: 0
+
+external_components:
+  - source: ../components
+    components: [amg8833]
+
+i2c:
+  sda: GPIO8
+  scl: GPIO9
+
+amg8833:
+  id: thermal_camera
+  name: "Thermal Camera"
+  performance_profile: high_quality

@@ -1,5 +1,6 @@
 #include "amg8833.h"
 
+#include <algorithm>
 #include <cstring>
 
 #include "esphome/core/hal.h"
@@ -44,15 +45,19 @@ struct JpegWriteCtx {
   uint8_t *buf;
   size_t capacity;
   size_t written;
+  size_t required;
 };
 
 static size_t jpeg_write_cb(void *arg, size_t index, const void *data, size_t len) {
   auto *ctx = static_cast<JpegWriteCtx *>(arg);
+  size_t end = index + len;
+  if (end > ctx->required) {
+    ctx->required = end;
+  }
   if (index + len > ctx->capacity) {
     return 0;
   }
   memcpy(ctx->buf + index, data, len);
-  size_t end = index + len;
   if (end > ctx->written) {
     ctx->written = end;
   }
@@ -62,12 +67,13 @@ static size_t jpeg_write_cb(void *arg, size_t index, const void *data, size_t le
 
 /* -------------------- AMG8833CameraImage -------------------- */
 
-AMG8833CameraImage::AMG8833CameraImage(const uint8_t *data, size_t length, uint8_t requesters)
+AMG8833CameraImage::AMG8833CameraImage(const uint8_t *data, size_t length, uint8_t requesters, bool use_psram)
     : length_(length), requesters_(requesters) {
-  // Per-frame heap allocation is unavoidable here: multiple API connections may
-  // hold shared_ptr references to different images simultaneously, so a single
-  // static buffer cannot be used.
-  RAMAllocator<uint8_t> allocator;
+  // Published data must outlive the encoder work buffer while API or web clients
+  // consume it. The component bounds memory by not publishing another frame until
+  // all readers release the current image.
+  RAMAllocator<uint8_t> allocator(use_psram ? RAMAllocator<uint8_t>::ALLOC_EXTERNAL
+                                            : RAMAllocator<uint8_t>::ALLOC_INTERNAL);
   this->data_ = allocator.allocate(length);
   if (this->data_ != nullptr) {
     memcpy(this->data_, data, length);
@@ -84,7 +90,7 @@ AMG8833CameraImage::~AMG8833CameraImage() {
 }
 
 bool AMG8833CameraImage::was_requested_by(camera::CameraRequester requester) const {
-  return (this->requesters_ & static_cast<uint8_t>(requester)) != 0;
+  return (this->requesters_ & (1U << requester)) != 0;
 }
 
 /* -------------------- AMG8833CameraImageReader -------------------- */
@@ -119,6 +125,10 @@ void AMG8833CameraImageReader::return_image() {
 
 /* -------------------- AMG8833Component -------------------- */
 
+AMG8833Component::~AMG8833Component() {
+  this->release_buffers_();
+}
+
 void AMG8833Component::setup() {
   if (!this->write_byte(REG_PCTL, PCTL_NORMAL_MODE)) {
     ESP_LOGE(TAG, "Failed to set normal mode");
@@ -142,14 +152,16 @@ void AMG8833Component::finish_setup_() {
   }
 
   // Persistent buffers live for the program lifetime. Use RAMAllocator (not raw
-  // new) so large outputs can fall back to PSRAM and allocation failure returns
-  // nullptr instead of aborting under -fno-exceptions.
+  // new) so low-memory profiles stay internal, high-quality profiles use PSRAM,
+  // and allocation failure returns nullptr instead of aborting.
   this->rgb_buf_size_ = this->rendered_width_() * this->rendered_height_() * 3;
-  RAMAllocator<uint8_t> allocator;
+  RAMAllocator<uint8_t> allocator(this->use_psram_ ? RAMAllocator<uint8_t>::ALLOC_EXTERNAL
+                                                   : RAMAllocator<uint8_t>::ALLOC_INTERNAL);
   this->rgb_buf_ = allocator.allocate(this->rgb_buf_size_);
-  this->jpeg_buf_ = allocator.allocate(AMG8833_JPEG_BUF_SIZE);
+  this->jpeg_buf_ = allocator.allocate(this->jpeg_buf_size_);
   if (this->rgb_buf_ == nullptr || this->jpeg_buf_ == nullptr) {
     ESP_LOGE(TAG, "Failed to allocate image buffers");
+    this->release_buffers_();
     this->mark_failed();
     return;
   }
@@ -191,6 +203,8 @@ void AMG8833Component::dump_config() {
   ESP_LOGCONFIG(TAG, "  Occupies the single camera slot for this device");
   ESP_LOGCONFIG(TAG, "  Output: %ux%u, JPEG quality: %u, Rotation: %u°", this->rendered_width_(),
                 this->rendered_height_(), this->jpeg_quality_, this->rotation_);
+  ESP_LOGCONFIG(TAG, "  Image memory: %s, JPEG buffer: %u-%u bytes", this->use_psram_ ? "PSRAM" : "internal",
+                this->jpeg_buf_size_, this->jpeg_buf_max_size_);
   ESP_LOGCONFIG(TAG, "  Update interval: %u ms, Idle interval: %u ms", this->update_interval_,
                 this->idle_update_interval_);
 #ifdef USE_SENSOR
@@ -218,22 +232,20 @@ camera::CameraImageReader *AMG8833Component::create_image_reader() {
 }
 
 void AMG8833Component::request_image(camera::CameraRequester requester) {
-  this->single_requesters_ |= static_cast<uint8_t>(requester);
+  this->single_requesters_ |= (1U << requester);
 }
 
 void AMG8833Component::start_stream(camera::CameraRequester requester) {
-  this->stream_requesters_ |= static_cast<uint8_t>(requester);
+  this->stream_requesters_ |= (1U << requester);
   for (auto *listener : this->listeners_) {
     listener->on_stream_start();
   }
 }
 
 void AMG8833Component::stop_stream(camera::CameraRequester requester) {
-  this->stream_requesters_ &= ~static_cast<uint8_t>(requester);
-  if (this->stream_requesters_ == 0) {
-    for (auto *listener : this->listeners_) {
-      listener->on_stream_stop();
-    }
+  this->stream_requesters_ &= ~(1U << requester);
+  for (auto *listener : this->listeners_) {
+    listener->on_stream_stop();
   }
 }
 
@@ -242,8 +254,15 @@ void AMG8833Component::stop_stream(camera::CameraRequester requester) {
 void AMG8833Component::read_and_publish_() {
   float pixels[AMG8833_PIXEL_COUNT];
   if (!this->read_pixels_(pixels)) {
+    if (++this->read_fail_count_ >= 3) {
+      this->read_warning_ = true;
+      this->update_warning_();
+    }
     return;
   }
+  this->read_fail_count_ = 0;
+  this->read_warning_ = false;
+  this->update_warning_();
 
   // Always compute min/max/avg — cheap (64 iterations) and shared by sensors,
   // presence detection, centroid, and camera auto-range.
@@ -350,6 +369,9 @@ void AMG8833Component::read_and_publish_() {
   if (single == 0 && stream == 0) {
     return;
   }
+  if (this->current_image_.use_count() > 1) {
+    return;
+  }
 
   this->render_rgb_(pixels, min_t, max_t);
 
@@ -359,16 +381,18 @@ void AMG8833Component::read_and_publish_() {
   }
 
   uint8_t requesters = single | stream;
-  auto image = std::make_shared<AMG8833CameraImage>(this->jpeg_buf_, jpeg_len, requesters);
+  auto image = std::make_shared<AMG8833CameraImage>(this->jpeg_buf_, jpeg_len, requesters, this->use_psram_);
   if (!image->valid()) {
     ESP_LOGW(TAG, "Failed to allocate %u-byte camera frame", static_cast<unsigned>(jpeg_len));
-    this->status_set_warning();
+    this->image_warning_ = true;
+    this->update_warning_();
     return;
   }
 
   // Reset single-shot requesters; stream requesters remain until stop_stream()
   this->single_requesters_ = 0;
-  this->status_clear_warning();
+  this->image_warning_ = false;
+  this->update_warning_();
 
   this->current_image_ = image;
   for (auto *listener : this->listeners_) {
@@ -515,19 +539,66 @@ void AMG8833Component::iron_color_(float t, uint8_t &r, uint8_t &g, uint8_t &b) 
 
 bool AMG8833Component::encode_jpeg_(size_t &out_size) {
 #ifdef USE_ESP32
-  JpegWriteCtx ctx{this->jpeg_buf_, AMG8833_JPEG_BUF_SIZE, 0};
-  bool ok = fmt2jpg_cb(this->rgb_buf_, this->rgb_buf_size_, this->rendered_width_(), this->rendered_height_(),
-                       PIXFORMAT_RGB888, this->jpeg_quality_, jpeg_write_cb, &ctx);
-  if (!ok || ctx.written == 0) {
-    ESP_LOGE(TAG, "JPEG encoding failed");
-    return false;
+  for (uint8_t attempt = 0; attempt < 6; attempt++) {
+    JpegWriteCtx ctx{this->jpeg_buf_, this->jpeg_buf_size_, 0, 0};
+    bool ok = fmt2jpg_cb(this->rgb_buf_, this->rgb_buf_size_, this->rendered_width_(), this->rendered_height_(),
+                         PIXFORMAT_RGB888, this->jpeg_quality_, jpeg_write_cb, &ctx);
+    if (ok && ctx.written != 0) {
+      out_size = ctx.written;
+      return true;
+    }
+    if (ctx.required <= this->jpeg_buf_size_ || !this->resize_jpeg_buffer_(ctx.required)) {
+      ESP_LOGE(TAG, "JPEG encoding failed (buffer %u bytes, required at least %u)",
+               static_cast<unsigned>(this->jpeg_buf_size_), static_cast<unsigned>(ctx.required));
+      this->image_warning_ = true;
+      this->update_warning_();
+      return false;
+    }
   }
-  out_size = ctx.written;
-  return true;
+  this->image_warning_ = true;
+  this->update_warning_();
+  return false;
 #else
   ESP_LOGE(TAG, "JPEG encoding requires ESP32");
   return false;
 #endif
+}
+
+bool AMG8833Component::resize_jpeg_buffer_(size_t required_size) {
+  if (required_size == 0 || required_size > this->jpeg_buf_max_size_) {
+    return false;
+  }
+  size_t new_size = std::min(this->jpeg_buf_max_size_, std::max(required_size, this->jpeg_buf_size_ * 2));
+  RAMAllocator<uint8_t> allocator(this->use_psram_ ? RAMAllocator<uint8_t>::ALLOC_EXTERNAL
+                                                   : RAMAllocator<uint8_t>::ALLOC_INTERNAL);
+  uint8_t *resized = allocator.reallocate(this->jpeg_buf_, new_size);
+  if (resized == nullptr) {
+    return false;
+  }
+  this->jpeg_buf_ = resized;
+  this->jpeg_buf_size_ = new_size;
+  ESP_LOGD(TAG, "Expanded JPEG buffer to %u bytes", static_cast<unsigned>(new_size));
+  return true;
+}
+
+void AMG8833Component::release_buffers_() {
+  RAMAllocator<uint8_t> allocator;
+  if (this->rgb_buf_ != nullptr) {
+    allocator.deallocate(this->rgb_buf_, this->rgb_buf_size_);
+    this->rgb_buf_ = nullptr;
+  }
+  if (this->jpeg_buf_ != nullptr) {
+    allocator.deallocate(this->jpeg_buf_, this->jpeg_buf_size_);
+    this->jpeg_buf_ = nullptr;
+  }
+}
+
+void AMG8833Component::update_warning_() {
+  if (this->image_warning_ || this->read_warning_) {
+    this->status_set_warning();
+  } else {
+    this->status_clear_warning();
+  }
 }
 
 }  // namespace esphome::amg8833

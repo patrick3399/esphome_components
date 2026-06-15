@@ -35,6 +35,7 @@ i2c:
 amg8833:
   id: thermal_cam
   name: "AMG8833 Thermal Camera"
+  performance_profile: low_memory
   address: 0x69
   update_interval: 1s
   idle_update_interval: 5s

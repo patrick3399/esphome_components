@@ -26,7 +26,7 @@ static const size_t AMG8833_JPEG_BUF_SIZE = 16384;
 
 class AMG8833CameraImage : public camera::CameraImage {
  public:
-  AMG8833CameraImage(const uint8_t *data, size_t length, uint8_t requesters);
+  AMG8833CameraImage(const uint8_t *data, size_t length, uint8_t requesters, bool use_psram);
   ~AMG8833CameraImage() override;
   uint8_t *get_data_buffer() override {
     return this->data_;
@@ -60,6 +60,7 @@ class AMG8833CameraImageReader : public camera::CameraImageReader {
 
 class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
  public:
+  ~AMG8833Component() override;
   void setup() override;
   void loop() override;
   void dump_config() override;
@@ -90,6 +91,13 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   }
   void set_rotation(uint16_t rotation) {
     this->rotation_ = rotation;
+  }
+  void set_use_psram(bool use_psram) {
+    this->use_psram_ = use_psram;
+  }
+  void set_jpeg_buffer_sizes(size_t initial_size, size_t max_size) {
+    this->jpeg_buf_size_ = initial_size;
+    this->jpeg_buf_max_size_ = max_size;
   }
 
 #ifdef USE_SENSOR
@@ -137,6 +145,9 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   bool read_pixels_(float pixels[AMG8833_PIXEL_COUNT]);
   bool read_thermistor_(float &temp);
   bool encode_jpeg_(size_t &out_size);
+  bool resize_jpeg_buffer_(size_t required_size);
+  void release_buffers_();
+  void update_warning_();
   void render_rgb_(const float pixels[AMG8833_PIXEL_COUNT], float min_t, float max_t);
   // Output geometry after rotation: 90°/270° swap width and height so the RGB
   // buffer and JPEG encoder agree with the rotated source sampling.
@@ -161,7 +172,13 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   uint8_t *rgb_buf_{nullptr};
   uint8_t *jpeg_buf_{nullptr};
   size_t rgb_buf_size_{0};
+  size_t jpeg_buf_size_{AMG8833_JPEG_BUF_SIZE};
+  size_t jpeg_buf_max_size_{AMG8833_JPEG_BUF_SIZE};
+  bool use_psram_{false};
   bool setup_complete_{false};
+  bool image_warning_{false};
+  bool read_warning_{false};
+  uint8_t read_fail_count_{0};
 
 #ifdef USE_SENSOR
   sensor::Sensor *avg_temp_sensor_{nullptr};
