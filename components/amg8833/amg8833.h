@@ -19,8 +19,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
 
-namespace esphome {
-namespace amg8833 {
+namespace esphome::amg8833 {
 
 static const uint16_t AMG8833_PIXEL_COUNT = 64;
 static const size_t AMG8833_JPEG_BUF_SIZE = 16384;
@@ -139,6 +138,10 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
   bool read_thermistor_(float &temp);
   bool encode_jpeg_(size_t &out_size);
   void render_rgb_(const float pixels[AMG8833_PIXEL_COUNT], float min_t, float max_t);
+  // Output geometry after rotation: 90°/270° swap width and height so the RGB
+  // buffer and JPEG encoder agree with the rotated source sampling.
+  uint16_t rendered_width_() const;
+  uint16_t rendered_height_() const;
   static float bilinear_sample_(const float *grid, float x, float y);
   static void iron_color_(float t, uint8_t &r, uint8_t &g, uint8_t &b);
 
@@ -180,5 +183,4 @@ class AMG8833Component : public camera::Camera, public i2c::I2CDevice {
 #endif
 };
 
-}  // namespace amg8833
-}  // namespace esphome
+}  // namespace esphome::amg8833

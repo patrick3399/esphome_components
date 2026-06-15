@@ -9,8 +9,7 @@
 #include <esp_camera.h>
 #endif
 
-namespace esphome {
-namespace amg8833 {
+namespace esphome::amg8833 {
 
 static const char *const TAG = "amg8833";
 
@@ -142,9 +141,13 @@ void AMG8833Component::finish_setup_() {
     return;
   }
 
-  this->rgb_buf_size_ = this->output_width_ * this->output_height_ * 3;
-  this->rgb_buf_ = new uint8_t[this->rgb_buf_size_];
-  this->jpeg_buf_ = new uint8_t[AMG8833_JPEG_BUF_SIZE];
+  // Persistent buffers live for the program lifetime. Use RAMAllocator (not raw
+  // new) so large outputs can fall back to PSRAM and allocation failure returns
+  // nullptr instead of aborting under -fno-exceptions.
+  this->rgb_buf_size_ = this->rendered_width_() * this->rendered_height_() * 3;
+  RAMAllocator<uint8_t> allocator;
+  this->rgb_buf_ = allocator.allocate(this->rgb_buf_size_);
+  this->jpeg_buf_ = allocator.allocate(AMG8833_JPEG_BUF_SIZE);
   if (this->rgb_buf_ == nullptr || this->jpeg_buf_ == nullptr) {
     ESP_LOGE(TAG, "Failed to allocate image buffers");
     this->mark_failed();
@@ -183,8 +186,11 @@ void AMG8833Component::loop() {
 void AMG8833Component::dump_config() {
   ESP_LOGCONFIG(TAG, "AMG8833:");
   LOG_I2C_DEVICE(this);
-  ESP_LOGCONFIG(TAG, "  Output: %ux%u, JPEG quality: %u, Rotation: %u°", this->output_width_, this->output_height_,
-                this->jpeg_quality_, this->rotation_);
+  // The core camera abstraction is a singleton: only one camera component (this,
+  // another thermal camera, or esp32_camera) can run per device.
+  ESP_LOGCONFIG(TAG, "  Occupies the single camera slot for this device");
+  ESP_LOGCONFIG(TAG, "  Output: %ux%u, JPEG quality: %u, Rotation: %u°", this->rendered_width_(),
+                this->rendered_height_(), this->jpeg_quality_, this->rotation_);
   ESP_LOGCONFIG(TAG, "  Update interval: %u ms, Idle interval: %u ms", this->update_interval_,
                 this->idle_update_interval_);
 #ifdef USE_SENSOR
@@ -411,33 +417,36 @@ void AMG8833Component::render_rgb_(const float pixels[AMG8833_PIXEL_COUNT], floa
     range = 0.1f;
   }
 
+  const uint16_t rendered_width = this->rendered_width_();
+  const uint16_t rendered_height = this->rendered_height_();
+  const float w = static_cast<float>(rendered_width);
+  const float h = static_cast<float>(rendered_height);
   uint8_t *dst = this->rgb_buf_;
-  float w = static_cast<float>(this->output_width_);
-  float h = static_cast<float>(this->output_height_);
 
-  for (int py = 0; py < this->output_height_; py++) {
-    for (int px = 0; px < this->output_width_; px++) {
-      // Map output pixel coords to 8×8 source grid (0..7 range)
-      float src_x = (w > 1.0f) ? (px * 7.0f / (w - 1.0f)) : 0.0f;
-      float src_y = (h > 1.0f) ? (py * 7.0f / (h - 1.0f)) : 0.0f;
+  for (uint16_t py = 0; py < rendered_height; py++) {
+    for (uint16_t px = 0; px < rendered_width; px++) {
+      // Normalize output pixel to [0,1], then map to the 8×8 source grid (0..7)
+      // with rotation applied. 90°/270° read the swapped axes.
+      const float nx = w > 1.0f ? static_cast<float>(px) / (w - 1.0f) : 0.0f;
+      const float ny = h > 1.0f ? static_cast<float>(py) / (h - 1.0f) : 0.0f;
+      float src_x;
+      float src_y;
       switch (this->rotation_) {
-        case 90: {
-          float tmp = src_x;
-          src_x = src_y;
-          src_y = 7.0f - tmp;
+        case 90:
+          src_x = ny * 7.0f;
+          src_y = (1.0f - nx) * 7.0f;
           break;
-        }
         case 180:
-          src_x = 7.0f - src_x;
-          src_y = 7.0f - src_y;
+          src_x = (1.0f - nx) * 7.0f;
+          src_y = (1.0f - ny) * 7.0f;
           break;
-        case 270: {
-          float tmp = src_x;
-          src_x = 7.0f - src_y;
-          src_y = tmp;
+        case 270:
+          src_x = (1.0f - ny) * 7.0f;
+          src_y = nx * 7.0f;
           break;
-        }
         default:
+          src_x = nx * 7.0f;
+          src_y = ny * 7.0f;
           break;
       }
       float temp = bilinear_sample_(pixels, src_x, src_y);
@@ -456,6 +465,14 @@ void AMG8833Component::render_rgb_(const float pixels[AMG8833_PIXEL_COUNT], floa
       *dst++ = r;
     }
   }
+}
+
+uint16_t AMG8833Component::rendered_width_() const {
+  return this->rotation_ == 90 || this->rotation_ == 270 ? this->output_height_ : this->output_width_;
+}
+
+uint16_t AMG8833Component::rendered_height_() const {
+  return this->rotation_ == 90 || this->rotation_ == 270 ? this->output_width_ : this->output_height_;
 }
 
 float AMG8833Component::bilinear_sample_(const float *grid, float x, float y) {
@@ -499,8 +516,8 @@ void AMG8833Component::iron_color_(float t, uint8_t &r, uint8_t &g, uint8_t &b) 
 bool AMG8833Component::encode_jpeg_(size_t &out_size) {
 #ifdef USE_ESP32
   JpegWriteCtx ctx{this->jpeg_buf_, AMG8833_JPEG_BUF_SIZE, 0};
-  bool ok = fmt2jpg_cb(this->rgb_buf_, this->rgb_buf_size_, this->output_width_, this->output_height_, PIXFORMAT_RGB888,
-                       this->jpeg_quality_, jpeg_write_cb, &ctx);
+  bool ok = fmt2jpg_cb(this->rgb_buf_, this->rgb_buf_size_, this->rendered_width_(), this->rendered_height_(),
+                       PIXFORMAT_RGB888, this->jpeg_quality_, jpeg_write_cb, &ctx);
   if (!ok || ctx.written == 0) {
     ESP_LOGE(TAG, "JPEG encoding failed");
     return false;
@@ -513,5 +530,4 @@ bool AMG8833Component::encode_jpeg_(size_t &out_size) {
 #endif
 }
 
-}  // namespace amg8833
-}  // namespace esphome
+}  // namespace esphome::amg8833
