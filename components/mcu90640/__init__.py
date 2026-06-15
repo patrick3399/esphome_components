@@ -1,23 +1,24 @@
+from typing import Final
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import uart
 from esphome.components.esp32 import add_idf_component
-from esphome.const import CONF_ID, CONF_UPDATE_INTERVAL
+from esphome.const import CONF_ID, CONF_ROTATION, CONF_UPDATE_INTERVAL
 from esphome.core.entity_helpers import setup_entity
 
 AUTO_LOAD = ["camera"]
 DEPENDENCIES = ["uart", "esp32"]
 CODEOWNERS = ["@patrick3399"]
 
-CONF_MCU90640_ID = "mcu90640_id"
-CONF_JPEG_QUALITY = "jpeg_quality"
-CONF_OUTPUT_WIDTH = "output_width"
-CONF_OUTPUT_HEIGHT = "output_height"
-CONF_IDLE_UPDATE_INTERVAL = "idle_update_interval"
-CONF_ROTATION = "rotation"
-CONF_MIRROR_HORIZONTAL = "mirror_horizontal"
-CONF_MIRROR_VERTICAL = "mirror_vertical"
-CONF_EMISSIVITY = "emissivity"
+CONF_MCU90640_ID: Final = "mcu90640_id"
+CONF_JPEG_QUALITY: Final = "jpeg_quality"
+CONF_OUTPUT_WIDTH: Final = "output_width"
+CONF_OUTPUT_HEIGHT: Final = "output_height"
+CONF_IDLE_UPDATE_INTERVAL: Final = "idle_update_interval"
+CONF_MIRROR_HORIZONTAL: Final = "mirror_horizontal"
+CONF_MIRROR_VERTICAL: Final = "mirror_vertical"
+CONF_EMISSIVITY: Final = "emissivity"
 
 mcu90640_ns = cg.esphome_ns.namespace("mcu90640")
 MCU90640Component = mcu90640_ns.class_(
@@ -41,7 +42,7 @@ CONFIG_SCHEMA = (
                 CONF_IDLE_UPDATE_INTERVAL, default="60s"
             ): cv.update_interval,
             cv.Optional(CONF_JPEG_QUALITY, default=80): cv.int_range(
-                min=6, max=63
+                min=1, max=100
             ),
             cv.Optional(CONF_OUTPUT_WIDTH, default=64): cv.int_range(
                 min=8, max=320

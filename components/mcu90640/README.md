@@ -30,9 +30,9 @@ mcu90640:
   name: "Thermal Camera"
   update_interval: 1s        # optional, default 1 s
   idle_update_interval: 60s  # optional, default 60 s
-  jpeg_quality: 80           # optional, default 80 (range 6–63)
-  output_width: 32           # source-oriented width before rotation
-  output_height: 24          # source-oriented height before rotation
+  jpeg_quality: 80           # optional, default 80 (range 1–100)
+  output_width: 64           # optional, default 64; source-oriented before rotation
+  output_height: 48          # optional, default 48; source-oriented before rotation
   rotation: 90               # JPEG output becomes 24x32
   mirror_horizontal: false   # optional, default false
   mirror_vertical: false     # optional, default false
