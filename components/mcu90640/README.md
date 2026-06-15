@@ -28,11 +28,10 @@ mcu90640:
   id: thermal
   uart_id: thermal_uart
   name: "Thermal Camera"
+  performance_profile: auto
   update_interval: 1s        # optional, default 1 s
   idle_update_interval: 60s  # optional, default 60 s
-  jpeg_quality: 80           # optional, default 80 (range 1–100)
-  output_width: 64           # optional, default 64; source-oriented before rotation
-  output_height: 48          # optional, default 48; source-oriented before rotation
+  # jpeg_quality/output_* are optional profile overrides
   rotation: 90               # JPEG output becomes 24x32
   mirror_horizontal: false   # optional, default false
   mirror_vertical: false     # optional, default false
@@ -68,19 +67,31 @@ binary_sensor:
 
 ## Notes
 
+- `performance_profile` controls image defaults and memory placement:
+  - `low_memory`: 64×48, quality 75, internal RAM, maximum 4800 output pixels.
+  - `balanced`: 96×72, quality 80; uses PSRAM when it is guaranteed.
+  - `high_quality`: 160×120, quality 85 and PSRAM-backed image buffers.
+  - `auto` selects `high_quality` only when `psram:` sets
+    `ignore_not_found: false`; otherwise it selects `low_memory`.
+- Explicit `output_width`, `output_height`, and `jpeg_quality` override the
+  profile defaults. JPEG quality accepts 1–100.
+- `high_quality` is rejected unless PSRAM is guaranteed. ESP32-S3 alone does not
+  imply that PSRAM is fitted or configured.
 - `emissivity` adjusts temperature readings for non-blackbody surfaces (e.g.
   shiny metal ≈ 0.1, human skin ≈ 0.98).
-- `idle_update_interval` reduces UART traffic when HA is not subscribed to the
-  camera stream.
+- The module continues streaming UART data at 4 Hz. `idle_update_interval` only
+  reduces analytics publication and image rendering when there are no consumers.
 - A 90° or 270° rotation swaps the JPEG dimensions. The native 32x24 image
   becomes 24x32; a configured 64x48 output becomes 48x64.
 - Centroid sensors report the pixel-coordinate center of mass of the hottest region.
 - **Increase the UART RX buffer.** The module streams ~6.2 kB/s; ESPHome's default
   `rx_buffer_size` (256 B) can overflow if the main loop is busy, producing checksum
   failures and dropped frames. Set `rx_buffer_size: 2048` on the `uart:` bus.
-- **Stream-loss recovery:** if the module goes silent for >5 s after streaming has
-  started (reset or dropped command), the component re-arms streaming automatically
-  and raises a status warning until frames resume.
+- **Stream-loss recovery:** if the module goes silent for >5 s after streaming is
+  commanded, including before the first valid frame, the component re-arms
+  streaming and raises a dedicated warning until frames resume.
+- Checksum failure searches the buffered frame for the next `5A 5A` marker,
+  reducing recovery time after UART overflow or byte loss.
 
 ## Limitations & hardware notes
 
@@ -89,8 +100,12 @@ binary_sensor:
   node. A second camera marks itself failed at boot.
 - **Large outputs cost loop time.** JPEG is encoded synchronously in the RX path.
   The default output is cheap, but large `output_*` values raise both the RGB buffer
-  and the encode time past the 10 ms loop budget. Buffers use `RAMAllocator`
-  (PSRAM-capable); on PSRAM-less boards keep the output small.
+  and the encode time past the 10 ms loop budget. Large image buffers use external
+  RAM only when PSRAM is guaranteed; UART and temperature data stay internal.
+- Only one published frame may be outstanding. Slow clients cause newer camera
+  frames to be skipped instead of allowing allocations to accumulate.
+- The JPEG buffer grows up to the selected profile limit and retries encoding.
+  Oversized frames are dropped safely.
 - **Variant support:** validated on ESP32-C3 and ESP32-S3. The `espressif/esp32-camera`
   dependency is pulled in only for its software JPEG encoder.
 - **No `on_image` / `on_stream_*` automations.** Only the HA camera entity and the

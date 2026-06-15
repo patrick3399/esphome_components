@@ -35,7 +35,7 @@ static const size_t MCU90640_JPEG_BUF_SIZE = 32768;
 
 class MCU90640CameraImage : public camera::CameraImage {
  public:
-  MCU90640CameraImage(const uint8_t *data, size_t length, uint8_t requesters);
+  MCU90640CameraImage(const uint8_t *data, size_t length, uint8_t requesters, bool use_psram);
   ~MCU90640CameraImage() override;
   uint8_t *get_data_buffer() override {
     return this->data_;
@@ -69,6 +69,7 @@ class MCU90640CameraImageReader : public camera::CameraImageReader {
 
 class MCU90640Component : public camera::Camera, public uart::UARTDevice {
  public:
+  ~MCU90640Component() override;
   void setup() override;
   void loop() override;
   void dump_config() override;
@@ -108,6 +109,13 @@ class MCU90640Component : public camera::Camera, public uart::UARTDevice {
   }
   void set_emissivity(float emissivity) {
     this->emissivity_ = emissivity;
+  }
+  void set_use_psram(bool use_psram) {
+    this->use_psram_ = use_psram;
+  }
+  void set_jpeg_buffer_sizes(size_t initial_size, size_t max_size) {
+    this->jpeg_buf_size_ = initial_size;
+    this->jpeg_buf_max_size_ = max_size;
   }
 
 #ifdef USE_SENSOR
@@ -156,12 +164,16 @@ class MCU90640Component : public camera::Camera, public uart::UARTDevice {
   // RX framing
   void feed_byte_(uint8_t byte);
   bool verify_checksum_();
+  void resync_after_invalid_frame_();
   void decode_frame_();
 
   // Publishing / rendering
   void publish_frame_();
   void render_rgb_(float min_t, float max_t);
   bool encode_jpeg_(size_t &out_size);
+  bool resize_jpeg_buffer_(size_t required_size);
+  void release_buffers_();
+  void update_warning_();
   uint16_t rendered_width_() const;
   uint16_t rendered_height_() const;
   static float bilinear_sample_(const float *grid, int cols, int rows, float x, float y);
@@ -182,6 +194,7 @@ class MCU90640Component : public camera::Camera, public uart::UARTDevice {
   size_t rx_pos_{0};
   uint32_t last_frame_time_{0};
   uint32_t last_recovery_attempt_{0};
+  uint32_t last_stream_command_time_{0};
   uint32_t frame_count_{0};
   uint32_t checksum_fail_count_{0};
   bool checksum_logged_{false};
@@ -201,6 +214,12 @@ class MCU90640Component : public camera::Camera, public uart::UARTDevice {
   uint8_t *rgb_buf_{nullptr};
   uint8_t *jpeg_buf_{nullptr};
   size_t rgb_buf_size_{0};
+  size_t jpeg_buf_size_{MCU90640_JPEG_BUF_SIZE};
+  size_t jpeg_buf_max_size_{MCU90640_JPEG_BUF_SIZE};
+  bool use_psram_{false};
+  bool stream_started_{false};
+  bool stream_warning_{false};
+  bool image_warning_{false};
 
 #ifdef USE_SENSOR
   sensor::Sensor *avg_temp_sensor_{nullptr};

@@ -85,9 +85,47 @@ class ComponentReliabilityContractsTest(unittest.TestCase):
             schema = read(f"components/{component}/__init__.py")
             readme = read(f"components/{component}/README.md")
             with self.subTest(component=component):
-                self.assertIn("default=80", schema)
                 self.assertIn("min=1, max=100", schema)
-                self.assertIn("range 1–100", readme)
+                self.assertIn("JPEG quality accepts 1–100", readme)
+                self.assertIn("PROFILE_DEFAULTS", schema)
+
+    def test_camera_requesters_use_enum_bit_positions(self) -> None:
+        for component in ("amg8833", "mcu90640"):
+            source = read(f"components/{component}/{component}.cpp")
+            with self.subTest(component=component):
+                self.assertGreaterEqual(source.count("(1U << requester)"), 3)
+                self.assertNotIn(
+                    "& static_cast<uint8_t>(requester)",
+                    source,
+                )
+                self.assertNotIn(
+                    "|= static_cast<uint8_t>(requester)",
+                    source,
+                )
+
+    def test_camera_frame_memory_is_bounded(self) -> None:
+        for component in ("amg8833", "mcu90640"):
+            source = read(f"components/{component}/{component}.cpp")
+            header = read(f"components/{component}/{component}.h")
+            with self.subTest(component=component):
+                self.assertIn("this->current_image_.use_count() > 1", source)
+                self.assertIn("resize_jpeg_buffer_", source)
+                self.assertIn("jpeg_buf_max_size_", header)
+                self.assertIn("release_buffers_();", source)
+
+    def test_camera_profiles_require_explicit_psram_guarantee(self) -> None:
+        for component in ("amg8833", "mcu90640"):
+            schema = read(f"components/{component}/__init__.py")
+            readme = read(f"components/{component}/README.md")
+            with self.subTest(component=component):
+                self.assertIn("psram.is_guaranteed()", schema)
+                self.assertIn("PROFILE_LOW_MEMORY", schema)
+                self.assertIn("PROFILE_BALANCED", schema)
+                self.assertIn("PROFILE_HIGH_QUALITY", schema)
+                self.assertIn(
+                    "psram_guaranteed and profile != PROFILE_LOW_MEMORY", schema
+                )
+                self.assertIn("ignore_not_found: false", readme)
 
     def test_aw9523_keeps_shadows_in_sync_with_successful_writes(self) -> None:
         source = read("components/aw9523/aw9523.cpp")

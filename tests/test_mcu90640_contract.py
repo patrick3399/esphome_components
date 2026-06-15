@@ -54,6 +54,28 @@ class MCU90640RotationContractTest(unittest.TestCase):
                     self.assertGreaterEqual(src_y, 0)
                     self.assertLess(src_y, rows)
 
+    def test_recovery_also_covers_missing_first_frame(self) -> None:
+        self.assertIn("this->stream_started_", CPP)
+        self.assertIn(
+            "this->frame_count_ > 0 ? this->last_frame_time_ : this->last_stream_command_time_",
+            CPP,
+        )
+        self.assertNotIn("if (this->frame_count_ > 0) {", CPP)
+
+    def test_stream_and_image_warnings_are_independent(self) -> None:
+        self.assertIn("this->stream_warning_ || this->image_warning_", CPP)
+        self.assertIn("this->stream_warning_ = false;", CPP)
+        self.assertIn("this->image_warning_ = true;", CPP)
+        self.assertNotIn(
+            "this->last_frame_time_ = millis();\n  this->status_clear_warning();",
+            CPP,
+        )
+
+    def test_checksum_failure_rescans_for_sync(self) -> None:
+        self.assertIn("void MCU90640Component::resync_after_invalid_frame_()", CPP)
+        self.assertIn("memmove(this->rx_buf_", CPP)
+        self.assertIn("this->resync_after_invalid_frame_();", CPP)
+
 
 if __name__ == "__main__":
     unittest.main()

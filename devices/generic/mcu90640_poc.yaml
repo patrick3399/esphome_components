@@ -38,6 +38,7 @@ uart:
 mcu90640:
   id: thermal_cam
   name: "MCU90640 Thermal Camera"
+  performance_profile: low_memory
   uart_id: uart_thermal
   update_interval: 1s
   idle_update_interval: 30s

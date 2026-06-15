@@ -1,5 +1,6 @@
 #include "mcu90640.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -41,15 +42,19 @@ struct JpegWriteCtx {
   uint8_t *buf;
   size_t capacity;
   size_t written;
+  size_t required;
 };
 
 static size_t jpeg_write_cb(void *arg, size_t index, const void *data, size_t len) {
   auto *ctx = static_cast<JpegWriteCtx *>(arg);
+  size_t end = index + len;
+  if (end > ctx->required) {
+    ctx->required = end;
+  }
   if (index + len > ctx->capacity) {
     return 0;
   }
   memcpy(ctx->buf + index, data, len);
-  size_t end = index + len;
   if (end > ctx->written) {
     ctx->written = end;
   }
@@ -59,11 +64,13 @@ static size_t jpeg_write_cb(void *arg, size_t index, const void *data, size_t le
 
 /* -------------------- MCU90640CameraImage -------------------- */
 
-MCU90640CameraImage::MCU90640CameraImage(const uint8_t *data, size_t length, uint8_t requesters)
+MCU90640CameraImage::MCU90640CameraImage(const uint8_t *data, size_t length, uint8_t requesters, bool use_psram)
     : length_(length), requesters_(requesters) {
-  // Per-frame heap allocation is unavoidable: concurrent API connections may hold
-  // shared_ptr references to different images simultaneously.
-  RAMAllocator<uint8_t> allocator;
+  // Published data must outlive the encoder work buffer while API or web clients
+  // consume it. The component bounds memory by not publishing another frame until
+  // all readers release the current image.
+  RAMAllocator<uint8_t> allocator(use_psram ? RAMAllocator<uint8_t>::ALLOC_EXTERNAL
+                                            : RAMAllocator<uint8_t>::ALLOC_INTERNAL);
   this->data_ = allocator.allocate(length);
   if (this->data_ != nullptr) {
     memcpy(this->data_, data, length);
@@ -80,7 +87,7 @@ MCU90640CameraImage::~MCU90640CameraImage() {
 }
 
 bool MCU90640CameraImage::was_requested_by(camera::CameraRequester requester) const {
-  return (this->requesters_ & static_cast<uint8_t>(requester)) != 0;
+  return (this->requesters_ & (1U << requester)) != 0;
 }
 
 /* -------------------- MCU90640CameraImageReader -------------------- */
@@ -115,20 +122,27 @@ void MCU90640CameraImageReader::return_image() {
 
 /* -------------------- Setup / Loop -------------------- */
 
+MCU90640Component::~MCU90640Component() {
+  this->release_buffers_();
+}
+
 void MCU90640Component::setup() {
-  // Persistent buffers live for the program lifetime. Use RAMAllocator (not raw
-  // new) so large outputs can fall back to PSRAM and allocation failure returns
-  // nullptr instead of aborting under -fno-exceptions.
-  RAMAllocator<uint8_t> u8_allocator;
-  RAMAllocator<float> f_allocator;
-  this->rx_buf_ = u8_allocator.allocate(MCU90640_FRAME_SIZE);
-  this->pixels_ = f_allocator.allocate(MCU90640_PIXEL_COUNT);
+  // Persistent buffers live for the program lifetime. Keep protocol buffers
+  // internal; high-quality image buffers use PSRAM. RAMAllocator also reports
+  // allocation failure instead of aborting under -fno-exceptions.
+  RAMAllocator<uint8_t> internal_u8_allocator(RAMAllocator<uint8_t>::ALLOC_INTERNAL);
+  RAMAllocator<float> internal_float_allocator(RAMAllocator<float>::ALLOC_INTERNAL);
+  RAMAllocator<uint8_t> image_allocator(this->use_psram_ ? RAMAllocator<uint8_t>::ALLOC_EXTERNAL
+                                                         : RAMAllocator<uint8_t>::ALLOC_INTERNAL);
+  this->rx_buf_ = internal_u8_allocator.allocate(MCU90640_FRAME_SIZE);
+  this->pixels_ = internal_float_allocator.allocate(MCU90640_PIXEL_COUNT);
   this->rgb_buf_size_ = this->rendered_width_() * this->rendered_height_() * 3;
-  this->rgb_buf_ = u8_allocator.allocate(this->rgb_buf_size_);
-  this->jpeg_buf_ = u8_allocator.allocate(MCU90640_JPEG_BUF_SIZE);
+  this->rgb_buf_ = image_allocator.allocate(this->rgb_buf_size_);
+  this->jpeg_buf_ = image_allocator.allocate(this->jpeg_buf_size_);
 
   if (!this->rx_buf_ || !this->pixels_ || !this->rgb_buf_ || !this->jpeg_buf_) {
     ESP_LOGE(TAG, "Failed to allocate buffers");
+    this->release_buffers_();
     this->mark_failed();
     return;
   }
@@ -140,6 +154,8 @@ void MCU90640Component::setup() {
   }
   this->send_command_(CMD_REFRESH_RATE, 0x01);  // 4 Hz
   this->send_command_(CMD_OUTPUT_MODE, 0x02);  // automatic streaming
+  this->last_stream_command_time_ = millis();
+  this->stream_started_ = true;
 }
 
 void MCU90640Component::send_command_(uint8_t cmd, uint8_t value) {
@@ -163,15 +179,18 @@ void MCU90640Component::loop() {
   // Stream-loss recovery: once frames have started, a silent module (reset or a
   // dropped streaming command) is detected by the frame gap and re-armed. Without
   // this the component stalls silently until reboot.
-  if (this->frame_count_ > 0) {
+  if (this->stream_started_) {
     uint32_t now = millis();
-    if (now - this->last_frame_time_ > MCU90640_STREAM_TIMEOUT_MS &&
+    uint32_t reference_time = this->frame_count_ > 0 ? this->last_frame_time_ : this->last_stream_command_time_;
+    if (now - reference_time > MCU90640_STREAM_TIMEOUT_MS &&
         now - this->last_recovery_attempt_ > MCU90640_STREAM_TIMEOUT_MS) {
       this->last_recovery_attempt_ = now;
-      this->status_set_warning();
-      ESP_LOGW(TAG, "No frame for %u ms; re-arming streaming", now - this->last_frame_time_);
+      this->stream_warning_ = true;
+      this->update_warning_();
+      ESP_LOGW(TAG, "No frame for %u ms; re-arming streaming", now - reference_time);
       this->send_command_(CMD_REFRESH_RATE, 0x01);
       this->send_command_(CMD_OUTPUT_MODE, 0x02);
+      this->last_stream_command_time_ = now;
     }
   }
 }
@@ -189,15 +208,16 @@ void MCU90640Component::feed_byte_(uint8_t byte) {
   if (this->rx_pos_ < MCU90640_FRAME_SIZE) {
     return;
   }
-  this->rx_pos_ = 0;
 
   if (!this->verify_checksum_()) {
     this->checksum_fail_count_++;
     if ((this->checksum_fail_count_ & 0x0F) == 1) {
       ESP_LOGW(TAG, "Frame checksum mismatch (%u total)", this->checksum_fail_count_);
     }
+    this->resync_after_invalid_frame_();
     return;
   }
+  this->rx_pos_ = 0;
   this->decode_frame_();
 }
 
@@ -231,6 +251,21 @@ bool MCU90640Component::verify_checksum_() {
   return false;
 }
 
+void MCU90640Component::resync_after_invalid_frame_() {
+  for (size_t i = 1; i + 1 < MCU90640_FRAME_SIZE; i++) {
+    if (this->rx_buf_[i] == FRAME_SYNC && this->rx_buf_[i + 1] == FRAME_SYNC) {
+      size_t remaining = MCU90640_FRAME_SIZE - i;
+      memmove(this->rx_buf_, this->rx_buf_ + i, remaining);
+      this->rx_pos_ = remaining;
+      return;
+    }
+  }
+  this->rx_pos_ = this->rx_buf_[MCU90640_FRAME_SIZE - 1] == FRAME_SYNC ? 1 : 0;
+  if (this->rx_pos_ == 1) {
+    this->rx_buf_[0] = FRAME_SYNC;
+  }
+}
+
 void MCU90640Component::decode_frame_() {
   // Mirroring is applied at decode time so the camera image, centroid and
   // presence detection all share the same (corrected) coordinate space.
@@ -253,7 +288,8 @@ void MCU90640Component::decode_frame_() {
 
   this->frame_count_++;
   this->last_frame_time_ = millis();
-  this->status_clear_warning();
+  this->stream_warning_ = false;
+  this->update_warning_();
   if (this->frame_count_ == 1) {
     ESP_LOGI(TAG, "First frame received (Ta=%.2f °C)", this->ta_);
   }
@@ -286,6 +322,8 @@ void MCU90640Component::dump_config() {
   ESP_LOGCONFIG(TAG, "  Native resolution: %ux%u", MCU90640_COLS, MCU90640_ROWS);
   ESP_LOGCONFIG(TAG, "  Output: %ux%u, JPEG quality: %u, Rotation: %u°", this->rendered_width_(),
                 this->rendered_height_(), this->jpeg_quality_, this->rotation_);
+  ESP_LOGCONFIG(TAG, "  Image memory: %s, JPEG buffer: %u-%u bytes", this->use_psram_ ? "PSRAM" : "internal",
+                this->jpeg_buf_size_, this->jpeg_buf_max_size_);
   ESP_LOGCONFIG(TAG, "  Mirror: horizontal=%s, vertical=%s", YESNO(this->mirror_horizontal_),
                 YESNO(this->mirror_vertical_));
   ESP_LOGCONFIG(TAG, "  Emissivity: %.2f", this->emissivity_);
@@ -317,22 +355,20 @@ camera::CameraImageReader *MCU90640Component::create_image_reader() {
 }
 
 void MCU90640Component::request_image(camera::CameraRequester requester) {
-  this->single_requesters_ |= static_cast<uint8_t>(requester);
+  this->single_requesters_ |= (1U << requester);
 }
 
 void MCU90640Component::start_stream(camera::CameraRequester requester) {
-  this->stream_requesters_ |= static_cast<uint8_t>(requester);
+  this->stream_requesters_ |= (1U << requester);
   for (auto *listener : this->listeners_) {
     listener->on_stream_start();
   }
 }
 
 void MCU90640Component::stop_stream(camera::CameraRequester requester) {
-  this->stream_requesters_ &= ~static_cast<uint8_t>(requester);
-  if (this->stream_requesters_ == 0) {
-    for (auto *listener : this->listeners_) {
-      listener->on_stream_stop();
-    }
+  this->stream_requesters_ &= ~(1U << requester);
+  for (auto *listener : this->listeners_) {
+    listener->on_stream_stop();
   }
 }
 
@@ -429,6 +465,9 @@ void MCU90640Component::publish_frame_() {
   if (single == 0 && stream == 0) {
     return;
   }
+  if (this->current_image_.use_count() > 1) {
+    return;
+  }
 
   this->render_rgb_(min_t, max_t);
 
@@ -438,14 +477,16 @@ void MCU90640Component::publish_frame_() {
   }
 
   uint8_t requesters = single | stream;
-  auto image = std::make_shared<MCU90640CameraImage>(this->jpeg_buf_, jpeg_len, requesters);
+  auto image = std::make_shared<MCU90640CameraImage>(this->jpeg_buf_, jpeg_len, requesters, this->use_psram_);
   if (!image->valid()) {
     ESP_LOGW(TAG, "Failed to allocate %u-byte camera frame", static_cast<unsigned>(jpeg_len));
-    this->status_set_warning();
+    this->image_warning_ = true;
+    this->update_warning_();
     return;
   }
   this->single_requesters_ = 0;
-  this->status_clear_warning();
+  this->image_warning_ = false;
+  this->update_warning_();
   this->current_image_ = image;
   for (auto *listener : this->listeners_) {
     listener->on_camera_image(image);
@@ -545,19 +586,75 @@ void MCU90640Component::iron_color_(float t, uint8_t &r, uint8_t &g, uint8_t &b)
 
 bool MCU90640Component::encode_jpeg_(size_t &out_size) {
 #ifdef USE_ESP32
-  JpegWriteCtx ctx{this->jpeg_buf_, MCU90640_JPEG_BUF_SIZE, 0};
-  bool ok = fmt2jpg_cb(this->rgb_buf_, this->rgb_buf_size_, this->rendered_width_(), this->rendered_height_(),
-                       PIXFORMAT_RGB888, this->jpeg_quality_, jpeg_write_cb, &ctx);
-  if (!ok || ctx.written == 0) {
-    ESP_LOGE(TAG, "JPEG encoding failed");
-    return false;
+  for (uint8_t attempt = 0; attempt < 6; attempt++) {
+    JpegWriteCtx ctx{this->jpeg_buf_, this->jpeg_buf_size_, 0, 0};
+    bool ok = fmt2jpg_cb(this->rgb_buf_, this->rgb_buf_size_, this->rendered_width_(), this->rendered_height_(),
+                         PIXFORMAT_RGB888, this->jpeg_quality_, jpeg_write_cb, &ctx);
+    if (ok && ctx.written != 0) {
+      out_size = ctx.written;
+      return true;
+    }
+    if (ctx.required <= this->jpeg_buf_size_ || !this->resize_jpeg_buffer_(ctx.required)) {
+      ESP_LOGE(TAG, "JPEG encoding failed (buffer %u bytes, required at least %u)",
+               static_cast<unsigned>(this->jpeg_buf_size_), static_cast<unsigned>(ctx.required));
+      this->image_warning_ = true;
+      this->update_warning_();
+      return false;
+    }
   }
-  out_size = ctx.written;
-  return true;
+  this->image_warning_ = true;
+  this->update_warning_();
+  return false;
 #else
   ESP_LOGE(TAG, "JPEG encoding requires ESP32");
   return false;
 #endif
+}
+
+bool MCU90640Component::resize_jpeg_buffer_(size_t required_size) {
+  if (required_size == 0 || required_size > this->jpeg_buf_max_size_) {
+    return false;
+  }
+  size_t new_size = std::min(this->jpeg_buf_max_size_, std::max(required_size, this->jpeg_buf_size_ * 2));
+  RAMAllocator<uint8_t> allocator(this->use_psram_ ? RAMAllocator<uint8_t>::ALLOC_EXTERNAL
+                                                   : RAMAllocator<uint8_t>::ALLOC_INTERNAL);
+  uint8_t *resized = allocator.reallocate(this->jpeg_buf_, new_size);
+  if (resized == nullptr) {
+    return false;
+  }
+  this->jpeg_buf_ = resized;
+  this->jpeg_buf_size_ = new_size;
+  ESP_LOGD(TAG, "Expanded JPEG buffer to %u bytes", static_cast<unsigned>(new_size));
+  return true;
+}
+
+void MCU90640Component::release_buffers_() {
+  RAMAllocator<uint8_t> u8_allocator;
+  RAMAllocator<float> float_allocator;
+  if (this->rx_buf_ != nullptr) {
+    u8_allocator.deallocate(this->rx_buf_, MCU90640_FRAME_SIZE);
+    this->rx_buf_ = nullptr;
+  }
+  if (this->pixels_ != nullptr) {
+    float_allocator.deallocate(this->pixels_, MCU90640_PIXEL_COUNT);
+    this->pixels_ = nullptr;
+  }
+  if (this->rgb_buf_ != nullptr) {
+    u8_allocator.deallocate(this->rgb_buf_, this->rgb_buf_size_);
+    this->rgb_buf_ = nullptr;
+  }
+  if (this->jpeg_buf_ != nullptr) {
+    u8_allocator.deallocate(this->jpeg_buf_, this->jpeg_buf_size_);
+    this->jpeg_buf_ = nullptr;
+  }
+}
+
+void MCU90640Component::update_warning_() {
+  if (this->stream_warning_ || this->image_warning_) {
+    this->status_set_warning();
+  } else {
+    this->status_clear_warning();
+  }
 }
 
 }  // namespace esphome::mcu90640
