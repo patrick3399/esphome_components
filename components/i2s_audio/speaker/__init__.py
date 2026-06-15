@@ -1,3 +1,5 @@
+from typing import Final
+
 from esphome import pins
 import esphome.codegen as cg
 from esphome.components import audio, esp32, speaker
@@ -40,10 +42,10 @@ I2SAudioSpeakerBase = i2s_audio_ns.class_(
 )
 I2SAudioSpeaker = i2s_audio_ns.class_("I2SAudioSpeaker", I2SAudioSpeakerBase)
 
-CONF_DAC_TYPE = "dac_type"
-CONF_I2S_COMM_FMT = "i2s_comm_fmt"
-CONF_SPDIF_MODE = "spdif_mode"
-CONF_VOLUME_MULTIPLIER = "volume_multiplier"
+CONF_DAC_TYPE: Final = "dac_type"
+CONF_I2S_COMM_FMT: Final = "i2s_comm_fmt"
+CONF_SPDIF_MODE: Final = "spdif_mode"
+CONF_VOLUME_MULTIPLIER: Final = "volume_multiplier"
 
 I2SAudioSpeakerBase = i2s_audio_ns.class_(
     "I2SAudioSpeakerBase", cg.Component, speaker.Speaker, I2SAudioOut
@@ -118,7 +120,7 @@ def _set_stream_limits(config):
             max_channels=2,
             min_sample_rate=config.get(CONF_SAMPLE_RATE),
             max_sample_rate=config.get(CONF_SAMPLE_RATE),
-        )
+        )(config)
 
     return config
 
