@@ -1,20 +1,21 @@
+from typing import Final
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import i2c
 from esphome.components.esp32 import add_idf_component
-from esphome.const import CONF_ID, CONF_UPDATE_INTERVAL
+from esphome.const import CONF_ID, CONF_ROTATION, CONF_UPDATE_INTERVAL
 from esphome.core.entity_helpers import setup_entity
 
 AUTO_LOAD = ["camera"]
 DEPENDENCIES = ["i2c", "esp32"]
 CODEOWNERS = ["@patrick3399"]
 
-CONF_AMG8833_ID = "amg8833_id"
-CONF_JPEG_QUALITY = "jpeg_quality"
-CONF_OUTPUT_WIDTH = "output_width"
-CONF_OUTPUT_HEIGHT = "output_height"
-CONF_IDLE_UPDATE_INTERVAL = "idle_update_interval"
-CONF_ROTATION = "rotation"
+CONF_AMG8833_ID: Final = "amg8833_id"
+CONF_JPEG_QUALITY: Final = "jpeg_quality"
+CONF_OUTPUT_WIDTH: Final = "output_width"
+CONF_OUTPUT_HEIGHT: Final = "output_height"
+CONF_IDLE_UPDATE_INTERVAL: Final = "idle_update_interval"
 
 amg8833_ns = cg.esphome_ns.namespace("amg8833")
 AMG8833Component = amg8833_ns.class_("AMG8833Component", cg.Component, cg.EntityBase)
@@ -31,7 +32,7 @@ CONFIG_SCHEMA = (
             cv.GenerateID(): cv.declare_id(AMG8833Component),
             cv.Optional(CONF_UPDATE_INTERVAL, default="1s"): cv.update_interval,
             cv.Optional(CONF_IDLE_UPDATE_INTERVAL, default="60s"): cv.update_interval,
-            cv.Optional(CONF_JPEG_QUALITY, default=80): cv.int_range(min=6, max=63),
+            cv.Optional(CONF_JPEG_QUALITY, default=80): cv.int_range(min=1, max=100),
             cv.Optional(CONF_OUTPUT_WIDTH, default=32): cv.int_range(min=8, max=320),
             cv.Optional(CONF_OUTPUT_HEIGHT, default=32): cv.int_range(min=8, max=320),
             cv.Optional(CONF_ROTATION, default=0): cv.one_of(0, 90, 180, 270, int=True),

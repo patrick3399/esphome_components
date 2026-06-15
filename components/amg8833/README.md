@@ -18,7 +18,7 @@ amg8833:
   name: "Thermal Camera"
   update_interval: 1s     # optional, default 1 s — active capture rate
   idle_update_interval: 60s  # optional, default 60 s — rate when HA not subscribed
-  jpeg_quality: 80        # optional, default 80 (range 6–63)
+  jpeg_quality: 80        # optional, default 80 (range 1–100)
   output_width: 32        # optional, default 32 (range 8–320)
   output_height: 32       # optional, default 32 (range 8–320)
   rotation: 0             # optional: 0, 90, 180, 270
