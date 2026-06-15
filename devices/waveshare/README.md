@@ -45,7 +45,7 @@ Custom components: `qmi8658`
 QSPI LCD 240×280, capacitive touch, RTC, I2S microphone and speaker for voice
 assistant with wake word selection, Bluetooth proxy, battery and audio diagnostics.
 
-Custom components: none
+Custom components: `esp_sr_wake_word`, `i2s_audio`
 
 ---
 

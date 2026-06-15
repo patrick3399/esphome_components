@@ -53,7 +53,9 @@ ESPHome `micro_wake_word`. Speaker media player, microphone mute, AXP2101 PMU/ba
 sensors, LCD/touch LVGL UI.
 
 Uses M5Stack official components (`github://m5stack/esphome-yaml`) for AXP2101,
-AW9523B, and AW88298 — no local custom components.
+AW9523B, and AW88298.
+
+Local custom components: `i2s_audio`
 
 ---
 
@@ -61,12 +63,14 @@ AW9523B, and AW88298 — no local custom components.
 
 **File:** [m5cores3se-espsr.yaml](m5cores3se-espsr.yaml)
 
-Same hardware as CoreS3 SE but uses the experimental `esp_sr_wake_word` component
+Same hardware as CoreS3 SE but uses the `esp_sr_wake_word` component
 for Espressif ESP-SR WakeNet models instead of `micro_wake_word`. Requires flashing
 an `srmodels.bin` model partition separately — see the
 [esp_sr_wake_word README](../../components/esp_sr_wake_word/README.md).
 
-Custom components: `esp_sr_wake_word`
+Local custom components: `esp_sr_wake_word`, `i2s_audio`
+
+Also uses M5Stack official components for AXP2101, AW9523B, and AW88298.
 
 ---
 
