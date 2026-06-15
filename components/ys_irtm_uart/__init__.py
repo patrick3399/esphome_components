@@ -3,20 +3,22 @@ import esphome.config_validation as cv
 from esphome import automation
 from esphome.components import uart
 from esphome.const import (
-    CONF_ID,
-    CONF_TRIGGER_ID,
-    CONF_DATA,
-    CONF_PROTOCOL,
     CONF_ADDRESS,
-    CONF_COMMAND,
     CONF_BAUD_RATE,
+    CONF_COMMAND,
+    CONF_DATA,
+    CONF_ID,
+    CONF_PROTOCOL,
+    CONF_TRIGGER_ID,
+    CONF_UART_ID,
 )
+from typing import Final
 
-CONF_REPEATS = "repeats"
-CONF_USER_CODE_HI = "user_code_hi"
-CONF_USER_CODE_LO = "user_code_lo"
-CONF_KEY_CODE = "key_code"
-CONF_ON_IR_RECEIVE = "on_ir_receive"
+CONF_REPEATS: Final = "repeats"
+CONF_USER_CODE_HI: Final = "user_code_hi"
+CONF_USER_CODE_LO: Final = "user_code_lo"
+CONF_KEY_CODE: Final = "key_code"
+CONF_ON_IR_RECEIVE: Final = "on_ir_receive"
 
 BAUD_RATE_OPTIONS = {
     4800: 1,
@@ -35,9 +37,7 @@ SendNecAction = ys_irtm_uart_ns.class_("SendNecAction", automation.Action)
 SendProxyPacketAction = ys_irtm_uart_ns.class_("SendProxyPacketAction", automation.Action)
 SetModuleAddressAction = ys_irtm_uart_ns.class_("SetModuleAddressAction", automation.Action)
 SetBaudrateAction = ys_irtm_uart_ns.class_("SetBaudrateAction", automation.Action)
-IrReceiveTrigger = ys_irtm_uart_ns.class_(
-    "IrReceiveTrigger", automation.Trigger.template(cg.uint8, cg.uint8, cg.uint8)
-)
+IrReceiveTrigger = ys_irtm_uart_ns.class_("IrReceiveTrigger", automation.Trigger.template(cg.uint8, cg.uint8, cg.uint8))
 
 CONFIG_SCHEMA = (
     cv.Schema(
@@ -50,6 +50,31 @@ CONFIG_SCHEMA = (
     )
     .extend(cv.COMPONENT_SCHEMA)
     .extend(uart.UART_DEVICE_SCHEMA)
+)
+
+_UART_FINAL_VALIDATE_SCHEMA = uart.final_validate_device_schema(
+    "ys_irtm_uart",
+    require_tx=True,
+    require_rx=True,
+    data_bits=8,
+    parity="NONE",
+    stop_bits=1,
+)
+
+
+def _validate_uart_baud_rate(config):
+    cv.Schema(
+        {
+            cv.Required(CONF_BAUD_RATE): cv.one_of(*BAUD_RATE_OPTIONS, int=True),
+        },
+        extra=cv.ALLOW_EXTRA,
+    )(config[CONF_UART_ID])
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = cv.All(
+    _UART_FINAL_VALIDATE_SCHEMA,
+    _validate_uart_baud_rate,
 )
 
 

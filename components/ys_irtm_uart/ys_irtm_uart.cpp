@@ -54,7 +54,7 @@ void YSIrtmUartComponent::loop() {
 void YSIrtmUartComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "YS-IRTM UART:");
   ESP_LOGCONFIG(TAG, "  Device Address: 0x%02X", this->device_address_);
-  this->check_uart_settings(9600);
+  this->check_uart_settings(this->parent_->get_baud_rate());
 }
 
 void YSIrtmUartComponent::send_command_(uint8_t cmd, uint8_t d1, uint8_t d2, uint8_t d3) {

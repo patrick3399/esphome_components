@@ -6,7 +6,8 @@ trigger.
 
 ## Hardware
 
-- Interface: UART (TX+RX; baud rate 4800/9600/19200/57600, configurable at runtime)
+- Interface: UART (TX+RX, 8 data bits, no parity, 1 stop bit)
+- Baud rate: 4800, 9600, 19200, or 57600
 - Module: YS-IRTM (small breakout with IR LED + IR receiver)
 - Protocols: NEC TX/RX; raw hex for other protocols via HA Proxy
 
@@ -26,7 +27,16 @@ ys_irtm_uart:
     - lambda: |-
         ESP_LOGD("ir", "received hi=%02X lo=%02X key=%02X",
                  user_code_hi, user_code_lo, key_code);
+
+infrared:
+  - platform: ys_irtm_uart
+    name: "YS-IRTM Transmitter"
+    ys_irtm_uart_id: ir
 ```
+
+The optional `infrared` entity accepts Home Assistant infrared calls, decodes
+NEC timings, and transmits them through the YS-IRTM. Other protocols are not
+supported by this entity.
 
 ### Actions
 
