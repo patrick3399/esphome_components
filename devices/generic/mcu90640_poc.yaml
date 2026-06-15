@@ -33,6 +33,7 @@ uart:
   rx_pin: GPIO6
   tx_pin: GPIO5
   baud_rate: 115200
+  rx_buffer_size: 2048   # module streams ~6.2 kB/s; default 256 B can overflow
 
 mcu90640:
   id: thermal_cam

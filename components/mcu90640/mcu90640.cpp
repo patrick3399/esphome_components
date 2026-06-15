@@ -10,10 +10,12 @@
 #include <esp_camera.h>
 #endif
 
-namespace esphome {
-namespace mcu90640 {
+namespace esphome::mcu90640 {
 
 static const char *const TAG = "mcu90640";
+
+// Re-arm streaming if no frame arrives for this long after the stream has started.
+static const uint32_t MCU90640_STREAM_TIMEOUT_MS = 5000;
 
 // GY-MCU90640 command set: 0xA5 <cmd> <value> <checksum=sum&0xFF>
 static const uint8_t CMD_HEADER = 0xA5;
@@ -114,11 +116,16 @@ void MCU90640CameraImageReader::return_image() {
 /* -------------------- Setup / Loop -------------------- */
 
 void MCU90640Component::setup() {
-  this->rx_buf_ = new uint8_t[MCU90640_FRAME_SIZE];
-  this->pixels_ = new float[MCU90640_PIXEL_COUNT];
+  // Persistent buffers live for the program lifetime. Use RAMAllocator (not raw
+  // new) so large outputs can fall back to PSRAM and allocation failure returns
+  // nullptr instead of aborting under -fno-exceptions.
+  RAMAllocator<uint8_t> u8_allocator;
+  RAMAllocator<float> f_allocator;
+  this->rx_buf_ = u8_allocator.allocate(MCU90640_FRAME_SIZE);
+  this->pixels_ = f_allocator.allocate(MCU90640_PIXEL_COUNT);
   this->rgb_buf_size_ = this->rendered_width_() * this->rendered_height_() * 3;
-  this->rgb_buf_ = new uint8_t[this->rgb_buf_size_];
-  this->jpeg_buf_ = new uint8_t[MCU90640_JPEG_BUF_SIZE];
+  this->rgb_buf_ = u8_allocator.allocate(this->rgb_buf_size_);
+  this->jpeg_buf_ = u8_allocator.allocate(MCU90640_JPEG_BUF_SIZE);
 
   if (!this->rx_buf_ || !this->pixels_ || !this->rgb_buf_ || !this->jpeg_buf_) {
     ESP_LOGE(TAG, "Failed to allocate buffers");
@@ -151,6 +158,21 @@ void MCU90640Component::loop() {
       break;
     }
     this->feed_byte_(byte);
+  }
+
+  // Stream-loss recovery: once frames have started, a silent module (reset or a
+  // dropped streaming command) is detected by the frame gap and re-armed. Without
+  // this the component stalls silently until reboot.
+  if (this->frame_count_ > 0) {
+    uint32_t now = millis();
+    if (now - this->last_frame_time_ > MCU90640_STREAM_TIMEOUT_MS &&
+        now - this->last_recovery_attempt_ > MCU90640_STREAM_TIMEOUT_MS) {
+      this->last_recovery_attempt_ = now;
+      this->status_set_warning();
+      ESP_LOGW(TAG, "No frame for %u ms; re-arming streaming", now - this->last_frame_time_);
+      this->send_command_(CMD_REFRESH_RATE, 0x01);
+      this->send_command_(CMD_OUTPUT_MODE, 0x02);
+    }
   }
 }
 
@@ -231,6 +253,7 @@ void MCU90640Component::decode_frame_() {
 
   this->frame_count_++;
   this->last_frame_time_ = millis();
+  this->status_clear_warning();
   if (this->frame_count_ == 1) {
     ESP_LOGI(TAG, "First frame received (Ta=%.2f °C)", this->ta_);
   }
@@ -257,6 +280,9 @@ void MCU90640Component::decode_frame_() {
 
 void MCU90640Component::dump_config() {
   ESP_LOGCONFIG(TAG, "GY-MCU90640:");
+  // The core camera abstraction is a singleton: only one camera component (this,
+  // another thermal camera, or esp32_camera) can run per device.
+  ESP_LOGCONFIG(TAG, "  Occupies the single camera slot for this device");
   ESP_LOGCONFIG(TAG, "  Native resolution: %ux%u", MCU90640_COLS, MCU90640_ROWS);
   ESP_LOGCONFIG(TAG, "  Output: %ux%u, JPEG quality: %u, Rotation: %u°", this->rendered_width_(),
                 this->rendered_height_(), this->jpeg_quality_, this->rotation_);
@@ -534,5 +560,4 @@ bool MCU90640Component::encode_jpeg_(size_t &out_size) {
 #endif
 }
 
-}  // namespace mcu90640
-}  // namespace esphome
+}  // namespace esphome::mcu90640

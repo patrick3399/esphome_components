@@ -75,6 +75,27 @@ binary_sensor:
 - A 90° or 270° rotation swaps the JPEG dimensions. The native 32x24 image
   becomes 24x32; a configured 64x48 output becomes 48x64.
 - Centroid sensors report the pixel-coordinate center of mass of the hottest region.
+- **Increase the UART RX buffer.** The module streams ~6.2 kB/s; ESPHome's default
+  `rx_buffer_size` (256 B) can overflow if the main loop is busy, producing checksum
+  failures and dropped frames. Set `rx_buffer_size: 2048` on the `uart:` bus.
+- **Stream-loss recovery:** if the module goes silent for >5 s after streaming has
+  started (reset or dropped command), the component re-arms streaming automatically
+  and raises a status warning until frames resume.
+
+## Limitations & hardware notes
+
+- **One camera per device.** ESPHome's camera core is a singleton — this component
+  cannot coexist with `esp32_camera` or with the `amg8833` thermal camera on the same
+  node. A second camera marks itself failed at boot.
+- **Large outputs cost loop time.** JPEG is encoded synchronously in the RX path.
+  The default output is cheap, but large `output_*` values raise both the RGB buffer
+  and the encode time past the 10 ms loop budget. Buffers use `RAMAllocator`
+  (PSRAM-capable); on PSRAM-less boards keep the output small.
+- **Variant support:** validated on ESP32-C3 and ESP32-S3. The `espressif/esp32-camera`
+  dependency is pulled in only for its software JPEG encoder.
+- **No `on_image` / `on_stream_*` automations.** Only the HA camera entity and the
+  sensors are exposed; image-event triggers and the new core `Encoder` abstraction are
+  not wired up yet.
 
 ## Demo
 

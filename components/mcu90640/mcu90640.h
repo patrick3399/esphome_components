@@ -18,8 +18,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
 
-namespace esphome {
-namespace mcu90640 {
+namespace esphome::mcu90640 {
 
 // GY-MCU90640: MLX90640 (32x24) behind an onboard STM32 that streams
 // pre-computed temperatures over UART at 115200 baud.
@@ -182,6 +181,7 @@ class MCU90640Component : public camera::Camera, public uart::UARTDevice {
   // RX state
   size_t rx_pos_{0};
   uint32_t last_frame_time_{0};
+  uint32_t last_recovery_attempt_{0};
   uint32_t frame_count_{0};
   uint32_t checksum_fail_count_{0};
   bool checksum_logged_{false};
@@ -222,5 +222,4 @@ class MCU90640Component : public camera::Camera, public uart::UARTDevice {
 #endif
 };
 
-}  // namespace mcu90640
-}  // namespace esphome
+}  // namespace esphome::mcu90640
