@@ -20,10 +20,6 @@ esphome:
             id: display_backlight
             brightness: 80%
 
-packages:
-  ha: !include ../../packages/common-ha.yaml
-  wifi: !include ../../packages/common-wifi.yaml
-
 esp32:
   board: esp32-p4-evboard
   variant: esp32p4
@@ -50,6 +46,8 @@ logger:
     wifi: WARN
 
 api:
+  encryption:
+    key: !secret api_key
   reboot_timeout: 6h
   on_client_connected:
     - lambda: id(init_in_progress) = false;
@@ -57,7 +55,19 @@ api:
   on_client_disconnected:
     - script.execute: update_status_labels
 
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
 wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
   reboot_timeout: 6h
   ap:
   on_connect:
@@ -307,6 +317,17 @@ binary_sensor:
           then:
             - voice_assistant.start:
 
+
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic
+
 sensor:
   - platform: sound_level
     id: mic_level
@@ -344,12 +365,39 @@ sensor:
     psram:
       name: "Free PSRAM"
 
+    min_free:
+      name: "Heap Min Free"
+      entity_category: "diagnostic"
+    fragmentation:
+      name: "Heap Fragmentation"
+      entity_category: "diagnostic"
+    cpu_frequency:
+      name: "CPU Frequency"
+      entity_category: "diagnostic"
   - id: !extend wifi_signal_sensor
     on_value:
       - lvgl.label.update:
           id: wifi_label
           text: !lambda 'return str_sprintf("%.0f dBm", x);'
 
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: wifi_signal
+    id: wifi_signal_sensor
+    name: "WiFi RSSI"
+    entity_category: diagnostic
+    update_interval: 30s
+  - platform: copy
+    source_id: wifi_signal_sensor
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
 text_sensor:
   - platform: debug
     device:
@@ -357,6 +405,18 @@ text_sensor:
     reset_reason:
       name: "Reset Reason"
 
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+  - platform: wifi_info
+    ip_address:
+      name: Device IP Address
+      entity_category: diagnostic
+    ssid:
+      name: Device Connected SSID
+      entity_category: diagnostic
 lvgl:
   displays:
     - main_display

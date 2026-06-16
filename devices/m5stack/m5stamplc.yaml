@@ -9,10 +9,6 @@ esphome:
                 gpio_set_direction(GPIO_NUM_3, GPIO_MODE_OUTPUT);
                 gpio_set_level(GPIO_NUM_3, 1);
 
-packages:
-  ha: !include ../../packages/common-ha.yaml
-  wifi: !include ../../packages/common-wifi.yaml
-
 external_components:
   - source: github://patrick3399/esphome_components
     components: [aw9523]
@@ -35,6 +31,17 @@ api:
         - rtttl.play:
             rtttl: !lambda 'return song_str;'
 
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 6h
+
 logger:
   level: DEBUG
   baud_rate: 0
@@ -42,6 +49,10 @@ logger:
     api.service: WARN
     wifi: WARN
     esp-idf: NONE
+
+
+debug:
+  update_interval: 10s
 
 uart:
   - id: uart_485
@@ -169,6 +180,17 @@ binary_sensor:
         input: true
       inverted: true
 
+
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic
+
 switch:
   - platform: gpio
     name: "Relay 1"
@@ -262,8 +284,68 @@ sensor:
     shunt_voltage:
       name: "INA226 Shunt Voltage"
 
+
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: debug
+    free:
+      name: "Heap Free"
+      entity_category: "diagnostic"
+    block:
+      name: "Heap Max Block"
+      entity_category: "diagnostic"
+    min_free:
+      name: "Heap Min Free"
+      entity_category: "diagnostic"
+    fragmentation:
+      name: "Heap Fragmentation"
+      entity_category: "diagnostic"
+    loop_time:
+      name: "Loop Time"
+      entity_category: "diagnostic"
+    cpu_frequency:
+      name: "CPU Frequency"
+      entity_category: "diagnostic"
+  - platform: wifi_signal
+    id: wifi_signal_sensor
+    name: "WiFi RSSI"
+    entity_category: diagnostic
+    update_interval: 30s
+  - platform: copy
+    source_id: wifi_signal_sensor
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
+text_sensor:
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+
+  - platform: debug
+    device:
+      name: "Device Info"
+      entity_category: diagnostic
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
+  - platform: wifi_info
+    ip_address:
+      name: Device IP Address
+      entity_category: diagnostic
+    ssid:
+      name: Device Connected SSID
+      entity_category: diagnostic
 time:
-  - id: !extend homeassistant_time
+  - platform: homeassistant
+    id: homeassistant_time
     update_interval: 1h
     on_time_sync:
       then:

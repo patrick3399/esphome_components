@@ -36,10 +36,6 @@ psram:
   mode: quad
   speed: 80MHz
 
-packages:
-  ha: !include ../../packages/common-ha.yaml
-  wifi: !include ../../packages/common-wifi.yaml
-
 external_components:
   - source: github://patrick3399/esphome_components
     refresh: 0s
@@ -48,10 +44,27 @@ logger:
   baud_rate: 0
   level: DEBUG
 
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic
+
 api:
   reboot_timeout: 4h
   encryption:
     key: !secret api_key
+
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
 
 wifi:
   ssid: !secret wifi_ssid
@@ -214,6 +227,16 @@ sensor:
       name: "CPU Frequency"
       entity_category: "diagnostic"
 
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: wifi_signal
+    id: wifi_signal_sensor
+    name: "WiFi RSSI"
+    entity_category: diagnostic
+    update_interval: 30s
 text_sensor:
   - platform: debug
     device:
@@ -229,6 +252,18 @@ text_sensor:
     ssid:
       name: "Device Connected SSID"
       entity_category: "diagnostic"
+
+
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+binary_sensor:
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
 
 number:
   - platform: template

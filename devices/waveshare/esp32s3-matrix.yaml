@@ -8,10 +8,6 @@ esphome:
           id: board_8x8_light
           brightness: 10%
 
-packages:
-  ha: !include ../../packages/common-ha.yaml
-  wifi: !include ../../packages/common-wifi.yaml
-
 external_components:
   - source: github://patrick3399/esphome_components
     components: [qmi8658]
@@ -27,6 +23,22 @@ api:
     key: !secret api_key
   reboot_timeout: 6h
 
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 6h
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
 logger:
   level: DEBUG
   baud_rate: 0
@@ -36,6 +48,24 @@ logger:
     esp-idf: NONE
 
 # QMI8658 is on GPIO11 (SDA) / GPIO12 (SCL); from hardware testing.
+
+
+
+debug:
+  update_interval: 10s
+
+binary_sensor:
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
+
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic
+
 i2c:
   id: main_i2c
   sda: GPIO11
@@ -110,6 +140,65 @@ sensor:
 # unresolved; trust the tested value until schematic is verified.
 # 64 LEDs total. No pixel_mapper: matrix is wired in simple row-major order.
 # gamma_correct: 1.0 disables ESPHome's gamma curve so display colour math is linear.
+
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: debug
+    free:
+      name: "Heap Free"
+      entity_category: "diagnostic"
+    block:
+      name: "Heap Max Block"
+      entity_category: "diagnostic"
+    min_free:
+      name: "Heap Min Free"
+      entity_category: "diagnostic"
+    fragmentation:
+      name: "Heap Fragmentation"
+      entity_category: "diagnostic"
+    loop_time:
+      name: "Loop Time"
+      entity_category: "diagnostic"
+    cpu_frequency:
+      name: "CPU Frequency"
+      entity_category: "diagnostic"
+  - platform: wifi_signal
+    id: wifi_signal_sensor
+    name: "WiFi RSSI"
+    entity_category: diagnostic
+    update_interval: 30s
+  - platform: copy
+    source_id: wifi_signal_sensor
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
+text_sensor:
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+
+  - platform: debug
+    device:
+      name: "Device Info"
+      entity_category: diagnostic
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
+  - platform: wifi_info
+    ip_address:
+      name: Device IP Address
+      entity_category: diagnostic
+    ssid:
+      name: Device Connected SSID
+      entity_category: diagnostic
 light:
   - platform: esp32_rmt_led_strip
     id: board_8x8

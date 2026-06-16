@@ -46,10 +46,6 @@ psram:
   mode: octal
   speed: 80MHz
 
-packages:
-  ha: !include ../../packages/common-ha.yaml
-  wifi: !include ../../packages/common-wifi.yaml
-
 external_components:
   - source: github://patrick3399/esphome_components
     components: [esp_sr_wake_word, i2s_audio]
@@ -69,10 +65,19 @@ logger:
   baud_rate: 0
   level: DEBUG
 
+
+debug:
+  update_interval: 10s
+
 api:
   reboot_timeout: 4h
   encryption:
     key: !secret api_key
+
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
 
 wifi:
   ssid: !secret wifi_ssid
@@ -100,7 +105,8 @@ time:
     id: rtc_time
     i2c_id: main_i2c
     update_interval: never
-  - id: !extend homeassistant_time
+  - platform: homeassistant
+    id: homeassistant_time
     on_time_sync:
       then:
         - pcf85063.write_time
@@ -267,6 +273,68 @@ sensor:
 # ─── Voice Assistant ─────────────────────────────────────────────────────────
 # ESP-SR on-device wake word requires serial flash (model partition 6MB).
 # Default "In Home Assistant" mode works immediately after OTA.
+
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: wifi_signal
+    id: wifi_signal_sensor
+    name: "WiFi RSSI"
+    entity_category: diagnostic
+    update_interval: 30s
+  - platform: copy
+    source_id: wifi_signal_sensor
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
+  - platform: debug
+    free:
+      name: "Heap Free"
+      entity_category: "diagnostic"
+    block:
+      name: "Heap Max Block"
+      entity_category: "diagnostic"
+    min_free:
+      name: "Heap Min Free"
+      entity_category: "diagnostic"
+    fragmentation:
+      name: "Heap Fragmentation"
+      entity_category: "diagnostic"
+    loop_time:
+      name: "Loop Time"
+      entity_category: "diagnostic"
+    cpu_frequency:
+      name: "CPU Frequency"
+      entity_category: "diagnostic"
+    psram:
+      name: "Free PSRAM"
+      entity_category: "diagnostic"
+text_sensor:
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+
+  - platform: wifi_info
+    ip_address:
+      name: Device IP Address
+      entity_category: diagnostic
+    ssid:
+      name: Device Connected SSID
+      entity_category: diagnostic
+  - platform: debug
+    device:
+      name: "Device Info"
+      entity_category: diagnostic
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
 esp_sr_wake_word:
   id: esp_sr_ww
   microphone: i2s_microphone
@@ -679,6 +747,17 @@ binary_sensor:
             - script.execute: stop_wake_word
             - delay: 50ms
             - voice_assistant.start:
+
+
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic
 
 script:
   - id: start_wake_word

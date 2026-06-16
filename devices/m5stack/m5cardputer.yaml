@@ -21,10 +21,6 @@ esphome:
             id: lcd_backlight
             brightness: 80%
 
-packages:
-  ha: !include ../../packages/common-ha.yaml
-  wifi: !include ../../packages/common-wifi.yaml
-
 external_components:
   - source: github://patrick3399/esphome_components
     components: [74hc138_keypad, i2s_audio]
@@ -64,6 +60,16 @@ api:
         - delay: 1ms
         - rtttl.play:
             rtttl: !lambda 'return song_str;'
+
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
 
 script:
   - id: cardputer_va_toggle
@@ -138,6 +144,9 @@ script:
             - component.update: lcd
 
 wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  reboot_timeout: 6h
   ap:
 
 network:
@@ -343,6 +352,10 @@ binary_sensor:
     on_press:
       - script.execute: cardputer_va_toggle
 
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
 text_sensor:
   - platform: template
     id: keyboard_input_text
@@ -371,6 +384,25 @@ text_sensor:
     name: "Voice Assistant Response"
     update_interval: never
 
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+  - platform: wifi_info
+    ip_address:
+      name: Device IP Address
+      entity_category: diagnostic
+    ssid:
+      name: Device Connected SSID
+      entity_category: diagnostic
+  - platform: debug
+    device:
+      name: "Device Info"
+      entity_category: diagnostic
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
 74hc138_keypad:
   id: keyboard
   address_pins:
@@ -502,6 +534,15 @@ sensor:
       id: loop_time
       name: "Loop Time"
 
+    min_free:
+      name: "Heap Min Free"
+      entity_category: "diagnostic"
+    fragmentation:
+      name: "Heap Fragmentation"
+      entity_category: "diagnostic"
+    cpu_frequency:
+      name: "CPU Frequency"
+      entity_category: "diagnostic"
   - platform: template
     id: display_update_time
     name: "Display Update Time"
@@ -551,6 +592,24 @@ sensor:
   #     id: mic_rms_level
   #     name: "Mic RMS Sound Level"
 
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: wifi_signal
+    id: wifi_signal_sensor
+    name: "WiFi RSSI"
+    entity_category: diagnostic
+    update_interval: 30s
+  - platform: copy
+    source_id: wifi_signal_sensor
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
 display:
   - platform: st7789v
     id: lcd
@@ -655,3 +714,7 @@ button:
 # - Active-low input pins: GPIO13, GPIO15, GPIO3, GPIO4, GPIO5, GPIO6, GPIO7
 # - ESPHome matrix_keypad cannot model this decoder topology; use the local
 #   74hc138_keypad external component above.
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic

@@ -1,11 +1,11 @@
-# ─── Waveshare ESP32-S3-ETH ────────────────────────────────────────────────────
-# ESP32-S3R8 · 16 MB Flash · 8 MB Octal PSRAM
+# Waveshare ESP32-S3-ETH
+# ESP32-S3R8, 16 MB Flash, 8 MB Octal PSRAM
 # Wired: W5500 SPI (CLK=GPIO13 MOSI=GPIO11 MISO=GPIO12 CS=GPIO14 INT=GPIO10 RST=GPIO9)
-# Camera: OV2640/OV5640 DVP · PWDN=GPIO8 (active-high, drive low to power on)
-# Camera I2C: GPIO47(SCL)/GPIO48(SDA) · External I2C header: GPIO20(SCL)/GPIO19(SDA)
-# POE variant (ESP32-S3-POE-ETH): IEEE 802.3af — do NOT connect USB + POE simultaneously
-# GPIO33–37: Octal PSRAM, not available for external use
-# ─────────────────────────────────────────────────────────────────────────────
+# Camera: OV2640/OV5640 DVP, PWDN=GPIO8 (active-high, drive low to power on)
+# Camera I2C: GPIO47(SCL)/GPIO48(SDA), External I2C header: GPIO20(SCL)/GPIO19(SDA)
+# POE variant (ESP32-S3-POE-ETH): IEEE 802.3af; do NOT connect USB + POE simultaneously
+# GPIO33-37: Octal PSRAM, not available for external use
+
 
 substitutions:
   devicename: "ws-s3-eth"
@@ -26,9 +26,6 @@ psram:
   mode: octal
   speed: 80MHz
 
-packages:
-  ha: !include ../../packages/common-ha.yaml
-
 logger:
   level: DEBUG
   baud_rate: 0
@@ -36,7 +33,27 @@ logger:
     api.service: WARN
     esp-idf: NONE
 
-# ─── Ethernet (W5500, SPI) ────────────────────────────────────────────────────
+# Ethernet (W5500, SPI)
+
+
+debug:
+  update_interval: 10s
+
+api:
+  encryption:
+    key: !secret api_key
+  reboot_timeout: 6h
+
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
 ethernet:
   type: W5500
   clk_pin: GPIO13
@@ -47,9 +64,9 @@ ethernet:
   reset_pin: GPIO9
   clock_speed: 25MHz
 
-# ─── I2C buses ────────────────────────────────────────────────────────────────
+# I2C buses
 # cam_i2c (GPIO47/GPIO48) is the camera sensor config bus; referenced by esp32_camera.
-# ext_i2c (GPIO19/GPIO20) is the external 2×20 header bus for attached peripherals.
+# ext_i2c (GPIO19/GPIO20) is the external 2x20 header bus for attached peripherals.
 i2c:
   - id: cam_i2c
     sda: GPIO48
@@ -62,7 +79,7 @@ i2c:
     scan: true
     frequency: 400kHz
 
-# ─── Camera (OV2640 / OV5640, DVP) ───────────────────────────────────────────
+# Camera (OV2640 / OV5640, DVP)
 # power_down_pin (GPIO8) is active-high: the component drives it LOW before init.
 # frame_buffer_location PSRAM keeps DRAM free; requires psram: above.
 esp32_camera:
@@ -83,7 +100,7 @@ esp32_camera:
   frame_buffer_count: 2
   frame_buffer_location: PSRAM
 
-# ─── Sensors ─────────────────────────────────────────────────────────────────
+# Sensors
 sensor:
   - platform: internal_temperature
     name: "Chip Temp"
@@ -96,7 +113,34 @@ sensor:
     lambda: return esp_get_free_heap_size() / 1024.0f;
     update_interval: 30s
 
-# ─── Network info ─────────────────────────────────────────────────────────────
+# Network info
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: debug
+    free:
+      name: "Heap Free"
+      entity_category: "diagnostic"
+    block:
+      name: "Heap Max Block"
+      entity_category: "diagnostic"
+    min_free:
+      name: "Heap Min Free"
+      entity_category: "diagnostic"
+    fragmentation:
+      name: "Heap Fragmentation"
+      entity_category: "diagnostic"
+    loop_time:
+      name: "Loop Time"
+      entity_category: "diagnostic"
+    cpu_frequency:
+      name: "CPU Frequency"
+      entity_category: "diagnostic"
+    psram:
+      name: "Free PSRAM"
+      entity_category: "diagnostic"
 text_sensor:
   - platform: ethernet_info
     ip_address:
@@ -104,7 +148,19 @@ text_sensor:
     mac_address:
       name: "MAC Address"
 
-# ─── Bluetooth Proxy ──────────────────────────────────────────────────────────
+# Bluetooth Proxy
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+  - platform: debug
+    device:
+      name: "Device Info"
+      entity_category: diagnostic
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
 bluetooth_proxy:
   active: true
 
@@ -112,7 +168,7 @@ esp32_ble_tracker:
   scan_parameters:
     active: false
 
-# ─── BOOT button ──────────────────────────────────────────────────────────────
+# BOOT button
 binary_sensor:
   - platform: gpio
     pin:
@@ -120,3 +176,13 @@ binary_sensor:
       mode: INPUT_PULLUP
       inverted: true
     name: "Boot Button"
+
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic

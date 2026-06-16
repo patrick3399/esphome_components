@@ -22,10 +22,6 @@ esphome:
       then:
         - pcf85063.read_time
 
-packages:
-  ha: !include ../../packages/common-ha.yaml
-  wifi: !include ../../packages/common-wifi.yaml
-
 external_components:
   - source: github://patrick3399/esphome_components
     components: [qmi8658]
@@ -68,6 +64,11 @@ api:
     - script.execute: draw_display
   on_client_disconnected:
     - script.execute: draw_display
+
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
 
 wifi:
   ssid: !secret wifi_ssid
@@ -120,7 +121,8 @@ time:
       - seconds: 0
         then:
           - script.execute: update_clock_label
-  - id: !extend homeassistant_time
+  - platform: homeassistant
+    id: homeassistant_time
     on_time_sync:
       then:
         - pcf85063.write_time
@@ -240,6 +242,17 @@ binary_sensor:
       - logger.log: "Boot button pressed"
 
 # ─── Display brightness (monochromatic light → QspiDbi::set_brightness) ──────
+
+  - platform: status
+    id: status_sensor
+    name: "Status"
+    entity_category: diagnostic
+button:
+  - platform: restart
+    id: restart_button
+    name: "Restart"
+    entity_category: diagnostic
+
 output:
   - platform: template
     id: display_brightness_out
@@ -337,6 +350,33 @@ sensor:
     psram:
       name: "Free PSRAM"
 
+    min_free:
+      name: "Heap Min Free"
+      entity_category: "diagnostic"
+    fragmentation:
+      name: "Heap Fragmentation"
+      entity_category: "diagnostic"
+    cpu_frequency:
+      name: "CPU Frequency"
+      entity_category: "diagnostic"
+  - platform: uptime
+    id: uptime_sensor
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: wifi_signal
+    id: wifi_signal_sensor
+    name: "WiFi RSSI"
+    entity_category: diagnostic
+    update_interval: 30s
+  - platform: copy
+    source_id: wifi_signal_sensor
+    name: "WiFi Signal Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "Signal %"
+    entity_category: diagnostic
+    device_class: ""
 text_sensor:
   - platform: debug
     device:
@@ -345,6 +385,18 @@ text_sensor:
       name: "Reset Reason"
 
 # ─── LVGL UI (450×600 portrait AMOLED) ───────────────────────────────────────
+  - platform: version
+    id: firmware_version
+    name: "Firmware Version"
+    entity_category: diagnostic
+    hide_timestamp: true
+  - platform: wifi_info
+    ip_address:
+      name: Device IP Address
+      entity_category: diagnostic
+    ssid:
+      name: Device Connected SSID
+      entity_category: diagnostic
 lvgl:
   displays:
     - main_display
