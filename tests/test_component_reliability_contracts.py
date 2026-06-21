@@ -10,23 +10,6 @@ def read(path: str) -> str:
 
 
 class ComponentReliabilityContractsTest(unittest.TestCase):
-    def test_bmi270_checks_critical_i2c_writes(self) -> None:
-        source = read("components/bmi270/bmi270.cpp")
-        for operation in (
-            "soft reset",
-            "power control",
-            "accelerometer configuration",
-            "accelerometer range",
-            "gyroscope configuration",
-            "gyroscope range",
-            "disable advanced power save",
-            "halt config load",
-            "complete config load",
-            "power save mode",
-        ):
-            self.assertIn(f'"{operation}"', source)
-        self.assertIn("bool BMI270Component::write_checked_", source)
-
     def test_qmi8658_ctrl9_poll_is_non_blocking(self) -> None:
         source = read("components/qmi8658/qmi8658.cpp")
         self.assertIn("void QMI8658Component::poll_ctrl9_cmd_()", source)

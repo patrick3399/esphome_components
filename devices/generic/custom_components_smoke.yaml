@@ -39,7 +39,6 @@ external_components:
     components:
       - 74hc138_keypad
       - aw9523
-      - bmi270
       - qmi8658
       - ys_irtm_uart
 
@@ -134,24 +133,6 @@ switch:
       mode:
         output: true
 sensor:
-  - platform: bmi270
-    address: 0x68
-    power_save_mode: normal
-    acceleration_x:
-      name: "BMI270 Accel X"
-    acceleration_y:
-      name: "BMI270 Accel Y"
-    acceleration_z:
-      name: "BMI270 Accel Z"
-    gyroscope_x:
-      name: "BMI270 Gyro X"
-    gyroscope_y:
-      name: "BMI270 Gyro Y"
-    gyroscope_z:
-      name: "BMI270 Gyro Z"
-    temperature:
-      name: "BMI270 Temperature"
-    update_interval: 60s
   - platform: qmi8658
     address: 0x6B
     accelerometer_range: 8g

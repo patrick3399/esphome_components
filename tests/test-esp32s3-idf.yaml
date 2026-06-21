@@ -38,24 +38,6 @@ aw9523:
   id: aw9523_hub
   address: 0x59
 
-sensor:
-  # BMI270: IMU Accelerometer/Gyroscope (I2C)
-  - platform: bmi270
-    address: 0x68
-    acceleration_x:
-      name: "Accel X"
-    acceleration_y:
-      name: "Accel Y"
-    acceleration_z:
-      name: "Accel Z"
-    gyroscope_x:
-      name: "Gyro X"
-    gyroscope_y:
-      name: "Gyro Y"
-    gyroscope_z:
-      name: "Gyro Z"
-    update_interval: 60s
-
 # ED047TC1: 4.7" E-ink Display (parallel GPIO)
 # Pin mapping reused from m5stack-papers3.yaml for reference
 display:

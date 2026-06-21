@@ -24,7 +24,10 @@ ESP32-S3, 16 MB flash, 8 MB PSRAM. ED047TC1 4.7" e-paper display driven by EPDIY
 LVGL UI with clock, status, BMI270 IMU, and debug pages. Touch navigation, battery
 and charging status via AXP2101 PMU. RTTTL buzzer service.
 
-Custom components: `ed047tc1`, `bmi270`
+BMI270 IMU uses ESPHome core's built-in `bmi270` driver (`motion` framework, since
+2026.6.0) — not a local component.
+
+Custom components: `ed047tc1`
 
 Compile:
 ```powershell

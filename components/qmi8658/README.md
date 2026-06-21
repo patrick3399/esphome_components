@@ -1,7 +1,8 @@
 # qmi8658
 
-QMI8658 6-axis IMU (accelerometer + gyroscope + temperature) over I2C. More
-configurable than `bmi270` — exposes range, ODR, and low-pass filter settings.
+QMI8658 6-axis IMU (accelerometer + gyroscope + temperature) over I2C. Exposes
+range and ODR like the core ESPHome `bmi270` driver, plus low-pass filter
+settings that `bmi270` does not have.
 
 ## Hardware
 

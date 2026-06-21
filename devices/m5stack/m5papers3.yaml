@@ -23,7 +23,7 @@ esphome:
 
 external_components:
   - source: github://patrick3399/esphome_components
-    components: [bmi270, ed047tc1]
+    components: [ed047tc1]
     refresh: 0s
 
 esp32:
@@ -97,6 +97,17 @@ i2c:
   scan: true
   id: bus_internal
   frequency: 200kHz
+
+# Core ESPHome IMU driver (motion framework, since 2026.6.0) — not a local component
+motion:
+  - platform: bmi270
+    id: bmi270_dev
+    address: 0x68
+    update_interval: 60s
+    accelerometer_range: 2G
+    accelerometer_odr: 100HZ
+    gyroscope_range: 2000DPS
+    gyroscope_odr: 100HZ
 
 touchscreen:
   platform: gt911
@@ -205,38 +216,40 @@ sensor:
     attenuation: 12db
     filters:
       - multiply: 2.0
+  - platform: motion
+    type: acceleration_x
+    name: "BMI270 Accel X"
+    id: accel_x_val
+  - platform: motion
+    type: acceleration_y
+    name: "BMI270 Accel Y"
+    id: accel_y_val
+  - platform: motion
+    type: acceleration_z
+    name: "BMI270 Accel Z"
+    id: accel_z_val
+    on_value:
+      - if:
+          condition:
+            lambda: 'return id(system_initialized) && id(current_page) == 1;'
+          then:
+            - script.execute: update_imu
+            - lambda: id(pending_partial_refresh) = true;
+  - platform: motion
+    type: gyroscope_x
+    name: "BMI270 Gyro X"
+    id: gyro_x_val
+  - platform: motion
+    type: gyroscope_y
+    name: "BMI270 Gyro Y"
+    id: gyro_y_val
+  - platform: motion
+    type: gyroscope_z
+    name: "BMI270 Gyro Z"
+    id: gyro_z_val
   - platform: bmi270
-    address: 0x68
-    acceleration_x:
-      name: "BMI270 Accel X"
-      id: accel_x_val
-    acceleration_y:
-      name: "BMI270 Accel Y"
-      id: accel_y_val
-    acceleration_z:
-      name: "BMI270 Accel Z"
-      id: accel_z_val
-      on_value:
-        - if:
-            condition:
-              lambda: 'return id(system_initialized) && id(current_page) == 1;'
-            then:
-              - script.execute: update_imu
-              - lambda: id(pending_partial_refresh) = true;
-    gyroscope_x:
-      name: "BMI270 Gyro X"
-      id: gyro_x_val
-    gyroscope_y:
-      name: "BMI270 Gyro Y"
-      id: gyro_y_val
-    gyroscope_z:
-      name: "BMI270 Gyro Z"
-      id: gyro_z_val
-    temperature:
-      name: "BMI270 Temperature"
-      id: bmi270_temp_val
-    power_save_mode: LOW_POWER
-    update_interval: 60s
+    name: "BMI270 Temperature"
+    id: bmi270_temp_val
 
   - platform: uptime
     id: uptime_sensor

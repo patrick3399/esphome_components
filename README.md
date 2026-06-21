@@ -11,7 +11,6 @@ Custom ESPHome components and device YAMLs.
 | `wled_bridge` | WLED v16-compatible bridge for ESPHome addressable LED strips — fixed 220 WLED mode slots with supported-effect mapping | [README](components/wled_bridge/README.md) |
 | `74hc138_keypad` | Keyboard matrix scanner for 74HC138 decoder-based designs | [README](components/74hc138_keypad/README.md) |
 | `aw9523` | AW9523B I2C GPIO expander | [README](components/aw9523/README.md) |
-| `bmi270` | Bosch BMI270 6-axis IMU sensor | [README](components/bmi270/README.md) |
 | `ed047tc1` | ED047TC1 4.7" e-paper display driver using EPDIY | [README](components/ed047tc1/README.md) |
 | `esp_sr_wake_word` | ESP-SR WakeNet wake word component | [README](components/esp_sr_wake_word/README.md) |
 | `i2s_audio` | Local override of ESPHome `i2s_audio` with `output_gain` speaker support | [README](components/i2s_audio/README.md) |
@@ -25,7 +24,7 @@ Custom ESPHome components and device YAMLs.
 
 | Device | YAML | Key features | Local components |
 | --- | --- | --- | --- |
-| M5Stack Paper S3 | [m5papers3.yaml](devices/m5stack/m5papers3.yaml) | ED047TC1 e-paper, LVGL, BMI270 IMU | `ed047tc1`, `bmi270` |
+| M5Stack Paper S3 | [m5papers3.yaml](devices/m5stack/m5papers3.yaml) | ED047TC1 e-paper, LVGL | `ed047tc1` |
 | M5Stack StamPLC | [m5stamplc.yaml](devices/m5stack/m5stamplc.yaml) | Relay outputs, digital inputs, ST7789 | `aw9523` |
 | M5Stack CoreS3 SE | [m5cores3se.yaml](devices/m5stack/m5cores3se.yaml) | Voice assistant, speaker, LVGL | `i2s_audio` (plus M5Stack official components) |
 | M5Stack CoreS3 SE ESP-SR | [m5cores3se-espsr.yaml](devices/m5stack/m5cores3se-espsr.yaml) | Voice assistant (ESP-SR WakeNet), speaker, LVGL | `esp_sr_wake_word`, `i2s_audio` (plus M5Stack official components) |

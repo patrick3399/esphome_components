@@ -1,4 +1,9 @@
-# bmi270
+# bmi270 (deprecated)
+
+**Deprecated since ESPHome 2026.6.0** — core ESPHome ships its own `bmi270` driver
+built on the new `motion` framework (configurable range/ODR, axis remapping,
+runtime calibration with NVS persistence). Use that instead; this copy is kept
+only for reference and is not loaded by any device YAML.
 
 Bosch BMI270 6-axis IMU (accelerometer + gyroscope + temperature) over I2C.
 
