@@ -47,7 +47,7 @@ class ComponentReliabilityContractsTest(unittest.TestCase):
         schema = read("components/i2s_audio/speaker/__init__.py")
         self.assertIn("volume_multiplier", readme)
         self.assertNotIn("output_gain", readme)
-        self.assertIn('CONF_VOLUME_MULTIPLIER: Final = "volume_multiplier"', schema)
+        self.assertIn('CONF_VOLUME_MULTIPLIER = "volume_multiplier"', schema)
         self.assertIn(
             "max_sample_rate=config.get(CONF_SAMPLE_RATE),\n        )(config)",
             schema,

@@ -63,10 +63,6 @@ class I2SAudioSpeakerBase : public I2SAudioOut, public speaker::Speaker, public 
   void set_dout_pin(uint8_t pin) {
     this->dout_pin_ = (gpio_num_t)pin;
   }
-  void set_volume_multiplier(float multiplier) {
-    this->volume_multiplier_ = clamp(multiplier, 0.0f, 8.0f);
-    this->set_volume(this->volume_);
-  }
 
   /// @brief Get the I2S TX channel handle
   i2s_chan_handle_t get_tx_handle() const {
@@ -99,15 +95,20 @@ class I2SAudioSpeakerBase : public I2SAudioOut, public speaker::Speaker, public 
 
   /// @brief Sets the volume of the speaker. Uses the speaker's configured audio dac component. If unavailble, it is
   /// implemented as a software volume control. Overrides the default setter to convert the floating point volume to a
-  /// Q31 fixed-point factor.
+  /// Q15 fixed-point factor.
   /// @param volume between 0.0 and 1.0
   void set_volume(float volume) override;
 
   /// @brief Mutes or unmute the speaker. Uses the speaker's configured audio dac component. If unavailble, it is
   /// implemented as a software volume control. Overrides the default setter to convert the floating point volume to a
-  /// Q31 fixed-point factor.
+  /// Q15 fixed-point factor.
   /// @param mute_state true for muting, false for unmuting
   void set_mute_state(bool mute_state) override;
+
+  /// @brief Local extension: gain applied on top of volume (0.0-8.0). Lets quiet amps exceed unity.
+  void set_volume_multiplier(float multiplier) {
+    this->volume_multiplier_ = clamp(multiplier, 0.0f, 8.0f);
+  }
 
  protected:
   /// @brief FreeRTOS task entry point. Casts params to I2SAudioSpeakerBase and calls run_speaker_task_().
@@ -148,13 +149,14 @@ class I2SAudioSpeakerBase : public I2SAudioOut, public speaker::Speaker, public 
   /// @brief Called in loop() when the task has stopped. Override for mode-specific cleanup.
   virtual void on_task_stopped() {}
 
-  /// @brief Apply software volume control using Q31 fixed-point scaling and optional post-volume gain.
+  /// @brief Apply software volume control using Q15 fixed-point scaling.
   /// @param data Pointer to audio sample data (modified in place)
   /// @param bytes_read Number of bytes of audio data
   void apply_software_volume_(uint8_t *data, size_t bytes_read);
 
   /// @brief Swap adjacent 16-bit mono samples for ESP32 (non-variant) hardware quirk.
-  /// Only applies when running on original ESP32 with 16-bit mono audio.
+  /// Only applies when running on original ESP32 with 16-bit mono output. Operates on the data that is
+  /// handed to the I2S peripheral, so the check uses the output (post-narrowing) stream info.
   /// @param data Pointer to audio sample data (modified in place)
   /// @param bytes_read Number of bytes of audio data
   void swap_esp32_mono_samples_(uint8_t *data, size_t bytes_read);
@@ -175,10 +177,15 @@ class I2SAudioSpeakerBase : public I2SAudioOut, public speaker::Speaker, public 
   bool pause_state_{false};
 
   int32_t q31_volume_factor_{INT32_MAX};
-  uint32_t software_gain_q16_{1UL << 16};
+  // Local extension: Q16 software gain for volume_multiplier (>1.0 boost core's q31 path can't do).
   float volume_multiplier_{1.0f};
+  uint32_t software_gain_q16_{1UL << 16};
 
-  audio::AudioStreamInfo current_stream_info_;  // The currently loaded driver's stream info
+  audio::AudioStreamInfo current_stream_info_;  // Format of the audio in the ring buffer (the I2S input)
+  // Format actually clocked out of the I2S peripheral. Same channel count and sample rate as
+  // current_stream_info_, but the bits per sample may be narrower when the incoming stream is wider than
+  // the speaker's configured slot bit width. Set by start_i2s_driver before the speaker task starts.
+  audio::AudioStreamInfo output_stream_info_;
 
   gpio_num_t dout_pin_;
   i2s_chan_handle_t tx_handle_{nullptr};

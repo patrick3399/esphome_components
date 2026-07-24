@@ -1,8 +1,29 @@
 # i2s_audio
 
-Local override of ESPHome's built-in `i2s_audio` component. Adds `volume_multiplier`
-support to the speaker platform, which upstream did not expose at the time this
-override was written.
+Local override of ESPHome's built-in `i2s_audio` component. It is a **verbatim
+vendored copy of core `i2s_audio` (synced to 2026.7.2)** plus one local feature:
+`volume_multiplier` on the speaker platform. Core's software volume only attenuates
+(0.0–1.0); `volume_multiplier` (0.0–8.0) lets quiet amps exceed unity.
+
+ESPHome's `external_components` replaces a shadowed component **wholesale** — there is
+no file-level merge — so this must be a full copy, not a partial overlay. The copy is
+reformatted by our stricter `.clang-format` (LLVM base; core uses google), so a raw
+diff against core is large, but the only **semantic** difference is `volume_multiplier`.
+
+### Re-syncing with a newer core
+
+1. Copy every file from `esphome/components/i2s_audio/` over this directory (the
+   post-edit hook reformats them to our style automatically).
+2. Re-apply the `volume_multiplier` patch — all of it lives in `speaker/`:
+   - `speaker/__init__.py`: `CONF_VOLUME_MULTIPLIER` const, the `cv.float_range(0..8)`
+     schema option, and `cg.add(var.set_volume_multiplier(...))`.
+   - `speaker/i2s_audio_speaker.h`: `set_volume_multiplier()` setter + the
+     `volume_multiplier_` / `software_gain_q16_` members.
+   - `speaker/i2s_audio_speaker.cpp`: the `effective_volume` block in `set_volume()`,
+     the `software_gain_q16_` loop in `apply_software_volume_()`, and the dump line.
+3. `dev-compile.ps1 -Device devices/m5stack/m5cardputer.yaml` (config + compile).
+
+If core ever exposes a >1.0 speaker gain of its own, delete this directory entirely.
 
 ## When to Use
 
