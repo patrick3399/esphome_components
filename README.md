@@ -15,7 +15,6 @@ Custom ESPHome components and device YAMLs.
 | `esp_sr_wake_word` | ESP-SR WakeNet wake word component | [README](components/esp_sr_wake_word/README.md) |
 | `i2s_audio` | Local override of ESPHome `i2s_audio` with `output_gain` speaker support | [README](components/i2s_audio/README.md) |
 | `jiecang_desk_controller` | Jiecang sit-stand desk controller over UART | [README](components/jiecang_desk_controller/README.md) |
-| `qmi8658` | QMI8658 6-axis IMU sensor | [README](components/qmi8658/README.md) |
 | `ys_irtm_uart` | YS-IRTM UART infrared transceiver: NEC TX/RX, HA IR/RF Proxy bridge | [README](components/ys_irtm_uart/README.md) |
 
 ## Devices
@@ -34,8 +33,8 @@ Custom ESPHome components and device YAMLs.
 
 | Device | YAML | Key features | Local components |
 | --- | --- | --- | --- |
-| ESP32-S3 Matrix | [esp32s3-matrix.yaml](devices/waveshare/esp32s3-matrix.yaml) | 8×8 WS2812B matrix, QMI8658 IMU | `qmi8658` |
-| ESP32-S3 Touch AMOLED 2.41 | [esp32s3-touch-amoled-2.41.yaml](devices/waveshare/esp32s3-touch-amoled-2.41.yaml) | AMOLED, touch, QMI8658 IMU, LVGL | `qmi8658` |
+| ESP32-S3 Matrix | [esp32s3-matrix.yaml](devices/waveshare/esp32s3-matrix.yaml) | 8×8 WS2812B matrix, QMI8658 IMU (core `motion`) | none |
+| ESP32-S3 Touch AMOLED 2.41 | [esp32s3-touch-amoled-2.41.yaml](devices/waveshare/esp32s3-touch-amoled-2.41.yaml) | AMOLED, touch, QMI8658 IMU (core `motion`), LVGL | none |
 | ESP32-S3 Touch LCD 1.85C | [esp32s3-touch-lcd-1.85c.yaml](devices/waveshare/esp32s3-touch-lcd-1.85c.yaml) | QSPI LCD, touch, voice assistant | `esp_sr_wake_word`, `i2s_audio` |
 | ESP32-S3 ETH | [esp32s3-eth.yaml](devices/waveshare/esp32s3-eth.yaml) | W5500 Ethernet, camera | none |
 | ESP32-S3 GEEK | [esp32s3-geek.yaml](devices/waveshare/esp32s3-geek.yaml) | ST7789 display, WiFi diagnostics | none |

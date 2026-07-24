@@ -10,16 +10,6 @@ def read(path: str) -> str:
 
 
 class ComponentReliabilityContractsTest(unittest.TestCase):
-    def test_qmi8658_ctrl9_poll_is_non_blocking(self) -> None:
-        source = read("components/qmi8658/qmi8658.cpp")
-        self.assertIn("void QMI8658Component::poll_ctrl9_cmd_()", source)
-        self.assertIn(
-            "this->set_timeout(1, [this]() { this->poll_ctrl9_cmd_(); });",
-            source,
-        )
-        self.assertNotIn("for (int i = 0; i < 50; i++)", source)
-        self.assertNotIn("delay(1);", source)
-
     def test_jiecang_bounds_uart_work_and_commands(self) -> None:
         source = read("components/jiecang_desk_controller/jiecang_desk_controller.cpp")
         self.assertIn("RX_BYTES_PER_LOOP = 256", source)

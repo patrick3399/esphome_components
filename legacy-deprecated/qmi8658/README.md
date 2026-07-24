@@ -1,8 +1,19 @@
-# qmi8658
+# qmi8658 (deprecated)
 
-QMI8658 6-axis IMU (accelerometer + gyroscope + temperature) over I2C. Exposes
+**Deprecated since ESPHome 2026.7.0** — core ESPHome ships its own `qmi8658`
+driver built on the `motion` framework (configurable range/ODR, axis remapping,
+runtime calibration with NVS persistence, `pitch`/`roll` level sensors). Use that
+instead; this copy is kept only for reference and is not loaded by any device
+YAML.
+
+Note the units difference when migrating: the core `motion` platform publishes
+acceleration in **g** (`UNIT_G`), whereas this legacy component published
+**m/s²** — rescale any downstream math by ~9.8 (see how `esp32s3-matrix.yaml`
+retuned its spirit-level `scale`).
+
+QMI8658 6-axis IMU (accelerometer + gyroscope + temperature) over I2C. Exposed
 range and ODR like the core ESPHome `bmi270` driver, plus low-pass filter
-settings that `bmi270` does not have.
+settings that `bmi270` did not have.
 
 ## Hardware
 

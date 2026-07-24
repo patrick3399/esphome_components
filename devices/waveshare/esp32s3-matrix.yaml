@@ -8,11 +8,6 @@ esphome:
           id: board_8x8_light
           brightness: 10%
 
-external_components:
-  - source: github://patrick3399/esphome_components
-    components: [qmi8658]
-    refresh: 0s
-
 esp32:
   board: esp32-s3-devkitc-1
   framework:
@@ -86,47 +81,60 @@ globals:
     initial_value: '0.0'
 
 # ─── QMI8658 6-axis IMU ───────────────────────────────────────────────────────
-sensor:
+# Core ESPHome IMU driver (motion framework, since 2026.7.0) — not a local component.
+# NOTE: the motion platform publishes acceleration in g (not m/s² like the old
+# custom qmi8658 component); the spirit-level scale below is retuned accordingly.
+motion:
   - platform: qmi8658
     id: imu
     i2c_id: main_i2c
     address: 0x6B
-    accelerometer_range: 4G
-    gyroscope_range: 256DPS
     # 100 ms for responsive display; HA publish throttled per sensor below
     update_interval: 100ms
-    acceleration_x:
-      name: "Accel X"
-      filters:
-        - throttle: 5s
-      on_raw_value:
-        - lambda: id(g_tilt_x) = x;
-    acceleration_y:
-      name: "Accel Y"
-      filters:
-        - throttle: 5s
-      on_raw_value:
-        - lambda: id(g_tilt_y) = x;
-    acceleration_z:
-      name: "Accel Z"
-      filters:
-        - throttle: 5s
-    gyroscope_x:
-      name: "Gyro X"
-      filters:
-        - throttle: 5s
-    gyroscope_y:
-      name: "Gyro Y"
-      filters:
-        - throttle: 5s
-    gyroscope_z:
-      name: "Gyro Z"
-      filters:
-        - throttle: 5s
-    temperature:
-      name: "IMU Temp"
-      filters:
-        - throttle: 30s
+    accelerometer_range: 4G
+    accelerometer_odr: 250HZ
+    gyroscope_range: 256DPS
+    gyroscope_odr: 250HZ
+
+sensor:
+  - platform: motion
+    type: acceleration_x
+    name: "Accel X"
+    filters:
+      - throttle: 5s
+    on_raw_value:
+      - lambda: id(g_tilt_x) = x;
+  - platform: motion
+    type: acceleration_y
+    name: "Accel Y"
+    filters:
+      - throttle: 5s
+    on_raw_value:
+      - lambda: id(g_tilt_y) = x;
+  - platform: motion
+    type: acceleration_z
+    name: "Accel Z"
+    filters:
+      - throttle: 5s
+  - platform: motion
+    type: gyroscope_x
+    name: "Gyro X"
+    filters:
+      - throttle: 5s
+  - platform: motion
+    type: gyroscope_y
+    name: "Gyro Y"
+    filters:
+      - throttle: 5s
+  - platform: motion
+    type: gyroscope_z
+    name: "Gyro Z"
+    filters:
+      - throttle: 5s
+  - platform: qmi8658
+    name: "IMU Temp"
+    filters:
+      - throttle: 30s
   - platform: internal_temperature
     name: "Chip Temp"
     update_interval: 30s
@@ -247,10 +255,11 @@ display:
       it.fill(Color::BLACK);
 
       // Spirit level: single LED dot follows the gravity vector in the XY plane.
-      // ±4.9 m/s² (≈ ±0.5 g, ~30° tilt) covers the full 8×8 grid edge-to-edge.
+      // ±0.5 g (~30° tilt) covers the full 8×8 grid edge-to-edge.
+      // g_tilt_* are in g — the motion platform publishes acceleration in g.
       // Positive accel_x = right side lower → dot moves right (higher px).
       // Positive accel_y = front side lower → dot moves down (higher py).
-      float scale = 4.9f;
+      float scale = 0.5f;
       float fx = 3.5f + (id(g_tilt_x) / scale) * 3.5f;
       float fy = 3.5f + (id(g_tilt_y) / scale) * 3.5f;
       int px = (int)roundf(fx);

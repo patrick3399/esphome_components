@@ -23,7 +23,11 @@ ota_password: "..."
 ESP32-S3 with onboard 8×8 WS2812B LED matrix. QMI8658 IMU sensors and matrix
 brightness/animation demo.
 
-Custom components: `qmi8658`
+QMI8658 IMU uses ESPHome core's built-in `qmi8658` driver (`motion` framework,
+since 2026.7.0) — not a local component. Note the motion platform reports
+acceleration in g, not m/s².
+
+Custom components: none
 
 ---
 
@@ -34,7 +38,11 @@ Custom components: `qmi8658`
 450×600 AMOLED display, capacitive touch, RTC (PCF85063), QMI8658 IMU, LVGL UI,
 Bluetooth proxy, and diagnostics.
 
-Custom components: `qmi8658`
+QMI8658 IMU uses ESPHome core's built-in `qmi8658` driver (`motion` framework,
+since 2026.7.0) — not a local component. Note the motion platform reports
+acceleration in g, not m/s².
+
+Custom components: none
 
 ---
 

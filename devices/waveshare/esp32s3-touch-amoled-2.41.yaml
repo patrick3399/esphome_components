@@ -22,11 +22,6 @@ esphome:
       then:
         - pcf85063.read_time
 
-external_components:
-  - source: github://patrick3399/esphome_components
-    components: [qmi8658]
-    refresh: 0s
-
 esp32:
   board: esp32-s3-devkitc-1
   variant: ESP32S3
@@ -290,38 +285,51 @@ interval:
           }
 
 # ─── Sensors ──────────────────────────────────────────────────────────────────
-sensor:
-  # QMI8658C 6-axis IMU (SA0 high → 0x6B)
+# QMI8658C 6-axis IMU (SA0 high → 0x6B)
+# Core ESPHome IMU driver (motion framework, since 2026.7.0) — not a local component.
+# NOTE: the motion platform publishes acceleration in g (not m/s² like the old
+# custom qmi8658 component); IMU labels below now read in g.
+motion:
   - platform: qmi8658
     id: imu
     i2c_id: main_i2c
     address: 0x6B
-    accelerometer_range: 4G
-    gyroscope_range: 256DPS
     update_interval: 500ms
-    acceleration_x:
-      name: "Accel X"
-      id: accel_x
-      on_value:
-        - script.execute: update_imu_labels
-    acceleration_y:
-      name: "Accel Y"
-      id: accel_y
-    acceleration_z:
-      name: "Accel Z"
-      id: accel_z
-    gyroscope_x:
-      name: "Gyro X"
-      id: gyro_x
-    gyroscope_y:
-      name: "Gyro Y"
-      id: gyro_y
-    gyroscope_z:
-      name: "Gyro Z"
-      id: gyro_z
-    temperature:
-      name: "IMU Temp"
-      id: imu_temp
+    accelerometer_range: 4G
+    accelerometer_odr: 250HZ
+    gyroscope_range: 256DPS
+    gyroscope_odr: 250HZ
+
+sensor:
+  - platform: motion
+    type: acceleration_x
+    name: "Accel X"
+    id: accel_x
+    on_value:
+      - script.execute: update_imu_labels
+  - platform: motion
+    type: acceleration_y
+    name: "Accel Y"
+    id: accel_y
+  - platform: motion
+    type: acceleration_z
+    name: "Accel Z"
+    id: accel_z
+  - platform: motion
+    type: gyroscope_x
+    name: "Gyro X"
+    id: gyro_x
+  - platform: motion
+    type: gyroscope_y
+    name: "Gyro Y"
+    id: gyro_y
+  - platform: motion
+    type: gyroscope_z
+    name: "Gyro Z"
+    id: gyro_z
+  - platform: qmi8658
+    name: "IMU Temp"
+    id: imu_temp
 
   - platform: internal_temperature
     name: "Chip Temp"

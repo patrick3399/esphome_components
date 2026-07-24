@@ -39,7 +39,6 @@ external_components:
     components:
       - 74hc138_keypad
       - aw9523
-      - qmi8658
       - ys_irtm_uart
 
 i2c:
@@ -132,27 +131,3 @@ switch:
       number: 1
       mode:
         output: true
-sensor:
-  - platform: qmi8658
-    address: 0x6B
-    accelerometer_range: 8g
-    gyroscope_range: 512dps
-    accelerometer_odr: 125hz
-    gyroscope_odr: 112hz
-    accelerometer_lpf_mode: 2
-    gyroscope_lpf_mode: 3
-    acceleration_x:
-      name: "QMI8658 Accel X"
-    acceleration_y:
-      name: "QMI8658 Accel Y"
-    acceleration_z:
-      name: "QMI8658 Accel Z"
-    gyroscope_x:
-      name: "QMI8658 Gyro X"
-    gyroscope_y:
-      name: "QMI8658 Gyro Y"
-    gyroscope_z:
-      name: "QMI8658 Gyro Z"
-    temperature:
-      name: "QMI8658 Temperature"
-    update_interval: 60s
